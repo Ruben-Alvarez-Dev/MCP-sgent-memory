@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memory.mcp-gateway</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/ruben/Code/PROJECT-Memory/project_MEMORY-after-A0/1mcp-agent/build/index.js</string>
+        <string>serve</string>
+        <string>--port</string>
+        <string>3050</string>
+        <string>--enable-config-reload</string>
+        <string>false</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/ruben/Code/PROJECT-Memory/project_MEMORY-after-A0/1mcp-agent</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/ruben/.memory/gateway.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/ruben/.memory/gateway-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>ONE_MCP_CONFIG</key>
+        <string>/Users/ruben/.config/1mcp/mcp.json</string>
+    </dict>
+</dict>
+</plist>

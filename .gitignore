@@ -1,0 +1,12 @@
+*.gguf
+*.dmg
+bin/engine/
+bin/qdrant
+bin/llama-embedding
+qdrant/
+llama.cpp/
+data/
+logs/
+.venv/
+__pycache__/
+.DS_Store

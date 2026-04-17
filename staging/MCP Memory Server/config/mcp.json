@@ -1,0 +1,85 @@
+{
+  "mcpServers": {
+    "automem": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/automem/server/main.py"],
+      "env": {
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-nomic-embed-text}"
+      },
+      "tags": ["memory", "ingest", "always-on"],
+      "disabled": false
+    },
+    "autodream": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/autodream/server/main.py"],
+      "env": {
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "SUMMARY_MODEL": "${SUMMARY_MODEL:-qwen2.5:7b}",
+        "DREAM_PATH": "${DREAM_PATH:-~/.memory/dream}"
+      },
+      "tags": ["memory", "consolidation", "background"],
+      "disabled": false
+    },
+    "vk-cache": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/vk-cache/server/main.py"],
+      "env": {
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "ENGRAM_PATH": "${ENGRAM_PATH:-~/.memory/engram}"
+      },
+      "tags": ["memory", "retrieval", "context-assembly"],
+      "disabled": false
+    },
+    "conversation-store": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/conversation-store/server/main.py"],
+      "env": {
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-nomic-embed-text}"
+      },
+      "tags": ["memory", "conversations", "threads"],
+      "disabled": false
+    },
+    "mem0-bridge": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/mem0-bridge/server/main.py"],
+      "env": {
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "MEM0_ENABLED": "${MEM0_ENABLED:-true}",
+        "MEM0_USER": "${MEM0_USER:-ruben}"
+      },
+      "tags": ["memory", "semantic", "facts"],
+      "disabled": false
+    },
+    "engram-bridge": {
+      "command": "python3",
+      "args": ["-u", "MCP-servers/engram-bridge/server/main.py"],
+      "env": {
+        "ENGRAM_PATH": "${ENGRAM_PATH:-~/.memory/engram}"
+      },
+      "tags": ["memory", "decisions", "entities"],
+      "disabled": false
+    }
+  },
+
+  "mcpTemplates": {
+    "memory-full": {
+      "command": "python3",
+      "args": ["-u", "{memory.path}/MCP-servers/vk-cache/server/main.py"],
+      "env": {
+        "OLLAMA_URL": "${OLLAMA_URL:-http://127.0.0.1:11434}",
+        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
+        "AGENT_ID": "{agent.id}",
+        "AGENT_SCOPE": "{agent.scope}"
+      },
+      "tags": ["memory"],
+      "disabled": "{?memory.disabled:false}"
+    }
+  }
+}

@@ -1,0 +1,289 @@
+"""LLM Backend configuration and factory.
+
+Auto-detects and configures the LLM backend based on environment variables.
+
+Usage:
+    from shared.llm import get_llm, get_small_llm, classify_intent
+
+    llm = get_llm()                    # auto-select from env (principal)
+    small = get_small_llm()            # micro-LLM para ranking/verificación
+    intent = classify_intent(query)    # clasificador determinista (<5ms)
+
+Environment variables:
+    LLM_BACKEND   — Backend type: llama_cpp | ollama | lmstudio (default: ollama)
+    LLM_MODEL     — Model name/identifier (backend-specific meaning)
+    SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
+    OLLAMA_URL    — Ollama endpoint (default: http://localhost:11434)
+    OLLAMA_MODEL  — Ollama model name (default: qwen2.5:7b)
+    LMSTUDIO_URL  — LM Studio endpoint (default: http://localhost:1234)
+    LLAMA_SERVER_PORT — llama.cpp server port (default: 8080)
+    LLAMA_MODEL   — llama.cpp model filename
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from dataclasses import dataclass
+from typing import Optional
+
+from .base import LLMBackend
+
+
+# ── Query Intent Classifier (determinista, <5ms) ──────────────────
+
+@dataclass
+class QueryIntent:
+    """Classified intent of a user/LLM query."""
+    intent_type: str          # code_lookup | decision_recall | how_to |
+                               # relationship | summary | conversation_recall |
+                               # error_diagnosis | pattern_match
+    entities: list[str]       # ["AuthService", "JWT", "user_session"]
+    scope: str                # this_project | general | user_preference
+    time_window: str          # now | recent | historical | all
+    needs_external: bool      # necesita Context7 / docs externos
+    needs_ranking: bool       # necesita AI ranking de memorias
+    needs_consolidation: bool # necesita consolidación post-sesión
+
+
+def classify_intent(
+    query: str,
+    session_type: str = "coding",
+    open_files: list[str] | None = None,
+) -> QueryIntent:
+    """Classify query intent using heuristics — no LLM needed.
+
+    Args:
+        query: The user/LLM query text.
+        session_type: Current session type (coding, voice_chat, etc.)
+        open_files: Currently open files in the IDE.
+
+    Returns:
+        QueryIntent with classified intent.
+    """
+    intent = QueryIntent(
+        intent_type="pattern_match",
+        entities=[],
+        scope="this_project" if session_type == "coding" else "general",
+        time_window="all",
+        needs_external=False,
+        needs_ranking=False,
+        needs_consolidation=False,
+    )
+    q = query.lower()
+    open_files = open_files or []
+
+    # Intent type detection
+    if any(kw in q for kw in ["why did we", "why do we use", "why not",
+                               "decidimos", "elegimos", "cambiamos",
+                               "qué decidimos", "por qué usamos"]):
+        intent.intent_type = "decision_recall"
+        intent.time_window = "historical"
+        intent.needs_ranking = True
+
+    elif any(kw in q for kw in ["how to", "how do i", "cómo", "de qué manera",
+                                 "what's the best way", "cómo hago"]):
+        intent.intent_type = "how_to"
+        intent.needs_external = True
+        intent.needs_ranking = True
+
+    elif any(kw in q for kw in ["function", "class", "method", "import", "file",
+                                 "función", "archivo", "módulo"]):
+        if any(kw in q for kw in ["does", "what is", "where is", "show me",
+                                   "hace", "dónde está", "mostrame"]):
+            intent.intent_type = "code_lookup"
+            intent.needs_ranking = True
+
+    elif any(kw in q for kw in ["related", "depends on", "conecta",
+                                 "relación", "cómo se relaciona", "depende"]):
+        intent.intent_type = "relationship"
+        intent.needs_ranking = True
+
+    elif any(kw in q for kw in ["summarize", "resumen", "overview",
+                                 "what's happening", "qué está pasando",
+                                 "resumí"]):
+        intent.intent_type = "summary"
+        intent.time_window = "recent"
+
+    elif any(kw in q for kw in ["we said", "dijimos", "before", "antes",
+                                 "earlier", "lo que habl", "mencionamos"]):
+        intent.intent_type = "conversation_recall"
+        intent.time_window = "recent"
+
+    elif any(kw in q for kw in ["error", "bug", "fallo", "crash",
+                                 "not working", "doesn't work", "broken",
+                                 "roto", "falla"]):
+        intent.intent_type = "error_diagnosis"
+        intent.needs_external = True
+        intent.time_window = "recent"
+
+    # Entity extraction (CamelCase, UPPER_SNAKE)
+    camel_matches = re.findall(r'[A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]+)*', query)
+    snake_matches = re.findall(r'[A-Z_]{2,}', query)
+    code_entities = list(set(camel_matches + snake_matches))
+
+    # Fallback: keyword extraction for natural language queries (español, english)
+    if not code_entities:
+        STOP_WORDS = {
+            # English
+            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
+            "for", "of", "with", "by", "from", "is", "are", "was", "were",
+            "how", "what", "why", "when", "where", "who", "which",
+            "do", "does", "did", "will", "would", "could", "should",
+            "not", "this", "that", "these", "those", "has", "have", "had",
+            "can", "about", "into", "over", "after", "before",
+            # Español
+            "el", "la", "los", "las", "un", "una", "de", "del", "que",
+            "y", "o", "pero", "con", "sin", "para", "por", "se", "su",
+            "como", "muy", "es", "son", "tiene", "este", "esta",
+            "no", "si", "mi", "tu", "lo", "le", "me", "te", "nos",
+            "fue", "ser", "hay", "mas", "tambien", "todo", "todos",
+        }
+        tokens = re.findall(r'[a-záéíóúüñA-Z]{3,}', q)
+        code_entities = [t for t in tokens if t not in STOP_WORDS][:10]
+
+    intent.entities = code_entities
+
+    # Open files affinity
+    for f in open_files:
+        fname = f.rsplit("/", 1)[-1] if "/" in f else f
+        if fname.lower() in q or fname.rsplit(".", 1)[0].lower() in q:
+            if fname not in intent.entities:
+                intent.entities.append(fname)
+
+    # Session type adjustments
+    if session_type == "voice_chat":
+        intent.time_window = "recent"
+        intent.scope = "user_preference"
+    elif session_type == "coding":
+        intent.scope = "this_project"
+
+    return intent
+
+
+# ── LLM Backend factory ───────────────────────────────────────────
+
+def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
+    """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
+
+    Args:
+        backend: Force a specific backend ("llama_cpp", "ollama", "lmstudio").
+                 If None, auto-detects from LLM_BACKEND env var.
+        **kwargs: Additional arguments passed to the backend constructor.
+
+    Returns:
+        An initialized LLMBackend instance.
+    """
+    backend_name = backend or os.getenv("LLM_BACKEND", "ollama")
+    backend_name = backend_name.lower().strip()
+
+    if backend_name == "llama_cpp":
+        return _get_llama_cpp(**kwargs)
+    elif backend_name == "ollama":
+        return _get_ollama(**kwargs)
+    elif backend_name == "lmstudio":
+        return _get_lmstudio(**kwargs)
+    else:
+        raise ValueError(
+            f"Unknown LLM backend: {backend_name!r}. "
+            f"Available: llama_cpp, ollama, lmstudio"
+        )
+
+
+def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
+    """Get the SMALL LLM backend (for ranking, verification, routing).
+
+    Defaults to a micro-LLM model optimized for speed (qwen3.5:2b).
+
+    Args:
+        backend: Force a specific backend. If None, auto-detects.
+        **kwargs: Additional arguments (e.g., model="qwen3.5:2b").
+
+    Returns:
+        An initialized LLMBackend instance for lightweight tasks.
+    """
+    backend_name = backend or os.getenv("LLM_BACKEND", "ollama")
+    backend_name = backend_name.lower().strip()
+
+    # Default micro-LLM model
+    default_model = os.getenv("SMALL_LLM_MODEL", "qwen3.5:2b")
+    if "model" not in kwargs:
+        kwargs["model"] = default_model
+
+    if backend_name == "llama_cpp":
+        return _get_llama_cpp(**kwargs)
+    elif backend_name == "ollama":
+        return _get_ollama(**kwargs)
+    elif backend_name == "lmstudio":
+        return _get_lmstudio(**kwargs)
+    else:
+        raise ValueError(
+            f"Unknown LLM backend: {backend_name!r}. "
+            f"Available: llama_cpp, ollama, lmstudio"
+        )
+
+
+def _get_llama_cpp(**kwargs) -> LLMBackend:
+    """Create llama.cpp backend."""
+    from .llama_cpp import LlamaCppBackend
+
+    backend = LlamaCppBackend(**kwargs)
+
+    if not backend._server_bin:
+        raise RuntimeError(
+            "llama-server binary not found.\n"
+            f"  Searched in: {backend._project_root()}/engine/bin/\n"
+            "  Place llama-server in engine/bin/ or install it in PATH."
+        )
+
+    if not backend._model_path or not backend._model_path.exists():
+        raise RuntimeError(
+            f"Model not found for llama.cpp.\n"
+            f"  Searched in: {backend._models_dir()}/\n"
+            "  Place a .gguf model file in models/ or set LLAMA_MODEL env var."
+        )
+
+    return backend
+
+
+def _get_ollama(**kwargs) -> LLMBackend:
+    """Create Ollama backend."""
+    from .ollama import OllamaBackend
+
+    return OllamaBackend(**kwargs)
+
+
+def _get_lmstudio(**kwargs) -> LLMBackend:
+    """Create LM Studio backend."""
+    from .lmstudio import LMStudioBackend
+
+    return LMStudioBackend(**kwargs)
+
+
+def list_available_backends() -> dict[str, bool]:
+    """Check which backends are available.
+
+    Returns:
+        Dict of backend name -> availability.
+    """
+    results = {}
+
+    try:
+        llama = _get_llama_cpp()
+        results["llama_cpp"] = llama.is_available()
+    except Exception:
+        results["llama_cpp"] = False
+
+    try:
+        ollama = _get_ollama()
+        results["ollama"] = ollama.is_available()
+    except Exception:
+        results["ollama"] = False
+
+    try:
+        lmstudio = _get_lmstudio()
+        results["lmstudio"] = lmstudio.is_available()
+    except Exception:
+        results["lmstudio"] = False
+
+    return results

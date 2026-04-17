@@ -1,12 +1,29 @@
+# ── Binaries & Engine ─────────────────────────────
 *.gguf
 *.dmg
 bin/engine/
 bin/qdrant
 bin/llama-embedding
+bin/llama-server
+bin/lib/
 qdrant/
 llama.cpp/
+
+# ── Runtime & Data ───────────────────────────────
 data/
+!data/.gitkeep
 logs/
 .venv/
+*.pyc
 __pycache__/
+
+# ── Config (secrets) ─────────────────────────────
+config/.env
+
+# ── IDE & OS ─────────────────────────────────────
 .DS_Store
+.idea/
+.vscode/
+
+# ── Staging / WIP ────────────────────────────────
+staging/

@@ -1,1 +1,8 @@
-{"version": "1.0.0", "compliance": ["mcp", "a2a", "sota-context"]}
+{
+  "version": "1.0.0",
+  "stack": "python",
+  "compliance": ["mcp", "a2a", "sota-context"],
+  "servers": ["automem", "autodream", "vk-cache", "sequential-thinking", "conversation-store", "mem0-bridge", "engram-bridge"],
+  "tools": 39,
+  "layers": ["L0", "L1", "L2", "L3", "L4", "L5"]
+}

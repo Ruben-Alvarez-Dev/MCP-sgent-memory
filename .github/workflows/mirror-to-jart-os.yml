@@ -3,21 +3,23 @@ name: Mirror to Jart-OS
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Mirror to Jart-OS
+      - name: Push mirror
         env:
           TOKEN: ${{ secrets.JART_OS_TOKEN }}
         run: |
-          git push "https://Jart-OS:${TOKEN}@github.com/Jart-OS/MCP-memory-server.git" main --force
+          git config --global http.https://github.com/.extraheader "Authorization: basic $(echo -n "x-access-token:$TOKEN" | base64)"
+          git remote add mirror https://github.com/Jart-OS/MCP-memory-server.git
+          git push mirror main --force

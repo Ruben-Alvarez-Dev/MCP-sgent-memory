@@ -16,9 +16,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirror to Jart-OS organization
+      - name: Mirror to Jart-OS
         env:
-          JART_OS_TOKEN: ${{ secrets.JART_OS_TOKEN }}
+          TOKEN: ${{ secrets.JART_OS_TOKEN }}
         run: |
-          git remote add mirror "https://Jart-OS:@github.com/Jart-OS/MCP-memory-server.git" 2>/dev/null || git remote set-url mirror "https://Jart-OS:@github.com/Jart-OS/MCP-memory-server.git"
-          git push mirror main --force
+          git push "https://Jart-OS:${TOKEN}@github.com/Jart-OS/MCP-memory-server.git" main --force

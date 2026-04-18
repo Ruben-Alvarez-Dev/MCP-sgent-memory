@@ -152,7 +152,8 @@ def build_code_map_points(
     """
     if exclude is None:
         exclude = {".git", "node_modules", "__pycache__", ".venv", "qdrant",
-                   "dist", "build", "target", "vendor"}
+                   "dist", "build", "target", "vendor",
+                   "llama.cpp", ".cache", ".tox", ".mypy_cache", ".pytest_cache"}
 
     root = Path(project_root).resolve()
     points: list[dict] = []

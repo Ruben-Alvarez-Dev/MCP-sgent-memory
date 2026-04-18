@@ -6,7 +6,7 @@ Wraps mem0ai library as MCP server for:
   - get_all_memories: List all stored memories
 
 If mem0ai is not installed, falls back to direct Qdrant operations.
-Embeddings via llama.cpp (self-contained).
+Embeddings via shared backend.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ if _project_root and str(_project_root) not in sys.path:
 from shared.env_loader import load_env
 load_env()
 
-# Embedding via llama.cpp
-from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama
+# Embedding via shared backend
+from shared.embedding import get_embedding as llama_embed, async_embed
 
 mcp = FastMCP("mem0")
 
@@ -83,9 +83,8 @@ async def ensure_collection():
 
 
 async def embed_text(text: str) -> list[float]:
-    """Generate embedding via llama.cpp."""
-    _ensure_llama()
-    return await asyncio.to_thread(llama_embed, text)
+    """Generate embedding via configured backend."""
+    return await async_embed(text)
 
 
 # ── Public MCP Tools ──────────────────────────────────────────────
@@ -228,7 +227,7 @@ async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> str:
 
 @mcp.tool()
 async def status() -> str:
-    """Show mem0 bridge status."""
+    """Show mem0 status."""
     client = get_mem0_client()
     llama_ok = False
     try:

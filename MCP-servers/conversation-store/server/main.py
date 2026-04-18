@@ -2,7 +2,7 @@
 
 Stores full conversation threads with semantic embeddings in Qdrant.
 Works independently of the LLM — captures conversations as they happen.
-Embeddings via llama.cpp (self-contained).
+Embeddings via shared backend.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ if _project_root and str(_project_root) not in sys.path:
 from shared.env_loader import load_env
 load_env()
 
-# Embedding via llama.cpp
-from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama
+# Embedding via shared backend
+from shared.embedding import get_embedding as llama_embed, async_embed
 
 mcp = FastMCP("conversation-store")
 
@@ -63,9 +63,8 @@ async def ensure_collection():
 
 
 async def embed_text(text: str) -> list[float]:
-    """Generate embedding via llama.cpp."""
-    _ensure_llama()
-    return await asyncio.to_thread(llama_embed, text)
+    """Generate embedding via configured backend."""
+    return await async_embed(text)
 
 
 # ── Public MCP Tools ──────────────────────────────────────────────

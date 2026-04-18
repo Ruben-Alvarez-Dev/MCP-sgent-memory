@@ -158,8 +158,8 @@ def _discover_model() -> Optional[Path]:
                 if matches:
                     return matches[0]
 
-    # LM Studio default cache
-    lm_models = Path.home() / ".cache" / "lm-studio" / "models"
+    # LM Studio default cache (fallback only)
+    lm_models = Path(os.getenv("LM_STUDIO_MODELS", str(Path.home() / ".cache" / "lm-studio" / "models")))
     if lm_models.exists():
         matches = list(lm_models.glob("**/*.gguf"))
         if matches:
@@ -543,9 +543,9 @@ def get_cache_stats() -> dict[str, int]:
 # ── Legacy helpers (for backwards compatibility with existing servers) ──
 
 def _ensure_binaries() -> bool:
-    """Check if the llama.cpp binary and model are available.
+    """Check if the embedding backend is available.
 
-    Legacy alias — works for any backend.
+    Works for any backend, not just llama_cpp.
     """
     return _get_default_backend().is_available()
 
@@ -559,6 +559,16 @@ def _get_llama_cmd() -> Optional[str]:
     if isinstance(backend, LlamaCppBackend):
         return str(backend.bin_path) if backend.bin_path else None
     return None
+
+
+async def async_embed(text: str) -> list[float]:
+    """Async wrapper — run embedding in thread pool.
+
+    Use this from MCP servers instead of duplicating embed_text() everywhere.
+    Handles backend initialization transparently.
+    """
+    import asyncio
+    return await asyncio.to_thread(get_embedding, text)
 
 
 # ── Internal helpers ──────────────────────────────────────────────

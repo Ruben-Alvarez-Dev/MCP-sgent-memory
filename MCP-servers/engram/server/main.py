@@ -1,4 +1,4 @@
-"""Engram Bridge — Semantic Decision Memory (L3).
+"""Engram — Semantic Decision Memory (L3).
 
 Engram stores curated decisions, entities, and patterns in Markdown files.
 This bridge exposes them as MCP tools for the unified retrieval router.
@@ -231,12 +231,12 @@ async def delete_decision(file_path: str) -> str:
 
 @mcp.tool()
 async def status() -> str:
-    """Show Engram bridge status."""
+    """Show Engram status."""
     path = Path(ENGRAM_PATH)
     files = list(path.rglob("*.md")) if path.exists() else []
 
     return json.dumps({
-        "daemon": "engram-bridge",
+        "daemon": "engram",
         "status": "RUNNING",
         "path": str(path),
         "exists": path.exists(),

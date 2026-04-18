@@ -4,7 +4,7 @@ Canonical data contracts used across:
   - automem    (L0/L1/L2 ingest daemon)
   - autodream  (L3/L4 consolidation daemon)
   - vk-cache   (L5 context assembly + bidirectional protocol)
-  - conversation-store, mem0-bridge, engram-bridge
+  - conversation-store, mem0, engram
   - skills     (agent instruction sets)
 """
 

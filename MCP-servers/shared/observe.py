@@ -10,7 +10,7 @@ Usage in any server's main.py:
 
 Every call is logged to:
   - stdout (real-time)
-  - ~/.memory/observe/events-{date}.jsonl (persistent)
+  - ~/.memory/observe/events-{date}.jsonl (legacy, unused)
   - In-memory metrics (queryable via metrics.get())
 
 Dashboard:

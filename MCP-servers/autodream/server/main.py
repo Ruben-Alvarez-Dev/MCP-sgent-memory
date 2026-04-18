@@ -53,14 +53,14 @@ from shared.models import (
 from shared.llm import get_llm
 
 # Embedding via shared module
-from shared.embedding import get_embedding
+from shared.embedding import async_embed
 
 mcp = FastMCP("autodream")
 
 async def _embed_text(text: str) -> list[float]:
     """Generate dense embedding with fallback."""
     try:
-        return await asyncio.to_thread(get_embedding, text[:2000])
+        return await async_embed(text)
     except Exception:
         return []  # Fallback: empty vector, Qdrant will still store payload
 

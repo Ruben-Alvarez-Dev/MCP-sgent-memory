@@ -8,11 +8,11 @@ The brain of the memory system. Implements the BIDIRECTIONAL protocol:
 This server does NOT store data. It queries:
   - Qdrant (via automem collection)
   - Engram (via filesystem/API)
-  - mem0-bridge
+  - mem0
   - conversation-store
 
 Works with or without the LLM connected.
-Embeddings via llama.cpp (self-contained).
+Embeddings via shared backend.
 """
 
 from __future__ import annotations
@@ -54,8 +54,8 @@ from shared.models import (
     MemoryLayer,
 )
 
-# Embedding via llama.cpp
-from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama
+# Embedding via shared backend
+from shared.embedding import get_embedding as llama_embed, async_embed
 
 # Retrieval router
 from shared.retrieval import retrieve as smart_retrieve
@@ -82,9 +82,8 @@ _reminders_path.mkdir(parents=True, exist_ok=True)
 # ── Embedding ─────────────────────────────────────────────────────
 
 async def embed_text(text: str) -> list[float]:
-    """Generate embedding via llama.cpp (self-contained)."""
-    _ensure_llama()
-    return await asyncio.to_thread(llama_embed, text)
+    """Generate embedding via configured backend."""
+    return await async_embed(text)
 
 
 # ── Retrieval from all sources ─────────────────────────────────────

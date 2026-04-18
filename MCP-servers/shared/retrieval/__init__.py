@@ -32,8 +32,10 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "automem")
 CONV_COLLECTION = os.getenv("CONV_COLLECTION", "conversations")
 MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "mem0_memories")
-ENGRAM_PATH = os.path.expanduser(
-    os.getenv("ENGRAM_PATH", str(Path.home() / ".memory" / "engram"))
+_MSD = os.getenv("MEMORY_SERVER_DIR", "")
+ENGRAM_PATH = os.getenv(
+    "ENGRAM_PATH",
+    os.path.join(_MSD, "data", "memory", "engram") if _MSD else str(Path.home() / ".memory" / "engram")
 )
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))

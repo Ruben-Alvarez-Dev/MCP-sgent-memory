@@ -10,7 +10,7 @@ Usage:
     intent = classify_intent(query)    # clasificador determinista (<5ms)
 
 Environment variables:
-    LLM_BACKEND   — Backend type: llama_cpp | ollama | lmstudio (default: ollama)
+    LLM_BACKEND   — Backend type: llama_cpp | ollama | lmstudio (default: llama_cpp)
     LLM_MODEL     — Model name/identifier (backend-specific meaning)
     SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
     OLLAMA_URL    — Ollama endpoint (default: http://localhost:11434)

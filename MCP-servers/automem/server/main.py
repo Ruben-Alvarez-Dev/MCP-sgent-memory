@@ -10,7 +10,7 @@ Frequency:
   - On session close: tag and finalize
 
 No LLM required. Works with agent disconnected.
-Embeddings via llama.cpp (self-contained, no Ollama).
+Embeddings via shared backend (llama_server, llama_cpp, noop).
 """
 
 from __future__ import annotations
@@ -54,9 +54,8 @@ from shared.models import (
     RawEventType,
 )
 
-# Embedding via llama.cpp (self-contained)
-from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama
-from shared.embedding import bm25_tokenize
+# Embedding via shared backend (llama_server HTTP, llama_cpp subprocess, etc.)
+from shared.embedding import get_embedding as llama_embed, async_embed, bm25_tokenize
 
 mcp = FastMCP("automem")
 
@@ -87,9 +86,8 @@ async def ensure_collection():
 
 
 async def embed_text(text: str) -> list[float]:
-    """Generate embedding via llama.cpp (self-contained)."""
-    _ensure_llama()
-    return await asyncio.to_thread(llama_embed, text)
+    """Generate embedding via configured backend."""
+    return await async_embed(text)
 
 
 async def store_memory(item: MemoryItem):

@@ -43,7 +43,7 @@ load_env()
 # Embedding via llama.cpp
 from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama
 
-mcp = FastMCP("mem0-bridge")
+mcp = FastMCP("mem0")
 
 # ── Configuration ──────────────────────────────────────────────────
 
@@ -238,7 +238,7 @@ async def status() -> str:
         pass
 
     return json.dumps({
-        "daemon": "mem0-bridge",
+        "daemon": "mem0",
         "status": "RUNNING",
         "backend": "mem0" if client else "qdrant_direct",
         "llama_cpp": "OK" if llama_ok else "NOT_INSTALLED",

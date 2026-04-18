@@ -37,7 +37,7 @@ load_env()
 # Vault manager for Obsidian integration
 from shared.vault_manager import vault as _vault
 
-mcp = FastMCP("engram-bridge")
+mcp = FastMCP("engram")
 
 # ── Configuration ──────────────────────────────────────────────────
 

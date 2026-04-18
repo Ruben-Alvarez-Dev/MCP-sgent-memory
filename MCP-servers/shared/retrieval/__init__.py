@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..llm import classify_intent, QueryIntent, get_llm
+from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
 from ..embedding import get_embedding, bm25_tokenize
 from .index_repo import build_repo_index_points, upsert_repository_index
 from .pruner import prune_content
@@ -371,6 +371,20 @@ def _rank_and_fuse(
             item.combined_score = (level_weight * item.score * 0.7) + (recency * 0.3)
             all_items.append(item)
     all_items.sort(key=lambda x: x.combined_score, reverse=True)
+
+    # SPEC-4.1: LLM ranking for complex queries
+    if intent.needs_ranking and len(all_items) > 5:
+        try:
+            query_text = getattr(intent, "_original_query", "") or " ".join(intent.entities)
+            ranked = rank_by_relevance(
+                query=query_text,
+                items=[{"content": item.content, "item": item} for item in all_items],
+                top_k=profile.token_budget // 500,
+            )
+            all_items = [r["item"] for r in ranked]
+        except Exception:
+            pass  # Ranking failed, use score-based order
+
     return all_items
 
 

@@ -30,8 +30,20 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# Add shared module to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Bootstrap: find project root dynamically ──────────────────────
+_script_dir = Path(__file__).resolve().parent
+_project_root = None
+for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
+    if (_candidate / "shared" / "__init__.py").exists():
+        _project_root = _candidate
+        break
+if _project_root is None:
+    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
+    if _env_dir and Path(_env_dir).exists():
+        _project_root = Path(_env_dir)
+if _project_root and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from shared.env_loader import load_env
 load_env()
 from shared.models import (
@@ -63,7 +75,7 @@ MAX_ITEMS = int(os.getenv("VK_MAX_ITEMS", "8"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "8000"))
 
 # State
-_reminders_path = Path.home() / ".memory" / "reminders"
+_reminders_path = Path(os.getenv("REMINDERS_PATH", str(_project_root / "data" / "memory" / "reminders") if _project_root else ""))
 _reminders_path.mkdir(parents=True, exist_ok=True)
 
 
@@ -111,7 +123,7 @@ async def search_qdrant(query: str, limit: int = 10) -> list[dict]:
 
 async def search_engram(query: str, limit: int = 5) -> list[dict]:
     """Search Engram (filesystem-based semantic memory)."""
-    engram_path = Path(os.getenv("ENGRAM_PATH", str(Path.home() / ".memory" / "engram")))
+    engram_path = Path(os.getenv("ENGRAM_PATH", str(_project_root / "data" / "memory" / "engram") if _project_root else ""))
     if not engram_path.exists():
         return []
 
@@ -213,6 +225,7 @@ async def request_context(
     intent: str = "answer",
     token_budget: int = 8000,
     scopes: str = "",
+    mode: str = "standard",
 ) -> str:
     """LLM requests context. Returns a ContextPack with smart routing.
 
@@ -229,6 +242,7 @@ async def request_context(
         intent: answer | plan | review | debug | study
         token_budget: Max tokens for returned context.
         scopes: Comma-separated allowed scopes.
+        mode: standard | architect (architect uses code maps)
     """
     # Map intent to session type for the router
     session_type_map = {
@@ -246,6 +260,15 @@ async def request_context(
         session_type=session_type,
         token_budget=token_budget,
     )
+
+    # SPEC-1.3: Architect mode uses code maps (SPEC-5.1)
+    code_map_sections = []
+    if mode == "architect":
+        code_map_sections = await _architect_code_maps(query, token_budget)
+        for section in code_map_sections:
+            pack.sections.insert(0, section)
+            pack.sources_used = sorted(set(pack.sources_used + ["code-map"]))
+            pack.total_tokens += _estimate_tokens(section.get("content", ""))
 
     repo_section = _maybe_repo_section(query)
     if repo_section:
@@ -300,6 +323,58 @@ async def request_context(
             "staleness_warnings": pack.staleness_warnings,
         },
     }, indent=2)
+
+
+# ── Architect Code Maps (SPEC-5.1) ───────────────────────────────
+
+async def _architect_code_maps(query: str, token_budget: int) -> list[dict]:
+    """Search Qdrant for relevant code maps and return compact sections.
+
+    Uses code maps (type='code_map') stored in L2 instead of full files.
+    ~10x more token-efficient than loading complete files.
+    """
+    sections = []
+    try:
+        vector = await embed_text(query)
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/search",
+                json={
+                    "vector": vector,
+                    "limit": 10,
+                    "score_threshold": 0.25,
+                    "with_payload": True,
+                    "filter": {
+                        "must": [{"key": "type", "match": {"value": "code_map"}}]
+                    }
+                },
+            )
+            if resp.status_code != 200:
+                return []
+            points = resp.json().get("result", [])
+            if isinstance(points, dict):
+                points = points.get("result", [])
+
+        used_tokens = 0
+        for p in points:
+            payload = p.get("payload", {})
+            content = payload.get("content", "")
+            tokens = _estimate_tokens(content)
+            if used_tokens + tokens > token_budget * 0.4:  # Max 40% budget for maps
+                break
+            sections.append({
+                "level": 2,
+                "source": "code-map",
+                "content": content,
+                "confidence": round(p.get("score", 0), 2),
+                "file_path": payload.get("file_path", ""),
+                "language": payload.get("language", ""),
+                "sha": payload.get("sha", ""),
+            })
+            used_tokens += tokens
+    except Exception:
+        pass
+    return sections
 
 
 @mcp.tool()
@@ -461,7 +536,7 @@ async def status() -> str:
         sources["qdrant"] = "DOWN"
 
     # Engram
-    engram_path = Path(os.getenv("ENGRAM_PATH", str(Path.home() / ".memory/engram")))
+    engram_path = Path(os.getenv("ENGRAM_PATH", str(_project_root / "data" / "memory" / "engram") if _project_root else ""))
     sources["engram"] = "OK" if engram_path.exists() else "NOT_CONFIGURED"
 
     # llama.cpp

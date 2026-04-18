@@ -287,3 +287,72 @@ def list_available_backends() -> dict[str, bool]:
         results["lmstudio"] = False
 
     return results
+
+
+# ── LLM Ranking (SPEC-4.1) ───────────────────────────────────────
+
+def rank_by_relevance(
+    query: str,
+    items: list[dict],
+    top_k: int = 10,
+    content_key: str = "content",
+) -> list[dict]:
+    """Rank items by relevance to query using micro-LLM.
+
+    Uses get_small_llm() for fast ranking (~50-200ms).
+    Falls back gracefully if LLM not available.
+
+    Args:
+        query: The search query.
+        items: List of dicts with at least a 'content' key.
+        top_k: Max items to return.
+        content_key: Key in items dict that holds the text.
+
+    Returns:
+        Items reordered by relevance (most relevant first).
+    """
+    if len(items) <= top_k:
+        return items  # No ranking needed
+
+    try:
+        llm = get_small_llm()
+        if not llm.is_available():
+            return items  # LLM not available, return unranked
+    except Exception:
+        return items
+
+    # Build ranking prompt
+    numbered = []
+    for i, item in enumerate(items[:30]):  # Max 30 items to rank
+        text = str(item.get(content_key, ""))[:200]
+        numbered.append(f"{i + 1}. {text}")
+
+    prompt = (
+        f"Rank these items by relevance to: {query}\n\n"
+        f"Items:\n{chr(10).join(numbered)}\n\n"
+        f"Return ONLY the numbers in order of relevance, comma-separated. "
+        f"Example: 3,1,5,2,4"
+    )
+
+    try:
+        response = llm.ask(prompt, max_tokens=128, temperature=0.0)
+        # Parse numbers from response
+        nums = re.findall(r'\d+', response.strip())
+        indices = [int(n) - 1 for n in nums if 0 < int(n) <= len(items)]
+
+        # Reorder by ranking
+        ranked = []
+        seen = set()
+        for idx in indices:
+            if idx not in seen:
+                ranked.append(items[idx])
+                seen.add(idx)
+
+        # Append any items not ranked
+        for i, item in enumerate(items):
+            if i not in seen:
+                ranked.append(item)
+
+        return ranked[:top_k]
+    except Exception:
+        return items  # Ranking failed, return unranked

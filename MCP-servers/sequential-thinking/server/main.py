@@ -20,7 +20,20 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Bootstrap: find project root dynamically ──────────────────────
+_script_dir = Path(__file__).resolve().parent
+_project_root = None
+for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
+    if (_candidate / "shared" / "__init__.py").exists():
+        _project_root = _candidate
+        break
+if _project_root is None:
+    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
+    if _env_dir and Path(_env_dir).exists():
+        _project_root = Path(_env_dir)
+if _project_root and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from shared.env_loader import load_env
 load_env()
 
@@ -31,11 +44,23 @@ mcp = FastMCP("sequential-thinking")
 DEFAULT_USER = os.getenv("DEFAULT_USER", "ruben")
 THOUGHTS_PATH = os.getenv(
     "THOUGHTS_PATH",
-    str(Path.home() / ".memory/thoughts"),
+    str(_project_root / "data" / "memory" / "thoughts") if _project_root else "",
 )
 STAGING_BUFFER_PATH = Path(
-    os.path.expanduser(os.getenv("STAGING_BUFFER", str(Path.home() / ".memory" / "staging_buffer")))
+    os.getenv("STAGING_BUFFER", str(_project_root / "data" / "staging_buffer") if _project_root else "")
 )
+
+
+def _detect_lang(file_path: str) -> str:
+    """Detect language from file extension."""
+    ext_map = {
+        ".py": "python", ".ts": "typescript", ".tsx": "typescript",
+        ".js": "javascript", ".jsx": "javascript",
+        ".go": "go", ".rs": "rust", ".java": "java",
+        ".rb": "ruby", ".php": "php", ".swift": "swift",
+        ".c": "c", ".cpp": "cpp", ".h": "c", ".hpp": "cpp",
+    }
+    return ext_map.get(Path(file_path).suffix.lower(), "")
 
 
 def _save_thought(session: str, step: int, thought: dict):
@@ -61,6 +86,24 @@ def _staging_path(change_set_id: str) -> Path:
     return STAGING_BUFFER_PATH / f"{change_set_id}.json"
 
 
+def _load_model_pack_temps(pack_name: str) -> dict:
+    """Load temperature recommendations from model pack YAML (SPEC-2.3)."""
+    try:
+        import yaml
+        packs_dir = Path(THOUGHTS_PATH).parent / "engram" / "model-packs"
+        pack_path = packs_dir / f"{pack_name}.yaml"
+        if not pack_path.exists():
+            return {"note": f"Pack '{pack_name}' not found, using defaults"}
+        data = yaml.safe_load(pack_path.read_text())
+        roles = data.get("roles", {})
+        return {
+            name: {"temperature": cfg.get("temperature", 0.5), "purpose": cfg.get("purpose", "")}
+            for name, cfg in roles.items()
+        }
+    except Exception:
+        return {"note": "Model packs not available"}
+
+
 # ── Public MCP Tools ──────────────────────────────────────────────
 
 
@@ -69,6 +112,7 @@ async def sequential_thinking(
     problem: str,
     session_id: str = "default",
     max_steps: int = 10,
+    model_pack: str = "default",
 ) -> str:
     """Break down a complex problem into sequential thinking steps.
 
@@ -79,7 +123,10 @@ async def sequential_thinking(
         problem: The problem or question to think about.
         session_id: Unique session for this thinking trace.
         max_steps: Maximum thinking steps.
+        model_pack: Model pack name for temperature recommendations.
     """
+    # Load model pack recommendations (SPEC-2.3)
+    pack_temps = _load_model_pack_temps(model_pack)
     # Load previous context
     previous = _load_session(session_id)
     context_summary = ""
@@ -150,6 +197,7 @@ async def sequential_thinking(
         "total_steps": len(steps),
         "context_from_previous": context_summary or "No previous thinking in this session",
         "thinking_framework": steps,
+        "model_pack_recommendations": pack_temps,
         "instructions": "Fill in each step's 'output' field as you think through the problem. Call sequential_thinking again with session_id to continue.",
     }
 
@@ -378,11 +426,39 @@ async def propose_change_set(
     session_id: str,
     title: str,
     changes_json: str,
+    validate: bool = True,
 ) -> str:
-    """Stage a virtual change set without touching the filesystem."""
+    """Stage a virtual change set with syntax validation (SPEC-3.3).
+
+    Uses diff_sandbox for validation. Each change is checked for syntax
+    errors using Pygments before staging.
+
+    Args:
+        session_id: Session identifier.
+        title: Human-readable title for the change set.
+        changes_json: JSON list of [{path, content, language?}].
+        validate: Whether to run syntax validation (default: True).
+    """
     changes = json.loads(changes_json)
     if not isinstance(changes, list) or not changes:
         return json.dumps({"error": "changes_json must be a non-empty JSON list"}, indent=2)
+
+    # Validate each change (SPEC-3.3)
+    validation_results = []
+    if validate:
+        try:
+            from shared.diff_sandbox import validate_syntax
+            for change in changes:
+                content = change.get("content", "")
+                lang = change.get("language", "") or _detect_lang(change.get("path", ""))
+                ok, errors = validate_syntax(content, lang, change.get("path", ""))
+                validation_results.append({
+                    "path": change.get("path", ""),
+                    "syntax_ok": ok,
+                    "errors": errors,
+                })
+        except ImportError:
+            pass  # diff_sandbox not available, skip validation
 
     change_set_id = f"{session_id}-{int(time.time())}"
     payload = {
@@ -391,16 +467,24 @@ async def propose_change_set(
         "title": title,
         "created_at": datetime.utcnow().isoformat(),
         "changes": changes,
+        "validation": validation_results,
         "status": "staged",
     }
     _staging_path(change_set_id).write_text(json.dumps(payload, indent=2))
+
+    # Summary
+    all_valid = all(v.get("syntax_ok", True) for v in validation_results)
+    status_note = "" if all_valid else " ⚠️  Some changes have syntax issues"
 
     return json.dumps(
         {
             "status": "staged",
             "change_set_id": change_set_id,
             "files": [change.get("path", "") for change in changes],
+            "validation": validation_results,
+            "all_valid": all_valid,
             "staging_path": str(_staging_path(change_set_id)),
+            "note": f"{len(changes)} changes staged{status_note}",
         },
         indent=2,
     )

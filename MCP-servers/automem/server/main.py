@@ -26,8 +26,22 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# Add shared module to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Bootstrap: find project root and add to path ─────────────────
+# Walk up from this script until we find shared/__init__.py
+# Works in DEV (MCP-servers/), PROD (src/), and any nested layout.
+_script_dir = Path(__file__).resolve().parent
+_project_root = None
+for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
+    if (_candidate / "shared" / "__init__.py").exists():
+        _project_root = _candidate
+        break
+if _project_root is None:
+    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
+    if _env_dir and Path(_env_dir).exists():
+        _project_root = Path(_env_dir)
+if _project_root and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from shared.env_loader import load_env
 load_env()
 from shared.models import (
@@ -51,9 +65,9 @@ mcp = FastMCP("automem")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "automem")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
-JSONL_PATH = os.path.expanduser(os.getenv("AUTOMEM_JSONL", str(Path.home() / ".memory" / "raw_events.jsonl")))
+JSONL_PATH = os.getenv("AUTOMEM_JSONL", str(_project_root / "data" / "raw_events.jsonl") if _project_root else "")
 PROMOTION_INTERVAL = int(os.getenv("AUTOMEM_PROMOTE_EVERY", "10"))  # turns
-STAGING_BUFFER = Path(os.path.expanduser(os.getenv("STAGING_BUFFER", str(Path.home() / ".memory" / "staging_buffer"))))
+STAGING_BUFFER = Path(os.getenv("STAGING_BUFFER", str(_project_root / "data" / "staging_buffer") if _project_root else ""))
 
 # ── Qdrant helpers ─────────────────────────────────────────────────
 
@@ -183,9 +197,14 @@ async def ingest_event(
     actor_id: str = "system",
     session_id: str = "",
 ) -> str:
-    """Ingest a raw L0 event (terminal, git, file, system).
+    """Ingest a raw L0 event (terminal, git, file, system, diff).
 
-    This is the fire-and-forget capture that works even when the LLM is disconnected.
+    Supports diff events for autoaprendizaje:
+      diff_proposed: A change was proposed (content = DiffChange JSON)
+      diff_accepted: A change was accepted
+      diff_rejected: A change was rejected
+      diff_applied: A change was applied to filesystem
+      diff_failed: A change failed to apply
     """
     type_map = {
         "terminal": RawEventType.TERMINAL,
@@ -194,35 +213,70 @@ async def ingest_event(
         "agent": RawEventType.AGENT_ACTION,
         "ide": RawEventType.IDE_EVENT,
         "system": RawEventType.SYSTEM,
+        # Diff events (SPEC-3.2)
+        "diff_proposed": RawEventType.AGENT_ACTION,
+        "diff_accepted": RawEventType.AGENT_ACTION,
+        "diff_rejected": RawEventType.AGENT_ACTION,
+        "diff_applied": RawEventType.AGENT_ACTION,
+        "diff_failed": RawEventType.AGENT_ACTION,
     }
+
+    is_diff_event = event_type.startswith("diff_")
 
     event = RawEvent(
         type=type_map.get(event_type, RawEventType.SYSTEM),
         source=source,
         actor_id=actor_id,
         session_id=session_id,
-        attributes={"content": content},
+        attributes={"content": content, "event_subtype": event_type},
     )
 
     await append_raw_jsonl(event)
 
     # Auto-promote to working memory if important enough
-    if len(content) > 20:  # Non-trivial event
+    mem_type = MemoryType.FACT
+    importance = 0.3
+    extra_metadata = {}
+
+    if is_diff_event:
+        # Diff events get special treatment for autoaprendizaje
+        try:
+            diff_data = json.loads(content) if content.startswith("{") else {"summary": content}
+            extra_metadata = {
+                "diff_event": event_type,
+                "file_path": diff_data.get("file_path", ""),
+                "language": diff_data.get("language", ""),
+                "status": event_type.replace("diff_", ""),
+            }
+            if event_type == "diff_rejected":
+                importance = 0.7  # Failures are more important to learn from
+                extra_metadata["reject_reason"] = diff_data.get("reject_reason", "")
+            elif event_type == "diff_applied":
+                importance = 0.6
+        except json.JSONDecodeError:
+            pass
+
+    if len(content) > 20 or is_diff_event:  # Non-trivial or diff event
         item = MemoryItem(
             layer=MemoryLayer.WORKING,
             scope_type=MemoryScope.SESSION if session_id else MemoryScope.AGENT,
             scope_id=session_id or "system",
-            type=MemoryType.FACT,
-            content=content[:2000],  # Truncate for working memory
+            type=mem_type,
+            content=content[:2000],
             source_event_ids=[event.event_id],
-            importance=0.3,
+            importance=importance,
+            metadata=extra_metadata,
         )
         await store_memory(item)
+
+    result_status = "L0_RAW + L1_WORKING"
+    if is_diff_event:
+        result_status += " (diff tracked)"
 
     return json.dumps({
         "status": "ingested",
         "event_id": event.event_id,
-        "layer": "L0_RAW + L1_WORKING",
+        "layer": result_status,
     }, indent=2)
 
 
@@ -244,7 +298,8 @@ async def heartbeat(
     )
 
     # Store heartbeat
-    hb_path = Path.home() / ".memory" / "heartbeats" / f"{agent_id}.json"
+    hb_dir = Path(os.getenv("HEARTBEATS_PATH", str(_project_root / "data" / "memory" / "heartbeats") if _project_root else ""))
+    hb_path = hb_dir / f"{agent_id}.json"
     hb_path.parent.mkdir(parents=True, exist_ok=True)
     hb_path.write_text(status.model_dump_json(indent=2))
 
@@ -297,7 +352,7 @@ async def status() -> str:
             memory_count = 0  # Can't count points
 
     # Check heartbeat
-    hb_path = Path.home() / ".memory" / "heartbeats"
+    hb_path = Path(os.getenv("HEARTBEATS_PATH", str(_project_root / "data" / "memory" / "heartbeats") if _project_root else ""))
     agents = []
     if hb_path.exists():
         for f in hb_path.glob("*.json"):

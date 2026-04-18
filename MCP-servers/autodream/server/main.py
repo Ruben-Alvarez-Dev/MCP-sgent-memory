@@ -26,7 +26,20 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Bootstrap: find project root dynamically ──────────────────────
+_script_dir = Path(__file__).resolve().parent
+_project_root = None
+for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
+    if (_candidate / "shared" / "__init__.py").exists():
+        _project_root = _candidate
+        break
+if _project_root is None:
+    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
+    if _env_dir and Path(_env_dir).exists():
+        _project_root = Path(_env_dir)
+if _project_root and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from shared.env_loader import load_env
 load_env()
 from shared.models import (
@@ -79,7 +92,7 @@ async def llm_summarize(texts: list[str], prompt: str = "") -> str:
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "automem")
-DREAM_PATH = Path(os.path.expanduser(os.getenv("DREAM_PATH", str(Path.home() / ".memory" / "dream"))))
+DREAM_PATH = Path(os.getenv("DREAM_PATH", str(_project_root / "data" / "memory" / "dream") if _project_root else ""))
 
 # Schedules
 PROMOTE_L1_TO_L2 = int(os.getenv("DREAM_PROMOTE_L1", "10"))       # turns
@@ -385,6 +398,119 @@ async def dream_cycle(state: dict, now: float):
     return "Dream cycle complete"
 
 
+async def _mine_diff_patterns() -> str | None:
+    """SPEC-6.1: Mine diff events for autoaprendizaje patterns.
+
+    Scans L1 for diff_proposed/diff_accepted/diff_rejected events,
+    generates success patterns and anti-patterns, stores in L3.
+    """
+    # Query diff events from L1 (last 24h)
+    diff_memories = []
+    try:
+        async with httpx.AsyncClient() as client:
+            # Search for diff events
+            for diff_type in ["diff_accepted", "diff_rejected"]:
+                resp = await client.post(
+                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/scroll",
+                    json={
+                        "filter": {
+                            "must": [
+                            {"key": "layer", "match": {"value": 1}},
+                            {"key": "type", "match": {"value": "fact"}},
+                        ]
+                        },
+                        "limit": 20,
+                        "with_payload": True,
+                    },
+                )
+                if resp.status_code == 200:
+                    points = resp.json().get("result", {}).get("points", [])
+                    for p in points:
+                        payload = p.get("payload", {})
+                        content = payload.get("content", "")
+                        if diff_type in content or payload.get("metadata", {}).get("diff_event") == diff_type:
+                            diff_memories.append({
+                                "type": diff_type,
+                                "content": content[:500],
+                                "language": payload.get("metadata", {}).get("language", ""),
+                                "file_path": payload.get("metadata", {}).get("file_path", ""),
+                            })
+    except Exception:
+        return None
+
+    if not diff_memories:
+        return None
+
+    # Separate into accepted and rejected
+    accepted = [d for d in diff_memories if d["type"] == "diff_accepted"]
+    rejected = [d for d in diff_memories if d["type"] == "diff_rejected"]
+
+    patterns = []
+
+    # Generate success patterns
+    if accepted:
+        languages = set(d["language"] for d in accepted if d["language"])
+        for lang in languages:
+            lang_accepted = [d for d in accepted if d["language"] == lang]
+            pattern_item = MemoryItem(
+                layer=MemoryLayer.SEMANTIC,
+                scope_type=MemoryScope.AGENT,
+                scope_id="diff_mining",
+                type=MemoryType.PATTERN,
+                content=f"SUCCESS PATTERN ({lang}): {len(lang_accepted)} changes accepted in {lang}. "
+                        f"Files: {', '.join(set(d['file_path'] for d in lang_accepted))}",
+                importance=0.5,
+                confidence=0.7,
+                metadata={"source": "diff_mining", "pattern_type": "success", "language": lang},
+            )
+            try:
+                vector = await _embed_text(pattern_item.content)
+                async with httpx.AsyncClient() as client:
+                    await client.put(
+                        f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points?wait=true",
+                        json={"points": [{
+                            "id": pattern_item.memory_id,
+                            "vector": vector,
+                            "payload": pattern_item.model_dump(mode="json"),
+                        }]},
+                    )
+                patterns.append(f"success:{lang}={len(lang_accepted)}")
+            except Exception:
+                pass
+
+    # Generate anti-patterns
+    if rejected:
+        pattern_item = MemoryItem(
+            layer=MemoryLayer.SEMANTIC,
+            scope_type=MemoryScope.AGENT,
+            scope_id="diff_mining",
+            type=MemoryType.PATTERN,
+            content=f"ANTI-PATTERN: {len(rejected)} changes rejected. "
+                    f"Reasons: {', '.join(set(d.get('content', '')[:100] for d in rejected[:5]))}",
+            importance=0.7,  # Failures are more important
+            confidence=0.6,
+            metadata={"source": "diff_mining", "pattern_type": "anti_pattern"},
+        )
+        try:
+            vector = await _embed_text(pattern_item.content)
+            async with httpx.AsyncClient() as client:
+                await client.put(
+                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points?wait=true",
+                    json={"points": [{
+                        "id": pattern_item.memory_id,
+                        "vector": vector,
+                        "payload": pattern_item.model_dump(mode="json"),
+                    }]},
+                )
+            patterns.append(f"anti-pattern:{len(rejected)} rejections")
+        except Exception:
+            pass
+
+    if patterns:
+        return f"Diff mining: {', '.join(patterns)}"
+    return None
+
+
 # ── Public MCP Tools ──────────────────────────────────────────────
 
 
@@ -472,6 +598,11 @@ async def consolidate(force: bool = False) -> str:
             results.append(r3)
 
     _save_state(state)
+
+    # SPEC-6.1: Mine diff patterns for autoaprendizaje
+    diff_result = await _mine_diff_patterns()
+    if diff_result:
+        results.append(diff_result)
 
     return json.dumps({
         "daemon": "AutoDream",

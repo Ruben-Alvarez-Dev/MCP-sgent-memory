@@ -20,6 +20,8 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.env_loader import load_env
+load_env()
 
 # Embedding via llama.cpp
 from shared.embedding import get_embedding as llama_embed, _ensure_binaries as _ensure_llama

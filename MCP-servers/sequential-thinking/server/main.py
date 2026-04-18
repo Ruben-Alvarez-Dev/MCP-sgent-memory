@@ -21,6 +21,8 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from shared.env_loader import load_env
+load_env()
 
 mcp = FastMCP("sequential-thinking")
 

@@ -6,15 +6,28 @@ set -e
 #
 # Installs to: ~/MCP-servers/MCP-memory-server/
 #
-# Bundled: Qdrant, llama.cpp engine, BGE-M3 model, Python venv, vault
-# No Homebrew. No Docker. No external dependencies.
+# Layout (mirrors dev structure):
+#   INSTALL_DIR/
+#   ├── src/                    ← All server code (same layout as dev)
+#   │   ├── automem/server/main.py
+#   │   ├── shared/embedding.py
+#   │   └── ...
+#   ├── engine/                 ← llama.cpp binaries (from bundled or system)
+#   ├── models/                 ← .gguf embedding models
+#   ├── bin/                    ← Qdrant binary
+#   ├── config/                 ← .env + mcp.json
+#   ├── vault/                  ← Obsidian vault
+#   ├── .venv/                  ← Python environment
+#   └── scripts/                ← Startup scripts
+#
+# No Docker. No Homebrew deps. Self-contained.
 # ═══════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║   MCP Memory Server — Installer                        ║"
+echo "║   MCP Memory Server — Installer v2                     ║"
 echo "║   Hybrid Search · LLM Agnostic · Obsidian Vault        ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
@@ -35,7 +48,6 @@ if [ -d "$INSTALL_DIR" ]; then
         echo "Installation cancelled."
         exit 0
     fi
-    
     # Backup tools.db if it exists
     if [ -f "$INSTALL_DIR/tests/e2e/tools.db" ]; then
         echo "  📦 Backing up tools.db..."
@@ -81,130 +93,197 @@ OS=$(uname -s)
 echo ""
 echo "Platform: $OS $MACHINE"
 
-# ── Create directory structure ────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# PHASE 1: Source resolution — find engine, models, qdrant
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "Creating directory structure..."
-mkdir -p "$INSTALL_DIR"/engine/bin "$INSTALL_DIR"/engine/lib
+echo "── Phase 1: Resolving binary dependencies ───────────────────"
+echo ""
+
+# --- Engine (llama.cpp) ---
+ENGINE_SRC=""
+# 1. Bundled in installer package
+if [ -f "$SCRIPT_DIR/engine/bin/llama-embedding" ]; then
+    ENGINE_SRC="$SCRIPT_DIR/engine"
+    echo "  ✓ Engine: bundled in installer"
+# 2. Existing production install
+elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/engine/bin/llama-embedding" ]; then
+    ENGINE_SRC="$HOME/MCP-servers/MCP-memory-server/bin/engine"
+    echo "  ✓ Engine: existing production install"
+# 3. System llama.cpp (Homebrew)
+elif [ -x "$(command -v llama-embedding 2>/dev/null)" ]; then
+    ENGINE_SRC="system"
+    echo "  ✓ Engine: system llama.cpp ($(command -v llama-embedding))"
+fi
+
+if [ -z "$ENGINE_SRC" ]; then
+    echo "  ⚠ No llama.cpp engine found. Embeddings will use subprocess fallback."
+fi
+
+# --- Models ---
+MODEL_SRC=""
+# 1. Bundled
+if ls "$SCRIPT_DIR/models/"*.gguf &>/dev/null; then
+    MODEL_SRC="$SCRIPT_DIR/models"
+    echo "  ✓ Models: bundled ($(ls "$SCRIPT_DIR/models/"*.gguf | head -1 | xargs basename))"
+# 2. Existing production
+elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/models/bge-m3-Q4_K_M.gguf" ]; then
+    MODEL_SRC="$HOME/MCP-servers/MCP-memory-server/bin/models"
+    echo "  ✓ Models: existing production install"
+# 3. Check common locations
+elif [ -f "$HOME/.cache/lm-studio/models/bge-m3-Q4_K_M.gguf" ]; then
+    MODEL_SRC="lmstudio"
+    echo "  ✓ Models: LM Studio cache"
+fi
+
+if [ -z "$MODEL_SRC" ]; then
+    echo "  ⚠ No .gguf models found. Will attempt download."
+fi
+
+# --- Qdrant ---
+QDRANT_BIN=""
+# 1. Bundled
+if [ -f "$SCRIPT_DIR/shared/qdrant/qdrant" ]; then
+    QDRANT_BIN="$SCRIPT_DIR/shared/qdrant/qdrant"
+    echo "  ✓ Qdrant: bundled"
+# 2. Existing production
+elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/qdrant" ]; then
+    QDRANT_BIN="$HOME/MCP-servers/MCP-memory-server/bin/qdrant"
+    echo "  ✓ Qdrant: existing production"
+# 3. System
+elif command -v qdrant &>/dev/null; then
+    QDRANT_BIN="system"
+    echo "  ✓ Qdrant: system ($(command -v qdrant))"
+fi
+
+if [ -z "$QDRANT_BIN" ]; then
+    echo "  ⚠ Qdrant binary not found. Will attempt download."
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 2: Create directory structure
+# ══════════════════════════════════════════════════════════════════
+
+echo ""
+echo "── Phase 2: Creating directory structure ─────────────────────"
+echo ""
+
+# Servers go into src/ — SAME layout as dev (servers are siblings of shared/)
+mkdir -p "$INSTALL_DIR"/src/{automem,autodream,vk-cache,conversation-store,mem0,engram,sequential-thinking,,}/server
+mkdir -p "$INSTALL_DIR"/src/shared/{llm,retrieval,compliance,vault_manager,models,qdrant}
+mkdir -p "$INSTALL_DIR"/engine/{bin,lib}
 mkdir -p "$INSTALL_DIR"/models
-mkdir -p "$INSTALL_DIR"/servers/{automem,autodream,vk-cache,conversation-store,mem0-bridge,engram-bridge,sequential-thinking}/server
-mkdir -p "$INSTALL_DIR"/shared/{llm,retrieval,compliance,vault_manager,models}
+mkdir -p "$INSTALL_DIR"/bin
 mkdir -p "$INSTALL_DIR"/config
+mkdir -p "$INSTALL_DIR"/scripts
+mkdir -p "$INSTALL_DIR"/tests/e2e
 mkdir -p "$INSTALL_DIR"/vault/{Inbox,"Decisiones","Conocimiento",Episodios,Log_Global,Entidades,Personas,Templates}
 mkdir -p "$INSTALL_DIR"/vault/.system/{locks,backups,trash/{human-deleted,system-deleted},orphaned}
-mkdir -p "$INSTALL_DIR"/tests
 
-# ── Copy engine (llama.cpp) ──────────────────────────────────────
+echo "  ✓ Directory tree created"
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 3: Install binaries
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "Installing bundled engine..."
-ENGINE_SRC="$SCRIPT_DIR/engine"
+echo "── Phase 3: Installing binaries ──────────────────────────────"
+echo ""
 
-if [ -d "$ENGINE_SRC" ] && [ -f "$ENGINE_SRC/bin/llama-embedding" ]; then
-    cp -R "$ENGINE_SRC/bin/"* "$INSTALL_DIR/engine/bin/"
+# --- Engine ---
+if [ -n "$ENGINE_SRC" ] && [ "$ENGINE_SRC" != "system" ]; then
+    echo "Installing llama.cpp engine..."
+    cp -R "$ENGINE_SRC/bin/"* "$INSTALL_DIR/engine/bin/" 2>/dev/null || true
     cp -R "$ENGINE_SRC/lib/"* "$INSTALL_DIR/engine/lib/" 2>/dev/null || true
-    echo "  ✓ llama.cpp engine copied"
-    echo "  ✓ $(ls "$INSTALL_DIR/engine/lib/" 2>/dev/null | wc -l | tr -d ' ') libraries bundled"
-else
-    echo "  ✗ Engine not found in installer package."
-    echo "    This installer requires a pre-built engine/ directory."
-    exit 1
+    ENGINE_COUNT=$(ls "$INSTALL_DIR/engine/bin/" 2>/dev/null | wc -l | tr -d ' ')
+    echo "  ✓ $ENGINE_COUNT binaries, $(ls "$INSTALL_DIR/engine/lib/" 2>/dev/null | wc -l | tr -d ' ') libraries"
+elif [ "$ENGINE_SRC" = "system" ]; then
+    echo "  ℹ Using system llama.cpp — no bundling needed"
+    echo "  → embedding.py will auto-detect $(command -v llama-embedding)"
 fi
 
-# Copy llama-server binary if available
-if [ -f "$ENGINE_SRC/bin/llama-server" ]; then
-    cp "$ENGINE_SRC/bin/llama-server" "$INSTALL_DIR/engine/bin/"
-    echo "  ✓ llama-server copied"
-fi
-
-# Re-sign all binaries (required after copy on macOS)
-if [ "$OS" = "Darwin" ]; then
+# Re-sign binaries (required after copy on macOS)
+if [ "$OS" = "Darwin" ] && [ -d "$INSTALL_DIR/engine/bin" ]; then
     echo "  → Re-signing binaries..."
-    codesign --force --sign - --deep "$INSTALL_DIR/engine/bin/llama-embedding" 2>/dev/null || true
-    if [ -f "$INSTALL_DIR/engine/bin/llama-server" ]; then
-        codesign --force --sign - "$INSTALL_DIR/engine/bin/llama-server" 2>/dev/null || true
-    fi
+    for bin in "$INSTALL_DIR/engine/bin/"*; do
+        [ -f "$bin" ] && codesign --force --sign - "$bin" 2>/dev/null || true
+    done
     for lib in "$INSTALL_DIR/engine/lib/"*.dylib; do
         [ -f "$lib" ] && codesign --force --sign - "$lib" 2>/dev/null || true
     done
     echo "  ✓ Binaries signed"
 fi
 
-# ── Copy embedding model ──────────────────────────────────────────
-
-echo ""
-echo "Installing embedding model (BGE-M3)..."
-MODEL_SRC="$SCRIPT_DIR/models"
-if [ -d "$MODEL_SRC" ] && ls "$MODEL_SRC/"*.gguf &>/dev/null; then
+# --- Models ---
+if [ -n "$MODEL_SRC" ] && [ "$MODEL_SRC" != "lmstudio" ]; then
+    echo "Installing embedding models..."
     cp "$MODEL_SRC/"*.gguf "$INSTALL_DIR/models/"
     MODEL_SIZE=$(du -sh "$INSTALL_DIR/models/"*.gguf | head -1 | awk '{print $1}')
-    echo "  ✓ Model copied ($MODEL_SIZE)"
+    MODEL_COUNT=$(ls "$INSTALL_DIR/models/"*.gguf | wc -l | tr -d ' ')
+    echo "  ✓ $MODEL_COUNT models ($MODEL_SIZE)"
+elif [ "$MODEL_SRC" = "lmstudio" ]; then
+    echo "  ℹ Using LM Studio cache models"
 else
-    echo "  ⚠ No .gguf model found in installer package."
-    echo "    The system will fall back to MiniLM if available."
+    # Try to download BGE-M3
+    echo "  → Downloading BGE-M3 model (this may take a while)..."
+    if command -v pip &>/dev/null || command -v pip3 &>/dev/null; then
+        PIP_CMD=$(command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
+        $PIP_CMD download --dest "$INSTALL_DIR/models" \
+            "huggingface_hub" 2>/dev/null || true
+    fi
+    # Use huggingface-cli or wget
+    if command -v wget &>/dev/null; then
+        wget -q --show-progress -O "$INSTALL_DIR/models/bge-m3-Q4_K_M.gguf" \
+            "https://huggingface.co/ilsilfverskiold/bge-m3-gguf/resolve/main/bge-m3-Q4_K_M.gguf" 2>&1 || {
+            echo "  ⚠ Download failed. Place .gguf model manually in $INSTALL_DIR/models/"
+        }
+    elif command -v curl &>/dev/null; then
+        curl -L -o "$INSTALL_DIR/models/bge-m3-Q4_K_M.gguf" \
+            "https://huggingface.co/ilsilfverskiold/bge-m3-gguf/resolve/main/bge-m3-Q4_K_M.gguf" 2>&1 || {
+            echo "  ⚠ Download failed. Place .gguf model manually in $INSTALL_DIR/models/"
+        }
+    fi
 fi
 
-# ── Copy Qdrant ───────────────────────────────────────────────────
-
-echo ""
-echo "Installing Qdrant vector store..."
-QDRANT_SRC="$SCRIPT_DIR/shared/qdrant"
-QDRANT_BIN_SRC="$SCRIPT_DIR/shared/qdrant/qdrant"
-
-if [ -f "$QDRANT_BIN_SRC" ]; then
-    mkdir -p "$INSTALL_DIR/bin"
-    cp "$QDRANT_BIN_SRC" "$INSTALL_DIR/bin/qdrant"
-    echo "  ✓ Qdrant binary copied"
-
+# --- Qdrant ---
+if [ -n "$QDRANT_BIN" ] && [ "$QDRANT_BIN" != "system" ]; then
+    cp "$QDRANT_BIN" "$INSTALL_DIR/bin/qdrant"
+    chmod +x "$INSTALL_DIR/bin/qdrant"
     if [ "$OS" = "Darwin" ]; then
         codesign --force --sign - "$INSTALL_DIR/bin/qdrant" 2>/dev/null || true
     fi
-else
-    echo "  ⚠ Qdrant binary not found in package."
+    echo "  ✓ Qdrant binary installed"
+elif [ "$QDRANT_BIN" = "system" ]; then
+    echo "  ℹ Using system Qdrant"
 fi
 
-# Qdrant config
-if [ -f "$QDRANT_SRC/config.yaml" ]; then
-    mkdir -p "$INSTALL_DIR/shared/qdrant"
-    cp "$QDRANT_SRC/config.yaml" "$INSTALL_DIR/shared/qdrant/"
+# Qdrant config (always copy)
+if [ -f "$SCRIPT_DIR/shared/qdrant/config.yaml" ]; then
+    cp "$SCRIPT_DIR/shared/qdrant/config.yaml" "$INSTALL_DIR/src/shared/qdrant/"
 fi
 
-cat > "$INSTALL_DIR/shared/qdrant/start.sh" << 'SCRIPT'
-#!/bin/bash
-ulimit -n 10240
-export MALLOC_CONF="background_thread:false,narenas:1"
-cd "$(dirname "$0")"
-mkdir -p data snapshots
-QDRANT_BIN=""
-if [ -f "./qdrant" ]; then
-    QDRANT_BIN="./qdrant"
-elif [ -f "../../bin/qdrant" ]; then
-    QDRANT_BIN="../../bin/qdrant"
-elif command -v qdrant &>/dev/null; then
-    QDRANT_BIN="qdrant"
-else
-    echo "ERROR: qdrant binary not found"
-    exit 1
-fi
-exec "$QDRANT_BIN" --config-path config.yaml
-SCRIPT
-chmod +x "$INSTALL_DIR/shared/qdrant/start.sh"
-
-# ── Copy server code ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# PHASE 4: Install server code (src/ layout = dev layout)
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "Installing MCP servers..."
-SERVERS_SRC="$SCRIPT_DIR/servers"
+echo "── Phase 4: Installing server code ───────────────────────────"
+echo ""
 
-for server in automem autodream vk-cache conversation-store mem0-bridge engram-bridge sequential-thinking; do
-    if [ -d "$SERVERS_SRC/$server" ]; then
-        cp -R "$SERVERS_SRC/$server/"* "$INSTALL_DIR/servers/$server/" 2>/dev/null || true
-        echo "  ✓ $server (full directory)"
-    elif [ -f "$SCRIPT_DIR/$server/server/main.py" ]; then
-        # Fallback: dev mode structure
-        mkdir -p "$INSTALL_DIR/servers/$server/server"
-        cp "$SCRIPT_DIR/$server/server/main.py" "$INSTALL_DIR/servers/$server/server/"
-        echo "  ✓ $server (main.py only)"
+# Source servers: look in both dev layout ($SCRIPT_DIR/$server/) 
+# and flat layout ($SCRIPT_DIR/servers/$server/)
+SERVERS="automem autodream vk-cache conversation-store mem0 engram sequential-thinking  "
+
+for server in $SERVERS; do
+    # Try dev layout first (current structure: MCP-servers/$server/)
+    if [ -f "$SCRIPT_DIR/$server/server/main.py" ]; then
+        cp "$SCRIPT_DIR/$server/server/main.py" "$INSTALL_DIR/src/$server/server/"
+        echo "  ✓ $server"
+    # Try flat layout (build package: servers/$server/)
+    elif [ -f "$SCRIPT_DIR/servers/$server/server/main.py" ]; then
+        cp "$SCRIPT_DIR/servers/$server/server/main.py" "$INSTALL_DIR/src/$server/server/"
+        echo "  ✓ $server (from flat layout)"
     else
         echo "  ⚠ $server not found"
     fi
@@ -213,17 +292,19 @@ done
 # Copy shared modules (full packages)
 echo ""
 echo "Installing shared modules..."
-for pkg in llm retrieval compliance vault_manager models; do
+for pkg in llm retrieval compliance vault_manager models qdrant; do
     if [ -d "$SCRIPT_DIR/shared/$pkg" ]; then
-        cp -R "$SCRIPT_DIR/shared/$pkg" "$INSTALL_DIR/shared/"
+        # Remove any .pyc or __pycache__ before copy
+        find "$SCRIPT_DIR/shared/$pkg" -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+        cp -R "$SCRIPT_DIR/shared/$pkg" "$INSTALL_DIR/src/shared/"
         echo "  ✓ shared/$pkg"
     fi
 done
 
 # Copy individual shared files
-for f in embedding.py __init__.py; do
+for f in embedding.py __init__.py env_loader.py observe.py; do
     if [ -f "$SCRIPT_DIR/shared/$f" ]; then
-        cp "$SCRIPT_DIR/shared/$f" "$INSTALL_DIR/shared/"
+        cp "$SCRIPT_DIR/shared/$f" "$INSTALL_DIR/src/shared/"
         echo "  ✓ shared/$f"
     fi
 done
@@ -234,31 +315,62 @@ if [ -d "$SCRIPT_DIR/vault/Templates" ]; then
     echo "  ✓ vault templates"
 fi
 
-# ── Python venv + dependencies ────────────────────────────────────
+# Copy tests
+if [ -d "$SCRIPT_DIR/tests" ]; then
+    cp "$SCRIPT_DIR/tests/"*.py "$INSTALL_DIR/tests/" 2>/dev/null || true
+    cp -R "$SCRIPT_DIR/tests/e2e" "$INSTALL_DIR/tests/" 2>/dev/null || true
+    echo "  ✓ tests"
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 5: Python environment
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "Setting up Python environment..."
+echo "── Phase 5: Python environment ───────────────────────────────"
+echo ""
+
 $PY_CMD -m venv "$INSTALL_DIR/.venv"
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --quiet --upgrade pip
-pip install --quiet mcp pydantic httpx pyyaml huggingface_hub
-echo "  ✓ Python packages installed"
-
-# ── Configuration ──────────────────────────────────────────────────
-
-echo ""
-echo "Creating configuration..."
+pip install --quiet mcp pydantic httpx pyyaml
+echo "  ✓ Python venv + packages"
 
 PYTHON_VENV="$INSTALL_DIR/.venv/bin/python3"
 
-# Detect available LLM backend
+# ══════════════════════════════════════════════════════════════════
+# PHASE 6: Configuration
+# ══════════════════════════════════════════════════════════════════
+
+echo ""
+echo "── Phase 6: Configuration ────────────────────────────────────"
+echo ""
+
+# Detect LLM backend
 LLM_BACKEND="ollama"
 LLM_MODEL="qwen2.5:7b"
-SMALL_LLM_MODEL="qwen3.5:2b"
+if [ -f "$HOME/MCP-servers/MCP-memory-server/config/.env" ]; then
+    EXISTING_BACKEND=$(grep "^LLM_BACKEND=" "$HOME/MCP-servers/MCP-memory-server/config/.env" 2>/dev/null | cut -d= -f2)
+    EXISTING_MODEL=$(grep "^LLM_MODEL=" "$HOME/MCP-servers/MCP-memory-server/config/.env" 2>/dev/null | cut -d= -f2)
+    [ -n "$EXISTING_BACKEND" ] && LLM_BACKEND="$EXISTING_BACKEND"
+    [ -n "$EXISTING_MODEL" ] && LLM_MODEL="$EXISTING_MODEL"
+fi
+
+# Detect embedding dimension based on available model
+EMBEDDING_DIM=384  # MiniLM default
+if ls "$INSTALL_DIR/models/"*bge*m3* &>/dev/null; then
+    EMBEDDING_DIM=1024
+elif ls "$INSTALL_DIR/models/"*nomic* &>/dev/null; then
+    EMBEDDING_DIM=768
+fi
 
 cat > "$INSTALL_DIR/config/.env" << EOF
 # MCP Memory Server — Configuration
 # Generated by installer on $(date '+%Y-%m-%d %H:%M:%S')
+
+# ── Paths ──────────────────────────────────────────────────────────
+MEMORY_SERVER_DIR=$INSTALL_DIR
+PYTHONPATH=$INSTALL_DIR/src
 
 # ── Shared Infrastructure ──────────────────────────────────────────
 QDRANT_URL=http://127.0.0.1:6333
@@ -268,28 +380,22 @@ MEM0_COLLECTION=mem0_memories
 
 # ── Embedding ──────────────────────────────────────────────────────
 EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIM=1024
+EMBEDDING_DIM=$EMBEDDING_DIM
 
 # ── LLM Backend (agnostic) ─────────────────────────────────────────
 LLM_BACKEND=$LLM_BACKEND
 LLM_MODEL=$LLM_MODEL
-SMALL_LLM_MODEL=$SMALL_LLM_MODEL
 
 # ── Ollama ─────────────────────────────────────────────────────────
 OLLAMA_URL=http://127.0.0.1:11434
 
-# ── LM Studio (alternative backend) ────────────────────────────────
-# LMSTUDIO_URL=http://127.0.0.1:1234
-
 # ── Vault ──────────────────────────────────────────────────────────
 VAULT_PATH=$INSTALL_DIR/vault
 
-# ── Paths ──────────────────────────────────────────────────────────
+# ── Runtime Paths ──────────────────────────────────────────────────
 DREAM_PATH=\$HOME/.memory/dream
 ENGRAM_PATH=\$HOME/.memory/engram
 AUTOMEM_JSONL=\$HOME/.memory/raw_events.jsonl
-MEMORY_SERVER_DIR=$INSTALL_DIR
-PYTHONPATH=$INSTALL_DIR
 
 # ── vk-cache ───────────────────────────────────────────────────────
 VK_MIN_SCORE=0.3
@@ -301,30 +407,35 @@ DREAM_PROMOTE_L1=10
 DREAM_PROMOTE_L2=3600
 DREAM_PROMOTE_L3=86400
 DREAM_PROMOTE_L4=604800
+
+# ── Python ─────────────────────────────────────────────────────────
+PYTHON_BIN=$PYTHON_VENV
 EOF
 
-# mcp.json for 1MCP gateway
+# ── mcp.json for 1MCP gateway ─────────────────────────────────────
+
+# All paths use src/ layout — servers and shared are siblings
 cat > "$INSTALL_DIR/config/mcp.json" << EOF
 {
   "mcpServers": {
     "automem": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/automem/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/automem/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:6333",
         "EMBEDDING_MODEL": "bge-m3",
-        "EMBEDDING_DIM": "1024"
+        "EMBEDDING_DIM": "$EMBEDDING_DIM"
       },
       "tags": ["memory", "ingest"],
       "disabled": false
     },
     "autodream": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/autodream/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/autodream/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:6333",
         "LLM_BACKEND": "$LLM_BACKEND",
@@ -335,9 +446,9 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
     },
     "vk-cache": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/vk-cache/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/vk-cache/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:6333",
         "ENGRAM_PATH": "\$HOME/.memory/engram",
@@ -348,31 +459,31 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
     },
     "conversation-store": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/conversation-store/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/conversation-store/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:6333"
       },
       "tags": ["memory", "conversations"],
       "disabled": false
     },
-    "mem0-bridge": {
+    "mem0": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/mem0-bridge/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/mem0/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:6333"
       },
       "tags": ["memory", "semantic"],
       "disabled": false
     },
-    "engram-bridge": {
+    "engram": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/engram-bridge/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/engram/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "VAULT_PATH": "$INSTALL_DIR/vault"
       },
@@ -381,36 +492,239 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
     },
     "sequential-thinking": {
       "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/servers/sequential-thinking/server/main.py"],
+      "args": ["-u", "$INSTALL_DIR/src/sequential-thinking/server/main.py"],
       "env": {
-        "PYTHONPATH": "$INSTALL_DIR",
+        "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR"
       },
       "tags": ["reasoning", "planning"],
+      "disabled": false
+    },
+    "": {
+      "command": "$PYTHON_VENV",
+      "args": ["-u", "$INSTALL_DIR/src//server/main.py"],
+      "env": {
+        "PYTHONPATH": "$INSTALL_DIR/src",
+        "MEMORY_SERVER_DIR": "$INSTALL_DIR",
+        "QDRANT_URL": "http://127.0.0.1:6333"
+      },
+      "tags": ["memory", "facade"],
+      "disabled": false
+    },
+    "": {
+      "command": "$PYTHON_VENV",
+      "args": ["-u", "$INSTALL_DIR/src//server/main.py"],
+      "env": {
+        "PYTHONPATH": "$INSTALL_DIR/src",
+        "MEMORY_SERVER_DIR": "$INSTALL_DIR"
+      },
+      "tags": ["docs", "proxy"],
       "disabled": false
     }
   }
 }
 EOF
 
-# ── Install Qdrant as launchd service ─────────────────────────────
+echo "  ✓ config/.env"
+echo "  ✓ config/mcp.json"
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 7: Startup scripts
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "Setting up launchd services..."
+echo "── Phase 7: Startup scripts ─────────────────────────────────"
+echo ""
+
+# Qdrant start script
+cat > "$INSTALL_DIR/scripts/start-qdrant.sh" << 'QSCRIPT'
+#!/bin/bash
+ulimit -n 10240
+export MALLOC_CONF="background_thread:false,narenas:1"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$INSTALL_DIR/src/shared/qdrant"
+mkdir -p data snapshots
+
+QDRANT_BIN=""
+if [ -f "$INSTALL_DIR/bin/qdrant" ]; then
+    QDRANT_BIN="$INSTALL_DIR/bin/qdrant"
+elif command -v qdrant &>/dev/null; then
+    QDRANT_BIN="qdrant"
+else
+    echo "ERROR: qdrant binary not found"
+    exit 1
+fi
+exec "$QDRANT_BIN" --config-path config.yaml
+QSCRIPT
+chmod +x "$INSTALL_DIR/scripts/start-qdrant.sh"
+
+# Embedding server start script
+cat > "$INSTALL_DIR/scripts/start-embedding-server.sh" << ESCRIPT
+#!/bin/bash
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+ENGINE_DIR="$INSTALL_DIR/engine"
+MODEL_DIR="$INSTALL_DIR/models"
+PORT="\${LLAMA_SERVER_PORT:-8080}"
+HOST="\${LLAMA_SERVER_HOST:-127.0.0.1}"
+LOG_FILE="\${LLAMA_SERVER_LOG:-$INSTALL_DIR/logs/embedding-server.log}"
+PID_FILE="$INSTALL_DIR/logs/embedding-server.pid"
+
+mkdir -p "$INSTALL_DIR/logs"
+
+# Find model
+MODEL=""
+for candidate in \\
+    "\$MODEL_DIR/bge-m3-Q4_K_M.gguf" \\
+    "\$MODEL_DIR/bge-m3"*".gguf" \\
+    "\$MODEL_DIR/"*.gguf; do
+    if [ -f "\$candidate" ]; then
+        MODEL="\$candidate"
+        break
+    fi
+done
+
+if [ -z "\$MODEL" ]; then
+    echo "ERROR: No .gguf model found in \$MODEL_DIR" >&2
+    exit 1
+fi
+
+# Find binary
+SERVER_BIN=""
+for path in \\
+    "\$ENGINE_DIR/bin/llama-server" \\
+    "\$(which llama-server 2>/dev/null)"; do
+    if [ -x "\$path" ]; then
+        SERVER_BIN="\$path"
+        break
+    fi
+done
+
+if [ -z "\$SERVER_BIN" ]; then
+    echo "ERROR: llama-server binary not found" >&2
+    exit 1
+fi
+
+# Check if already running
+if curl -sf "http://\$HOST:\$PORT/health" > /dev/null 2>&1; then
+    echo "✅ Embedding server already running on \$HOST:\$PORT"
+    exit 0
+fi
+
+# Kill stale
+if [ -f "\$PID_FILE" ]; then
+    OLD_PID=\$(cat "\$PID_FILE")
+    kill -0 "\$OLD_PID" 2>/dev/null && kill "\$OLD_PID" 2>/dev/null || true
+    rm -f "\$PID_FILE"
+fi
+
+echo "🚀 Starting embedding server..."
+echo "   Binary: \$SERVER_BIN"
+echo "   Model:  \$MODEL"
+echo "   Port:   \$PORT"
+
+export DYLD_LIBRARY_PATH="\$ENGINE_DIR/lib\${DYLD_LIBRARY_PATH:+:\$DYLD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="\$ENGINE_DIR/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+
+nohup "\$SERVER_BIN" \\
+    -m "\$MODEL" \\
+    --embedding \\
+    --port "\$PORT" \\
+    --host "\$HOST" \\
+    -c 512 -t 4 --mlock \\
+    > "\$LOG_FILE" 2>&1 &
+
+echo \$! > "\$PID_FILE"
+
+for i in \$(seq 1 60); do
+    curl -sf "http://\$HOST:\$PORT/health" > /dev/null 2>&1 && \\
+        echo "✅ Ready (PID \$(cat \$PID_FILE))" && exit 0
+    sleep 0.5
+done
+
+echo "ERROR: Failed to start within 30s" >&2
+rm -f "\$PID_FILE"
+exit 1
+ESCRIPT
+chmod +x "$INSTALL_DIR/scripts/start-embedding-server.sh"
+
+# All-in-one launcher
+cat > "$INSTALL_DIR/scripts/start-all.sh" << 'ALLSCRIPT'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+
+echo "🧠 Starting MCP Memory Server ecosystem..."
+
+# 1. Qdrant
+if ! curl -s http://127.0.0.1:6333/health > /dev/null 2>&1; then
+    echo "📦 Starting Qdrant..."
+    "$SCRIPT_DIR/start-qdrant.sh" &
+    sleep 3
+fi
+
+# 2. Embedding server
+if ! curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
+    echo "🚀 Starting embedding server..."
+    "$SCRIPT_DIR/start-embedding-server.sh"
+fi
+
+export EMBEDDING_BACKEND="llama_server"
+echo "✨ Ecosystem ready."
+ALLSCRIPT
+chmod +x "$INSTALL_DIR/scripts/start-all.sh"
+
+# Gateway start script
+cat > "$INSTALL_DIR/scripts/start-gateway.sh" << 'GWSCRIPT'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
+
+export ONE_MCP_CONFIG="$INSTALL_DIR/config/mcp.json"
+export MEMORY_SERVER_DIR="$INSTALL_DIR"
+
+# Start embedding server first
+"$SCRIPT_DIR/start-embedding-server.sh" 2>/dev/null || true
+export EMBEDDING_BACKEND=llama_server
+
+if command -v 1mcp &>/dev/null; then
+    exec 1mcp serve --port 3050 --enable-config-reload false
+else
+    echo "ERROR: 1mcp not installed. Run: npm install -g @1mcp/agent"
+    exit 1
+fi
+GWSCRIPT
+chmod +x "$INSTALL_DIR/scripts/start-gateway.sh"
+
+echo "  ✓ start-qdrant.sh"
+echo "  ✓ start-embedding-server.sh"
+echo "  ✓ start-all.sh"
+echo "  ✓ start-gateway.sh"
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 8: launchd services (macOS)
+# ══════════════════════════════════════════════════════════════════
 
 if [ "$OS" = "Darwin" ]; then
-    # Qdrant
+    echo ""
+    echo "── Phase 8: launchd services ─────────────────────────────────"
+    echo ""
+
+    mkdir -p "$HOME/.memory"/{dream,engram,heartbeats,reminders,thoughts}
+
+    # --- Qdrant ---
     cat > "$HOME/Library/LaunchAgents/com.memory-server.qdrant.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key><string>com.memory-server.qdrant</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$INSTALL_DIR/shared/qdrant/start.sh</string>
+    <key>ProgramArguments</key><array>
+        <string>$INSTALL_DIR/scripts/start-qdrant.sh</string>
     </array>
-    <key>WorkingDirectory</key><string>$INSTALL_DIR/shared/qdrant</string>
+    <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
     <key>StandardOutPath</key><string>$HOME/.memory/qdrant.log</string>
@@ -423,370 +737,147 @@ PLIST
     launchctl load "$HOME/Library/LaunchAgents/com.memory-server.qdrant.plist"
     echo "  ✓ Qdrant service installed"
 
-    # Create .memory dirs
-    mkdir -p "$HOME/.memory"/{dream,engram,raw_events.jsonl} 2>/dev/null || true
-
-    echo ""
-    echo "Waiting for Qdrant to start..."
+    # Wait for Qdrant
+    echo "  → Waiting for Qdrant..."
     sleep 3
+
+    # Create collections
     if curl -s http://127.0.0.1:6333/health &>/dev/null; then
-        echo "  ✓ Qdrant is running"
-    else
-        echo "  ⚠ Qdrant may not be running yet. Check: launchctl list | grep memory-server"
-    fi
-
-    # Create collections with sparse_vectors
-    echo ""
-    echo "Creating Qdrant collections..."
-    for col in automem conversations mem0_memories; do
-        curl -s -X DELETE "http://127.0.0.1:6333/collections/$col" &>/dev/null || true
-        curl -s -X PUT "http://127.0.0.1:6333/collections/$col" \
-            -H "Content-Type: application/json" \
-            -d '{"vectors":{"size":1024,"distance":"Cosine"},"sparse_vectors":{"text":{"index":{"type":"bm25"}}}}' \
-            &>/dev/null
-        if [ $? -eq 0 ]; then
-            echo "  ✓ $col (dense=1024d + sparse=BM25)"
-        else
-            echo "  ⚠ Failed to create $col"
-        fi
-    done
-else
-    echo "  ⚠ Non-macOS platform. Start Qdrant manually."
-fi
-
-# ── Install 1MCP Gateway ──────────────────────────────────────────
-
-echo ""
-echo "Setting up 1MCP Gateway..."
-
-# Check Node.js (prerequisite)
-GATEWAY_AVAILABLE=true
-if command -v node &>/dev/null; then
-    NODE_CMD=$(command -v node)
-    NODE_VERSION=$(node --version 2>/dev/null | sed 's/v//')
-    NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-    echo "  ✓ Node.js v$NODE_VERSION"
-    if [ "$NODE_MAJOR" -lt 18 ] 2>/dev/null; then
-        echo "  ⚠ Node.js 18+ required, found v$NODE_VERSION"
-        GATEWAY_AVAILABLE=false
-    fi
-else
-    echo "  ⚠ Node.js not found. Installing via Homebrew..."
-    if command -v brew &>/dev/null; then
-        brew install node 2>&1 | tail -3
-        if command -v node &>/dev/null; then
-            NODE_CMD=$(command -v node)
-            echo "  ✓ Node.js installed: $(node --version)"
-        else
-            echo "  ✗ Node.js install failed. Gateway cannot be installed."
-            GATEWAY_AVAILABLE=false
-        fi
-    else
-        echo "  ✗ Homebrew not found. Install Node.js manually and run again."
-        GATEWAY_AVAILABLE=false
-    fi
-fi
-
-# Check npm
-if [ "$GATEWAY_AVAILABLE" = "true" ]; then
-    if ! command -v npm &>/dev/null; then
-        echo "  ✗ npm not found. Required for gateway installation."
-        GATEWAY_AVAILABLE=false
-    fi
-fi
-
-if [ "$GATEWAY_AVAILABLE" = "true" ]; then
-    # Install 1mcp globally via npm (handles all dependencies)
-    if command -v 1mcp &>/dev/null; then
-        echo "  ✓ 1mcp already installed globally ($(1mcp --version 2>/dev/null || echo 'unknown'))"
-    else
-        echo "  → Installing @1mcp/agent globally..."
-        npm install -g @1mcp/agent 2>&1 | tail -1
-        if command -v 1mcp &>/dev/null; then
-            echo "  ✓ 1mcp installed: $(which 1mcp)"
-        else
-            echo "  ⚠ 1mcp install may have failed. Continuing anyway."
-        fi
-    fi
-
-    # Copy mcp.json (generated earlier) to global config
-    mkdir -p "$HOME/.config/1mcp"
-    cp "$INSTALL_DIR/config/mcp.json" "$HOME/.config/1mcp/mcp.json"
-    echo "  ✓ mcp.json → $HOME/.config/1mcp/mcp.json"
-
-    # Find the actual node binary (launchd needs absolute paths, can't resolve shebangs)
-    if command -v node &>/dev/null; then
-        GATEWAY_NODE=$(command -v node)
-    elif [ -f "/opt/homebrew/bin/node" ]; then
-        GATEWAY_NODE="/opt/homebrew/bin/node"
-    else
-        GATEWAY_NODE="$NODE_CMD"
-    fi
-
-    # Find the 1mcp binary
-    if command -v 1mcp &>/dev/null; then
-        GATEWAY_BIN=$(command -v 1mcp)
-        # Check if it's a shell wrapper (nvm style) with #!/usr/bin/env node shebang
-        FIRST_LINE=$(head -1 "$GATEWAY_BIN" 2>/dev/null || echo "")
-        if echo "$FIRST_LINE" | grep -q "env node"; then
-            # It's a wrapper script — call node directly with the script path
-            GATEWAY_EXEC="$GATEWAY_NODE"
-            GATEWAY_ARGS=("$GATEWAY_BIN" "serve" "--port" "3050" "--enable-config-reload" "false")
-        else
-            # It's a standalone binary
-            GATEWAY_EXEC="$GATEWAY_BIN"
-            GATEWAY_ARGS=("serve" "--port" "3050" "--enable-config-reload" "false")
-        fi
-    else
-        # Fallback: try to find build/index.js in global node_modules
-        GLOBAL_PREFIXES=("$(npm root -g 2>/dev/null)/@1mcp/agent/build/index.js")
-        GATEWAY_EXEC="$GATEWAY_NODE"
-        for p in "${GLOBAL_PREFIXES[@]}"; do
-            if [ -f "$p" ]; then
-                GATEWAY_ARGS=("$p" "serve" "--port" "3050" "--enable-config-reload" "false")
-                break
-            fi
+        echo "  ✓ Qdrant running"
+        for col in automem conversations mem0_memories; do
+            curl -s -X DELETE "http://127.0.0.1:6333/collections/$col" &>/dev/null || true
+            curl -s -X PUT "http://127.0.0.1:6333/collections/$col" \
+                -H "Content-Type: application/json" \
+                -d "{\"vectors\":{\"size\":$EMBEDDING_DIM,\"distance\":\"Cosine\"},\"sparse_vectors\":{\"text\":{\"index\":{\"type\":\"bm25\"}}}}" \
+                &>/dev/null && echo "  ✓ Collection $col ($EMBEDDING_DIMd + BM25)"
         done
-        if [ -z "${GATEWAY_ARGS+x}" ]; then
-            echo "  ⚠ 1mcp binary not found. Gateway service will not start."
-            GATEWAY_AVAILABLE=false
-        fi
+    else
+        echo "  ⚠ Qdrant not responding yet"
     fi
-fi
 
-if [ "$GATEWAY_AVAILABLE" = "true" ]; then
-    GATEWAY_NODE_DIR=$(dirname "$GATEWAY_NODE")
-    NODE_PATH_FOR_GW="$(dirname "$GATEWAY_BIN"):$GATEWAY_NODE_DIR"
+    # --- Gateway (if Node.js available) ---
+    GATEWAY_AVAILABLE=false
+    if command -v node &>/dev/null && command -v 1mcp &>/dev/null; then
+        GATEWAY_AVAILABLE=true
+        GATEWAY_EXEC=$(command -v node)
+        GATEWAY_BIN=$(command -v 1mcp)
+        NODE_DIR=$(dirname "$GATEWAY_EXEC")
+        BIN_DIR=$(dirname "$GATEWAY_BIN")
 
-    # Create gateway launchd service
-    cat > "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" << PLIST
+        cat > "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" << GWPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key><string>com.memory-server.gateway</string>
-    <key>ProgramArguments</key>
-    <array>
+    <key>ProgramArguments</key><array>
         <string>$GATEWAY_EXEC</string>
-PLIST
-
-    for arg in "${GATEWAY_ARGS[@]}"; do
-        echo "        <string>$arg</string>" >> "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist"
-    done
-
-    cat >> "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" << PLIST
+        <string>$GATEWAY_BIN</string>
+        <string>serve</string>
+        <string>--port</string><string>3050</string>
+        <string>--enable-config-reload</string><string>false</string>
     </array>
     <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
     <key>StandardOutPath</key><string>$HOME/.memory/gateway.log</string>
     <key>StandardErrorPath</key><string>$HOME/.memory/gateway-error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>ONE_MCP_CONFIG</key>
-        <string>$HOME/.config/1mcp/mcp.json</string>
-        <key>PATH</key>
-        <string>$NODE_PATH_FOR_GW:/usr/bin:/usr/local/bin:/opt/homebrew/bin</string>
+    <key>EnvironmentVariables</key><dict>
+        <key>ONE_MCP_CONFIG</key><string>$INSTALL_DIR/config/mcp.json</string>
+        <key>PATH</key><string>$BIN_DIR:$NODE_DIR:/usr/bin:/usr/local/bin:/opt/homebrew/bin</string>
     </dict>
-    <key>ThrottleInterval</key>
-    <integer>5</integer>
 </dict>
 </plist>
-PLIST
+GWPLIST
 
-    # Create start-gateway.sh for manual use
-    cat > "$INSTALL_DIR/start-gateway.sh" << SCRIPT
-#!/bin/bash
-export ONE_MCP_CONFIG="$HOME/.config/1mcp/mcp.json"
-export MEMORY_SERVER_DIR="$INSTALL_DIR"
-export PATH="$NODE_PATH_FOR_GW:/usr/bin:/usr/local/bin:/opt/homebrew/bin:\$PATH"
-cd "$INSTALL_DIR"
-exec $GATEWAY_EXEC ${GATEWAY_ARGS[*]}
-SCRIPT
-    chmod +x "$INSTALL_DIR/start-gateway.sh"
+        # Copy mcp.json to global config
+        mkdir -p "$HOME/.config/1mcp"
+        cp "$INSTALL_DIR/config/mcp.json" "$HOME/.config/1mcp/mcp.json"
 
-    # Remove old dev gateway if present
-    launchctl unload "$HOME/Library/LaunchAgents/com.memory.mcp-gateway.plist" 2>/dev/null || true
-    rm -f "$HOME/Library/LaunchAgents/com.memory.mcp-gateway.plist" 2>/dev/null || true
-
-    # Load new gateway
-    launchctl unload "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" 2>/dev/null || true
-    launchctl load "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist"
-    echo "  ✓ Gateway service installed"
-
-    # Wait for gateway
-    echo ""
-    echo "Waiting for Gateway to start..."
-    GATEWAY_HEALTHY=false
-    for i in $(seq 1 20); do
-        if curl -s --connect-timeout 2 http://127.0.0.1:3050/health &>/dev/null; then
-            HEALTHY=$(curl -s http://127.0.0.1:3050/health 2>/dev/null | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(f\"{d['servers']['healthy']}/{d['servers']['total']}\")
-except: print('0/0')
-" 2>/dev/null)
-            echo "  ✓ Gateway running on http://127.0.0.1:3050 ($HEALTHY servers)"
-            GATEWAY_HEALTHY=true
-            break
-        fi
-        sleep 1
-    done
-    if [ "$GATEWAY_HEALTHY" != "true" ]; then
-        echo "  ⚠ Gateway not ready yet. Starting manually..."
-        "$INSTALL_DIR/start-gateway.sh" &>/dev/null &
-        sleep 12
-        if curl -s --connect-timeout 3 http://127.0.0.1:3050/health &>/dev/null; then
-            echo "  ✓ Gateway started manually"
-            GATEWAY_HEALTHY=true
-        else
-            echo "  ⚠ Gateway still not responding. Check: $HOME/.memory/gateway-error.log"
-        fi
+        launchctl unload "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" 2>/dev/null || true
+        launchctl load "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist"
+        echo "  ✓ Gateway service installed (port 3050)"
+    else
+        echo "  ⚠ Gateway skipped (install Node.js 18+ and run: npm install -g @1mcp/agent)"
     fi
+fi
+
+# ══════════════════════════════════════════════════════════════════
+# PHASE 9: Verification
+# ══════════════════════════════════════════════════════════════════
+
+echo ""
+echo "── Phase 9: Verification ─────────────────────────────────────"
+echo ""
+
+ERRORS=0
+
+# Check directory structure
+for dir in src/shared src/automem/server src/autodream/server src/vk-cache/server \
+           src/conversation-store/server src/mem0/server src/engram/server \
+           src/sequential-thinking/server src//server src//server \
+           config vault models engine/bin scripts; do
+    if [ -d "$INSTALL_DIR/$dir" ]; then
+        echo "  ✓ $dir/"
+    else
+        echo "  ✗ $dir/ MISSING"
+        ERRORS=$((ERRORS+1))
+    fi
+done
+
+# Check critical files
+for f in src/shared/__init__.py src/shared/embedding.py src/shared/env_loader.py \
+         config/.env config/mcp.json; do
+    if [ -f "$INSTALL_DIR/$f" ]; then
+        echo "  ✓ $f"
+    else
+        echo "  ✗ $f MISSING"
+        ERRORS=$((ERRORS+1))
+    fi
+done
+
+# Check Python can import shared module
+cd "$INSTALL_DIR"
+if PYTHONPATH="$INSTALL_DIR/src" "$PYTHON_VENV" -c "
+from shared.env_loader import load_env
+print('  ✓ Python imports work')
+" 2>/dev/null; then
+    :
 else
-    echo ""
-    echo "  ⚠ Gateway skipped (Node.js unavailable)"
-    echo "    The MCP servers work standalone. Install Node.js 18+ later and run:"
-    echo "    npm install -g @1mcp/agent"
-    echo "    Then copy $INSTALL_DIR/config/mcp.json to ~/.config/1mcp/mcp.json"
+    echo "  ✗ Python import FAILED"
+    ERRORS=$((ERRORS+1))
 fi
 
-# ── Copy tools database ───────────────────────────────────────────
-
-if [ -f "$SCRIPT_DIR/tools.db" ]; then
-    mkdir -p "$INSTALL_DIR/tests/e2e"
-    cp "$SCRIPT_DIR/tools.db" "$INSTALL_DIR/tests/e2e/tools.db"
-    echo "  ✓ AI tools database copied ($(sqlite3 "$INSTALL_DIR/tests/e2e/tools.db" 'SELECT COUNT(*) FROM tools;' 2>/dev/null || echo '?') tools)"
-fi
-
-# ── MCP Client Config Helper ──────────────────────────────────────
-
-cat > "$INSTALL_DIR/show-mcp-config.sh" << 'SHOWSCRIPT'
-#!/bin/bash
-# Show MCP client configuration for all supported agents
-GATEWAY_URL="${1:-http://127.0.0.1:3050/mcp}"
-
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║   MCP Memory Server — Client Configuration              ║"
-echo "╚══════════════════════════════════════════════════════════╝"
-echo ""
-echo "Gateway: $GATEWAY_URL"
-echo ""
-
-echo "┌─── Claude Code ──────────────────────────────────────────┐"
-echo "│ File: ~/.claude/mcp/memory.json                          │"
-cat << 'EOF'
-│ {
-│   "mcpServers": {
-│     "memory": {
-│       "command": "curl",
-│       "args": ["-s", "-X", "POST", "http://127.0.0.1:3050/mcp"]
-│     }
-│   }
-│ }
-│
-│ Or via URL (Claude Code 2026+):
-│ {
-│   "mcpServers": {
-│     "memory": {
-│       "url": "http://127.0.0.1:3050/mcp",
-│       "type": "http"
-│     }
-│   }
-│ }
-EOF
-echo "└────────────────────────────────────────────────────────────┘"
-echo ""
-
-echo "┌─── OpenCode ──────────────────────────────────────────────┐"
-echo "│ File: ~/.config/opencode/opencode.json  → add to mcp:   │"
-cat << 'EOF'
-│ {
-│   "mcp": {
-│     "memory": {
-│       "enabled": true,
-│       "type": "remote",
-│       "url": "http://127.0.0.1:3050/mcp"
-│     }
-│   }
-│ }
-EOF
-echo "└────────────────────────────────────────────────────────────┘"
-echo ""
-
-echo "┌─── Cursor ─────────────────────────────────────────────────┐"
-echo "│ File: <project>/.cursor/mcp.json                          │"
-cat << 'EOF'
-│ {
-│   "mcpServers": {
-│     "memory": {
-│       "url": "http://127.0.0.1:3050/mcp",
-│       "type": "http"
-│     }
-│   }
-│ }
-EOF
-echo "└────────────────────────────────────────────────────────────┘"
-echo ""
-
-echo "┌─── VS Code Copilot ───────────────────────────────────────┐"
-echo "│ File: <workspace>/.vscode/mcp.json                        │"
-cat << 'EOF'
-│ {
-│   "servers": {
-│     "memory": {
-│       "type": "http",
-│       "url": "http://127.0.0.1:3050/mcp"
-│     }
-│   }
-│ }
-EOF
-echo "└────────────────────────────────────────────────────────────┘"
-echo ""
-
-echo "┌─── Generic (STDIO via 1mcp) ─────────────────────────────┐"
-echo "│ Any MCP-compatible client can connect via HTTP:          │"
-echo "│   URL: http://127.0.0.1:3050/mcp                         │"
-echo "│   Transport: HTTP/SSE                                    │"
-echo "│   Tools: 45 across 7 servers                             │"
-echo "└────────────────────────────────────────────────────────────┘"
-SHOWSCRIPT
-chmod +x "$INSTALL_DIR/show-mcp-config.sh"
-
-# ── Summary ───────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# Summary
+# ══════════════════════════════════════════════════════════════════
 
 TOTAL_SIZE=$(du -sh "$INSTALL_DIR" 2>/dev/null | awk '{print $1}')
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║   Installation Complete!                                 ║"
+if [ $ERRORS -eq 0 ]; then
+    echo "║   ✅ Installation Complete!                              ║"
+else
+    echo "║   ⚠️  Installation Complete ($ERRORS warnings)             ║"
+fi
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Location:    $INSTALL_DIR ($TOTAL_SIZE)"
+echo "  Layout:      src/ (servers + shared are siblings)"
 echo "  Qdrant:      http://127.0.0.1:6333"
-if [ "${GATEWAY_HEALTHY:-false}" = "true" ]; then
+if [ "$GATEWAY_AVAILABLE" = "true" ]; then
     echo "  Gateway:     http://127.0.0.1:3050"
 fi
 echo "  Vault:       $INSTALL_DIR/vault/"
 echo "  Config:      $INSTALL_DIR/config/.env"
-echo "  MCP Config:  $HOME/.config/1mcp/mcp.json"
 echo ""
-echo "  ┌─ Connect your AI agent ──────────────────────────────┐"
-echo "  │  Claude Code  → ~/.claude/mcp/memory.json            │"
-echo "  │  OpenCode     → add to ~/.config/opencode/opencode   │"
-echo "  │  Cursor       → <project>/.cursor/mcp.json           │"
-echo "  │  VS Code      → <workspace>/.vscode/mcp.json         │"
-echo "  │                                                      │"
-echo "  │  Endpoint: http://127.0.0.1:3050/mcp                 │"
-echo "  │  Type: http (SSE transport)                          │"
-echo "  │  Tools: 45 across 7 servers                          │"
-echo "  └──────────────────────────────────────────────────────┘"
+echo "  Services:"
+echo "    launchctl list | grep memory-server"
 echo ""
-echo "  Quick config: $INSTALL_DIR/show-mcp-config.sh"
+echo "  Connect agents:"
+echo "    URL:  http://127.0.0.1:3050/mcp"
+echo "    Type: http (SSE transport)"
 echo ""
-echo "  To restart services:"
-echo "    launchctl stop com.memory-server.qdrant && launchctl start com.memory-server.qdrant"
-if [ "${GATEWAY_AVAILABLE:-true}" = "true" ]; then
-    echo "    launchctl stop com.memory-server.gateway && launchctl start com.memory-server.gateway"
-fi
+echo "  Manual start:"
+echo "    $INSTALL_DIR/scripts/start-all.sh"

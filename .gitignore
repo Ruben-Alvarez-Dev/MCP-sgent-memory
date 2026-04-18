@@ -26,6 +26,9 @@ MCP-servers/shared/qdrant/data/
 # ── Build Dependencies (cloned at install time) ──────────────────
 llama.cpp/
 
+# ── Build output ─────────────────────────────────────────────────
+dist/
+
 # ── Staging / Production Copies ──────────────────────────────────
 staging/
 
@@ -58,3 +61,10 @@ $HOME/
 
 # ── 1mcp-agent (vendored — installed separately) ────────────────
 1mcp-agent/
+
+# ── Dev / temp folders ───────────────────────────────────────────
+.atl/
+.ralph/
+
+# ── Data (auto-created, local) ──────────────────────────────────
+data/

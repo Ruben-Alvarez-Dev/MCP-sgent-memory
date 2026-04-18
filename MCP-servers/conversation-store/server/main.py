@@ -19,7 +19,20 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Bootstrap: find project root dynamically ──────────────────────
+_script_dir = Path(__file__).resolve().parent
+_project_root = None
+for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
+    if (_candidate / "shared" / "__init__.py").exists():
+        _project_root = _candidate
+        break
+if _project_root is None:
+    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
+    if _env_dir and Path(_env_dir).exists():
+        _project_root = Path(_env_dir)
+if _project_root and str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from shared.env_loader import load_env
 load_env()
 

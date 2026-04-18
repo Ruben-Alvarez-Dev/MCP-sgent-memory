@@ -34,7 +34,7 @@ class MetricsStore:
     def __init__(self):
         self._calls: list[dict] = []
         self._listeners: list[Callable] = []
-        self._log_dir = Path(os.path.expanduser("~/.memory/observe"))
+        self._log_dir = Path(os.getenv("OBSERVE_LOG_DIR", os.path.join(os.getenv("LOG_DIR", "."), "observe")))
         self._log_dir.mkdir(parents=True, exist_ok=True)
 
     @property

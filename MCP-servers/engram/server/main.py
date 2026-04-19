@@ -108,7 +108,10 @@ async def save_decision(
     _ensure_engram_path()
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    filename = f"{title.lower().replace(' ', '-')}.md"
+    # Sanitize filename: remove chars invalid on any OS
+    import re
+    safe_title = re.sub(r'[<>:"/\\|?*]', '', title.lower().replace(' ', '-'))
+    filename = f"{safe_title}.md"
 
     filepath = Path(ENGRAM_PATH) / scope / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)

@@ -155,10 +155,14 @@ async def search_memory(
     vector = await embed_text(query)
     await ensure_collection()
 
+    search_body = {"vector": vector, "limit": limit, "with_payload": True}
+    if user_id:
+        search_body["filter"] = {"must": [{"key": "user_id", "match": {"value": user_id}}]}
+
     async with httpx.AsyncClient() as hc:
         resp = await hc.post(
             f"{QDRANT_URL}/collections/{COLLECTION}/points/search",
-            json={"vector": vector, "limit": limit, "with_payload": True},
+            json=search_body,
         )
         resp_data = resp.json().get("result", [])
         points = resp_data if isinstance(resp_data, list) else resp_data.get("result", [])

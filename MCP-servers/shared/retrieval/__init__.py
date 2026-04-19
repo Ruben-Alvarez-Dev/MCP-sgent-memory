@@ -219,8 +219,8 @@ async def _retrieve_hybrid(
 ) -> list[ContextItem]:
     """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
 
-    Uses Qdrant v1.13 /points/query endpoint for true hybrid search.
-    Falls back gracefully on older versions or missing sparse indexes.
+    Uses /points/search (returns proper scores in Qdrant v1.13).
+    Sparse BM25 is applied as a second pass when available.
     """
     query_text = (
         " ".join(intent.entities)
@@ -240,46 +240,7 @@ async def _retrieve_hybrid(
     results: list[ContextItem] = []
 
     async with httpx.AsyncClient() as client:
-        # ── Hybrid: Dense + Sparse via /points/query (Qdrant v1.13+) ──
-        try:
-            vector = get_embedding(query_text)
-            sparse = bm25_tokenize(query_text)
-
-            body = {
-                "vector": vector,
-                "limit": k,
-                "with_payload": True,
-            }
-            # Add sparse if we have tokens
-            if sparse["indices"]:
-                body["sparse_vector"] = {"name": "text", "vector": sparse}
-            if search_filter:
-                body["filter"] = search_filter
-
-            # Try /points/query first (hybrid endpoint)
-            resp = await client.post(
-                f"{QDRANT_URL}/collections/{target_coll}/points/query", json=body
-            )
-            if resp.status_code == 200:
-                points = resp.json().get("result", {}).get("points", [])
-                for p in points:
-                    payload = p.get("payload", {})
-                    score = p.get("score", 0)
-                    results.append(
-                        ContextItem(
-                            content=payload.get("content", ""),
-                            source_level=payload.get("layer", level or 1),
-                            source_name=target_coll,
-                            score=score,
-                            metadata=payload,
-                            timestamp=_parse_ts(payload.get("created_at")),
-                        )
-                    )
-                return results
-        except Exception:
-            pass
-
-        # ── Fallback: Dense-only via /points/search ──
+        # ── 1. Dense search via /points/search (reliable scores) ──
         try:
             vector = get_embedding(query_text)
             body = {

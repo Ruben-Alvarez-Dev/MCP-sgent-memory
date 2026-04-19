@@ -1,0 +1,90 @@
+{
+  "mcpServers": {
+    "automem": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/automem/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}",
+        "QDRANT_URL": "{{QDRANT_URL}}",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "{{LLAMA_SERVER_URL}}",
+        "EMBEDDING_DIM": "1024"
+      },
+      "tags": ["memory", "ingest"],
+      "disabled": false
+    },
+    "autodream": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/autodream/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}",
+        "QDRANT_URL": "{{QDRANT_URL}}",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "{{LLAMA_SERVER_URL}}",
+        "LLM_BACKEND": "{{LLM_BACKEND}}",
+        "LLM_MODEL": "{{LLM_MODEL}}"
+      },
+      "tags": ["memory", "consolidation"],
+      "disabled": false
+    },
+    "vk-cache": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/vk-cache/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}",
+        "QDRANT_URL": "{{QDRANT_URL}}",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "{{LLAMA_SERVER_URL}}"
+      },
+      "tags": ["memory", "retrieval"],
+      "disabled": false
+    },
+    "conversation-store": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/conversation-store/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}",
+        "QDRANT_URL": "{{QDRANT_URL}}"
+      },
+      "tags": ["memory", "conversations"],
+      "disabled": false
+    },
+    "mem0": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/mem0/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}",
+        "QDRANT_URL": "{{QDRANT_URL}}",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "{{LLAMA_SERVER_URL}}"
+      },
+      "tags": ["memory", "semantic"],
+      "disabled": false
+    },
+    "engram": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/engram/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}"
+      },
+      "tags": ["memory", "decisions", "vault"],
+      "disabled": false
+    },
+    "sequential-thinking": {
+      "command": "{{DIR}}/.venv/bin/python3",
+      "args": ["-u", "{{DIR}}/src/sequential-thinking/server/main.py"],
+      "env": {
+        "PYTHONPATH": "{{DIR}}/src",
+        "MEMORY_SERVER_DIR": "{{DIR}}"
+      },
+      "tags": ["reasoning", "planning"],
+      "disabled": false
+    }
+  }
+}

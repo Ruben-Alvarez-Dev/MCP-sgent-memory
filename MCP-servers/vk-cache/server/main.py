@@ -30,19 +30,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -79,13 +68,11 @@ MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "8000"))
 _reminders_path = Path(os.getenv("REMINDERS_PATH", str(_project_root / "data" / "memory" / "reminders") if _project_root else ""))
 _reminders_path.mkdir(parents=True, exist_ok=True)
 
-
 # ── Embedding ─────────────────────────────────────────────────────
 
 async def embed_text(text: str) -> list[float]:
     """Generate embedding via configured backend."""
     return await async_embed(text)
-
 
 # ── Retrieval from all sources ─────────────────────────────────────
 
@@ -120,7 +107,6 @@ async def search_qdrant(query: str, limit: int = 10) -> list[dict]:
             for p in points
         ]
 
-
 async def search_engram(query: str, limit: int = 5) -> list[dict]:
     """Search Engram (filesystem-based semantic memory)."""
     engram_path = Path(os.getenv("ENGRAM_PATH", str(_project_root / "data" / "memory" / "engram") if _project_root else ""))
@@ -147,7 +133,6 @@ async def search_engram(query: str, limit: int = 5) -> list[dict]:
 
     return results[:limit]
 
-
 async def _compress_results(results: list[dict], max_items: int) -> list[dict]:
     """Deduplicate and rank results."""
     seen: set[str] = set()
@@ -160,7 +145,6 @@ async def _compress_results(results: list[dict], max_items: int) -> list[dict]:
 
     unique.sort(key=lambda x: x["score"], reverse=True)
     return unique[:max_items]
-
 
 def _build_summary(results: list[dict]) -> str:
     """Build a compressed briefing from ranked results."""
@@ -176,11 +160,9 @@ def _build_summary(results: list[dict]) -> str:
         )
     return "\n".join(parts)
 
-
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate (4 chars ≈ 1 token)."""
     return len(text) // 4
-
 
 def _maybe_repo_section(query: str) -> dict[str, Any] | None:
     repo_map = get_repo_map(query)
@@ -197,13 +179,11 @@ def _maybe_repo_section(query: str) -> dict[str, Any] | None:
         "repo_map": repo_map,
     }
 
-
 # ── Reminder tracking ─────────────────────────────────────────────
 
 def _save_reminder(reminder: ContextReminder):
     path = _reminders_path / f"{reminder.reminder_id}.json"
     path.write_text(reminder.model_dump_json(indent=2))
-
 
 def _get_active_reminders(agent_id: str) -> list[ContextReminder]:
     reminders = []
@@ -214,9 +194,7 @@ def _get_active_reminders(agent_id: str) -> list[ContextReminder]:
             reminders.append(reminder)
     return reminders
 
-
 # ── Public MCP Tools (Bidirectional Protocol) ─────────────────────
-
 
 @mcp.tool()
 async def request_context(
@@ -328,7 +306,6 @@ async def request_context(
         },
     }, indent=2)
 
-
 # ── Architect Code Maps (SPEC-5.1) ───────────────────────────────
 
 async def _architect_code_maps(query: str, token_budget: int) -> list[dict]:
@@ -380,7 +357,6 @@ async def _architect_code_maps(query: str, token_budget: int) -> list[dict]:
         pass
     return sections
 
-
 @mcp.tool()
 async def check_reminders(agent_id: str = "default") -> str:
     """Check if there are pending context reminders for this agent."""
@@ -406,7 +382,6 @@ async def check_reminders(agent_id: str = "default") -> str:
         "reminders": result,
         "count": len(result),
     }, indent=2)
-
 
 @mcp.tool()
 async def push_reminder(
@@ -460,7 +435,6 @@ async def push_reminder(
         "sources": len(sources),
     }, indent=2)
 
-
 @mcp.tool()
 async def dismiss_reminder(reminder_id: str) -> str:
     """Dismiss a reminder — the LLM used it or it's not relevant."""
@@ -469,7 +443,6 @@ async def dismiss_reminder(reminder_id: str) -> str:
         path.unlink()
         return json.dumps({"status": "dismissed", "reminder_id": reminder_id}, indent=2)
     return json.dumps({"status": "not_found", "reminder_id": reminder_id}, indent=2)
-
 
 @mcp.tool()
 async def detect_context_shift(
@@ -530,7 +503,6 @@ async def detect_context_shift(
 
     return json.dumps(result, indent=2)
 
-
 @mcp.tool()
 async def status() -> str:
     """Show vk-cache router status."""
@@ -572,7 +544,6 @@ async def status() -> str:
         },
         "note": "Bidirectional protocol: LLM can pull, system can push",
     }, indent=2)
-
 
 @mcp.tool()
 async def verify_compliance_tool(
@@ -622,10 +593,8 @@ async def verify_compliance_tool(
         "violations": violations,
     }, indent=2)
 
-
 def main() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

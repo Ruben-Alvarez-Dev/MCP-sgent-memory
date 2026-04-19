@@ -23,19 +23,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -68,7 +57,6 @@ def get_mem0_client():
             print("mem0ai not installed — falling back to Qdrant direct mode", file=sys.stderr)
     return _memory_client
 
-
 # ── Helpers ────────────────────────────────────────────────────────
 
 async def ensure_collection():
@@ -82,14 +70,11 @@ async def ensure_collection():
                     "sparse_vectors": {"text": {"index": {"type": "bm25"}}}},
             )
 
-
 async def embed_text(text: str) -> list[float]:
     """Generate embedding via configured backend."""
     return await async_embed(text)
 
-
 # ── Public MCP Tools ──────────────────────────────────────────────
-
 
 @mcp.tool()
 async def add_memory(
@@ -144,7 +129,6 @@ async def add_memory(
 
     return json.dumps({"status": "stored", "point_id": point["id"], "backend": "qdrant_direct"}, indent=2)
 
-
 @mcp.tool()
 async def search_memory(
     query: str,
@@ -188,7 +172,6 @@ async def search_memory(
 
     return json.dumps({"backend": "qdrant_direct", "results": results}, indent=2)
 
-
 @mcp.tool()
 async def get_all_memories(user_id: str = DEFAULT_USER, limit: int = 50) -> str:
     """List all stored memories."""
@@ -226,7 +209,6 @@ async def get_all_memories(user_id: str = DEFAULT_USER, limit: int = 50) -> str:
 
     return json.dumps({"backend": "qdrant_direct", "count": len(results), "results": results}, indent=2)
 
-
 @mcp.tool()
 async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> str:
     """Delete a specific memory."""
@@ -236,7 +218,6 @@ async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> str:
         return json.dumps({"status": "deleted", "memory_id": memory_id, "backend": "mem0"}, indent=2)
 
     return json.dumps({"status": "not_supported", "message": "Direct Qdrant delete not implemented"}, indent=2)
-
 
 @mcp.tool()
 async def status() -> str:
@@ -258,10 +239,8 @@ async def status() -> str:
         "default_user": DEFAULT_USER,
     }, indent=2)
 
-
 def main() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

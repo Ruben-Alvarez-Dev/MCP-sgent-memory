@@ -26,19 +26,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -63,7 +52,6 @@ async def _embed_text(text: str) -> list[float]:
         return await async_embed(text)
     except Exception:
         return []  # Fallback: empty vector, Qdrant will still store payload
-
 
 async def llm_summarize(texts: list[str], prompt: str = "") -> str:
     """Summarize texts using the configured LLM backend. Falls back to concat if unavailable."""
@@ -121,7 +109,6 @@ def _load_state() -> dict:
 def _save_state(state: dict):
     _state_path.write_text(json.dumps(state, indent=2))
 
-
 # ── Qdrant helpers ─────────────────────────────────────────────────
 
 async def query_memories(layer: MemoryLayer, limit: int = 50, scope: str = "") -> list[dict]:
@@ -148,7 +135,6 @@ async def query_memories(layer: MemoryLayer, limit: int = 50, scope: str = "") -
         points = resp_data.get("points", []) if isinstance(resp_data, dict) else resp_data
         return [p["payload"] for p in points if p.get("payload")]
 
-
 async def update_memory(memory_id: str, updates: dict):
     """Update a memory item in Qdrant."""
     async with httpx.AsyncClient() as client:
@@ -166,9 +152,7 @@ async def update_memory(memory_id: str, updates: dict):
             json={"points": [{"id": memory_id, "vector": existing.get("vector", []), "payload": payload}]},
         )
 
-
 # ── Consolidation Jobs ─────────────────────────────────────────────
-
 
 async def promote_l1_to_l2(turn_count: int, state: dict):
     """Working → Episodic: group related steps into episodes."""
@@ -176,11 +160,9 @@ async def promote_l1_to_l2(turn_count: int, state: dict):
         return None
     return await _do_promote_l1_to_l2(state)
 
-
 async def _force_promote_l1_to_l2(state: dict):
     """Force L1→L2 promotion regardless of thresholds."""
     return await _do_promote_l1_to_l2(state, mark_promoted=True)
-
 
 async def _do_promote_l1_to_l2(state: dict, mark_promoted: bool = False) -> str | None:
 
@@ -237,18 +219,15 @@ async def _do_promote_l1_to_l2(state: dict, mark_promoted: bool = False) -> str 
     state["last_promote_l1_l2"] = state.get("turn_count", 0)
     return f"Created {len(episodes)} episodes from working memory" if episodes else None
 
-
 async def _force_promote_l2_to_l3(state: dict, now: float):
     """Force L2→L3 regardless of time threshold."""
     return await _do_promote_l2_to_l3(state, now)
-
 
 async def promote_l2_to_l3(state: dict, now: float):
     """Episodic → Semantic: extract decisions, entities, patterns."""
     if now - state["last_promote_l2_l3"] < PROMOTE_L2_TO_L3:
         return None
     return await _do_promote_l2_to_l3(state, now)
-
 
 async def _do_promote_l2_to_l3(state: dict, now: float) -> str | None:
 
@@ -296,7 +275,6 @@ async def _do_promote_l2_to_l3(state: dict, now: float) -> str | None:
     state["last_promote_l2_l3"] = now
     state["total_consolidated"] += 1
     return f"Consolidated {len(episodes)} episodes into semantic memory"
-
 
 async def promote_l3_to_l4(state: dict, now: float):
     """Semantic → Consolidated: narratives and summaries."""
@@ -347,7 +325,6 @@ async def promote_l3_to_l4(state: dict, now: float):
     state["total_consolidated"] += 1
     return "Created consolidated narrative"
 
-
 async def dream_cycle(state: dict, now: float):
     """Weekly deep dream — pattern detection across all layers."""
     if now - state["last_dream"] < PROMOTE_L4_DREAM:
@@ -396,7 +373,6 @@ async def dream_cycle(state: dict, now: float):
     state["last_dream"] = now
     state["total_dreams"] += 1
     return "Dream cycle complete"
-
 
 async def _mine_diff_patterns() -> str | None:
     """SPEC-6.1: Mine diff events for autoaprendizaje patterns.
@@ -510,9 +486,7 @@ async def _mine_diff_patterns() -> str | None:
         return f"Diff mining: {', '.join(patterns)}"
     return None
 
-
 # ── Public MCP Tools ──────────────────────────────────────────────
-
 
 @mcp.tool()
 async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> str:
@@ -557,7 +531,6 @@ async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> str:
         "consolidation_triggered": len(results) > 0,
         "consolidation_results": results if results else ["No consolidation due"],
     }, indent=2)
-
 
 @mcp.tool()
 async def consolidate(force: bool = False) -> str:
@@ -612,7 +585,6 @@ async def consolidate(force: bool = False) -> str:
         "state": state,
     }, indent=2)
 
-
 @mcp.tool()
 async def dream() -> str:
     """Trigger a deep dream cycle — pattern detection across all memory layers."""
@@ -627,7 +599,6 @@ async def dream() -> str:
         "status": result or "Skipped — not due for dream cycle",
         "total_dreams": state["total_dreams"],
     }, indent=2)
-
 
 @mcp.tool()
 async def status() -> str:
@@ -646,7 +617,6 @@ async def status() -> str:
         "note": "Daemon runs independently — consolidates even when LLM is disconnected",
     }, indent=2)
 
-
 @mcp.tool()
 async def get_consolidated(scope: str = "") -> str:
     """Get consolidated memories (L4)."""
@@ -656,7 +626,6 @@ async def get_consolidated(scope: str = "") -> str:
         "count": len(memories),
         "memories": memories,
     }, indent=2, default=str)
-
 
 @mcp.tool()
 async def get_semantic(scope: str = "") -> str:
@@ -668,10 +637,8 @@ async def get_semantic(scope: str = "") -> str:
         "memories": memories,
     }, indent=2, default=str)
 
-
 def main() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

@@ -17,19 +17,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -48,17 +37,14 @@ ENGRAM_PATH = os.path.expanduser(os.getenv(
     str(_project_root / "data" / "memory" / "engram") if _project_root else "",
 ))
 
-
 def _ensure_engram_path():
     Path(ENGRAM_PATH).mkdir(parents=True, exist_ok=True)
-
 
 def _get_engram_files() -> list[Path]:
     path = Path(ENGRAM_PATH)
     if not path.exists():
         return []
     return sorted(path.rglob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
-
 
 def _read_engram_file(filepath: Path) -> dict[str, Any]:
     content = filepath.read_text()
@@ -86,9 +72,7 @@ def _read_engram_file(filepath: Path) -> dict[str, Any]:
         "size": stat.st_size,
     }
 
-
 # ── Public MCP Tools ──────────────────────────────────────────────
-
 
 @mcp.tool()
 async def save_decision(
@@ -133,7 +117,6 @@ async def save_decision(
         "category": category,
         "scope": scope,
     }, indent=2)
-
 
 @mcp.tool()
 async def search_decisions(query: str, category: str = "", limit: int = 10) -> str:
@@ -182,7 +165,6 @@ async def search_decisions(query: str, category: str = "", limit: int = 10) -> s
     results.sort(key=lambda x: x["score"], reverse=True)
     return json.dumps({"query": query, "results": results[:limit]}, indent=2)
 
-
 @mcp.tool()
 async def get_decision(file_path: str) -> str:
     """Get a specific Engram memory by file path."""
@@ -192,7 +174,6 @@ async def get_decision(file_path: str) -> str:
 
     data = _read_engram_file(filepath)
     return json.dumps(data, indent=2)
-
 
 @mcp.tool()
 async def list_decisions(category: str = "", scope: str = "", limit: int = 20) -> str:
@@ -227,7 +208,6 @@ async def list_decisions(category: str = "", scope: str = "", limit: int = 20) -
 
     return json.dumps({"count": len(results), "results": results}, indent=2)
 
-
 @mcp.tool()
 async def delete_decision(file_path: str) -> str:
     """Delete an Engram memory."""
@@ -237,7 +217,6 @@ async def delete_decision(file_path: str) -> str:
 
     filepath.unlink()
     return json.dumps({"status": "deleted", "file": file_path}, indent=2)
-
 
 @mcp.tool()
 async def status() -> str:
@@ -254,10 +233,8 @@ async def status() -> str:
         "scopes": list({f.parent.name for f in files}) if files else [],
     }, indent=2)
 
-
 def main() -> None:
     mcp.run()
-
 
 # ── Vault MCP Tools ───────────────────────────────────────────────
 
@@ -299,7 +276,6 @@ async def vault_write(
         "filename": f"{filename}.md",
     }, indent=2)
 
-
 @mcp.tool()
 async def vault_process_inbox() -> str:
     """Process all notes in the Inbox — classify and move to proper folders."""
@@ -309,13 +285,11 @@ async def vault_process_inbox() -> str:
         "items": processed,
     }, indent=2)
 
-
 @mcp.tool()
 async def vault_integrity_check() -> str:
     """Run full integrity check on the vault."""
     report = _vault.integrity_check()
     return json.dumps(report, indent=2)
-
 
 @mcp.tool()
 async def vault_list_notes(folder: str = "") -> str:
@@ -340,7 +314,6 @@ async def vault_list_notes(folder: str = "") -> str:
                 })
     return json.dumps({"notes": notes, "total": len(notes)}, indent=2)
 
-
 @mcp.tool()
 async def vault_read_note(folder: str, filename: str) -> str:
     """Read a note from the vault.
@@ -360,16 +333,13 @@ async def vault_read_note(folder: str, filename: str) -> str:
         "content": path.read_text(encoding="utf-8"),
     }, indent=2)
 
-
 # ── Model Pack Tools (SPEC-2.2) ──────────────────────────────────
 
 _MODEL_PACKS_DIR = Path(ENGRAM_PATH) / "model-packs"
 
-
 def _get_packs_dir() -> Path:
     _MODEL_PACKS_DIR.mkdir(parents=True, exist_ok=True)
     return _MODEL_PACKS_DIR
-
 
 @mcp.tool()
 async def get_model_pack(name: str = "default") -> str:
@@ -405,7 +375,6 @@ async def get_model_pack(name: str = "default") -> str:
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
-
 @mcp.tool()
 async def list_model_packs() -> str:
     """List available model packs."""
@@ -424,7 +393,6 @@ async def list_model_packs() -> str:
         except Exception:
             packs.append({"name": f.stem, "filename": f.name, "error": "parse failed"})
     return json.dumps({"packs": packs, "total": len(packs)}, indent=2)
-
 
 @mcp.tool()
 async def set_model_pack(name: str, yaml_content: str) -> str:
@@ -455,7 +423,6 @@ async def set_model_pack(name: str, yaml_content: str) -> str:
         "path": str(pack_path),
         "roles": list(data.get("roles", {}).keys()),
     }, indent=2)
-
 
 if __name__ == "__main__":
     main()

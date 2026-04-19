@@ -19,19 +19,8 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -47,7 +36,6 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 COLLECTION = os.getenv("CONV_COLLECTION", "conversations")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
 
-
 # ── Helpers ────────────────────────────────────────────────────────
 
 async def ensure_collection():
@@ -61,14 +49,11 @@ async def ensure_collection():
                     "sparse_vectors": {"text": {"index": {"type": "bm25"}}}},
             )
 
-
 async def embed_text(text: str) -> list[float]:
     """Generate embedding via configured backend."""
     return await async_embed(text)
 
-
 # ── Public MCP Tools ──────────────────────────────────────────────
-
 
 @mcp.tool()
 async def save_conversation(
@@ -113,7 +98,6 @@ async def save_conversation(
 
     return json.dumps({"status": "saved", "thread_id": thread_id, "point_id": point["id"]}, indent=2)
 
-
 @mcp.tool()
 async def get_conversation(thread_id: str) -> str:
     """Get a conversation by thread_id."""
@@ -140,7 +124,6 @@ async def get_conversation(thread_id: str) -> str:
             "created_at": payload.get("created_at"),
             "message_count": payload.get("message_count", 0),
         }, indent=2)
-
 
 @mcp.tool()
 async def search_conversations(query: str, limit: int = 5) -> str:
@@ -172,7 +155,6 @@ async def search_conversations(query: str, limit: int = 5) -> str:
 
         return json.dumps({"query": query, "results": results}, indent=2)
 
-
 @mcp.tool()
 async def list_threads(limit: int = 20) -> str:
     """List recent conversation threads."""
@@ -196,7 +178,6 @@ async def list_threads(limit: int = 20) -> str:
 
         return json.dumps({"threads": threads, "total": len(threads)}, indent=2)
 
-
 @mcp.tool()
 async def status() -> str:
     """Show conversation store status."""
@@ -208,10 +189,8 @@ async def status() -> str:
     except Exception as e:
         return json.dumps({"status": "ERROR", "error": str(e)}, indent=2)
 
-
 def main() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

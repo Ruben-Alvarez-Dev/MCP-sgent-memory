@@ -20,19 +20,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-# ── Bootstrap: find project root dynamically ──────────────────────
-_script_dir = Path(__file__).resolve().parent
-_project_root = None
-for _candidate in [_script_dir] + [_script_dir.parents[i] for i in range(6)]:
-    if (_candidate / "shared" / "__init__.py").exists():
-        _project_root = _candidate
-        break
-if _project_root is None:
-    _env_dir = os.getenv("MEMORY_SERVER_DIR", "")
-    if _env_dir and Path(_env_dir).exists():
-        _project_root = Path(_env_dir)
-if _project_root and str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
+_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
+
 
 from shared.env_loader import load_env
 load_env()
@@ -50,7 +39,6 @@ STAGING_BUFFER_PATH = Path(
     os.getenv("STAGING_BUFFER", str(_project_root / "data" / "staging_buffer") if _project_root else "")
 )
 
-
 def _detect_lang(file_path: str) -> str:
     """Detect language from file extension."""
     ext_map = {
@@ -62,13 +50,11 @@ def _detect_lang(file_path: str) -> str:
     }
     return ext_map.get(Path(file_path).suffix.lower(), "")
 
-
 def _save_thought(session: str, step: int, thought: dict):
     """Persist thinking step to filesystem."""
     path = Path(THOUGHTS_PATH) / session
     path.mkdir(parents=True, exist_ok=True)
     (path / f"step_{step:03d}.json").write_text(json.dumps(thought, indent=2))
-
 
 def _load_session(session: str) -> list[dict]:
     """Load all thinking steps from a session."""
@@ -80,11 +66,9 @@ def _load_session(session: str) -> list[dict]:
         steps.append(json.loads(f.read_text()))
     return steps
 
-
 def _staging_path(change_set_id: str) -> Path:
     STAGING_BUFFER_PATH.mkdir(parents=True, exist_ok=True)
     return STAGING_BUFFER_PATH / f"{change_set_id}.json"
-
 
 def _load_model_pack_temps(pack_name: str) -> dict:
     """Load temperature recommendations from model pack YAML (SPEC-2.3)."""
@@ -103,9 +87,7 @@ def _load_model_pack_temps(pack_name: str) -> dict:
     except Exception:
         return {"note": "Model packs not available"}
 
-
 # ── Public MCP Tools ──────────────────────────────────────────────
-
 
 @mcp.tool()
 async def sequential_thinking(
@@ -203,7 +185,6 @@ async def sequential_thinking(
 
     return json.dumps(result, indent=2)
 
-
 @mcp.tool()
 async def record_thought(
     session_id: str,
@@ -242,7 +223,6 @@ async def record_thought(
         "conclusion": conclusion[:100],
         "confidence": confidence,
     }, indent=2)
-
 
 @mcp.tool()
 async def create_plan(
@@ -295,7 +275,6 @@ async def create_plan(
 
     return json.dumps(plan, indent=2)
 
-
 @mcp.tool()
 async def update_plan_step(
     session_id: str,
@@ -338,7 +317,6 @@ async def update_plan_step(
         "result": result[:100],
         "progress": progress,
     }, indent=2)
-
 
 @mcp.tool()
 async def reflect(
@@ -389,7 +367,6 @@ async def reflect(
 
     return json.dumps(review, indent=2)
 
-
 @mcp.tool()
 async def get_thinking_session(session_id: str) -> str:
     """Get all thinking steps from a session."""
@@ -399,7 +376,6 @@ async def get_thinking_session(session_id: str) -> str:
         "total_steps": len(steps),
         "steps": steps,
     }, indent=2)
-
 
 @mcp.tool()
 async def list_thinking_sessions() -> str:
@@ -419,7 +395,6 @@ async def list_thinking_sessions() -> str:
             })
 
     return json.dumps({"sessions": sessions}, indent=2)
-
 
 @mcp.tool()
 async def propose_change_set(
@@ -489,7 +464,6 @@ async def propose_change_set(
         indent=2,
     )
 
-
 @mcp.tool()
 async def apply_sandbox(
     change_set_id: str,
@@ -523,7 +497,6 @@ async def apply_sandbox(
         indent=2,
     )
 
-
 @mcp.tool()
 async def status() -> str:
     """Show sequential-thinking server status."""
@@ -542,10 +515,8 @@ async def status() -> str:
         "thoughts_path": str(base),
     }, indent=2)
 
-
 def main() -> None:
     mcp.run()
-
 
 if __name__ == "__main__":
     main()

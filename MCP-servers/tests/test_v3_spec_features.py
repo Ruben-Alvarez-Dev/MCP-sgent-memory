@@ -90,7 +90,7 @@ def test_get_repo_map_returns_immediate_dependencies(tmp_path: Path):
 
 
 def test_sequential_thinking_stages_and_applies_change_sets(tmp_path: Path, monkeypatch):
-    module_path = ROOT / "sequential-thinking" / "server" / "main.py"
+    module_path = ROOT / "sequential_thinking" / "server" / "main.py"
     fastmcp_module = types.ModuleType("mcp.server.fastmcp")
 
     class DummyFastMCP:

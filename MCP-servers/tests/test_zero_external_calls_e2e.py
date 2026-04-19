@@ -57,7 +57,7 @@ def test_complex_coding_flow_uses_only_local_calls(tmp_path: Path, monkeypatch):
     )
 
     vk_main = _load_mcp_module(ROOT / "vk-cache" / "server" / "main.py", "vk_cache_main")
-    seq_main = _load_mcp_module(ROOT / "sequential-thinking" / "server" / "main.py", "sequential_thinking_main")
+    seq_main = _load_mcp_module(ROOT / "sequential_thinking" / "server" / "main.py", "sequential_thinking_main")
 
     allowed_hosts = {"127.0.0.1", "localhost"}
     request_log: list[str] = []

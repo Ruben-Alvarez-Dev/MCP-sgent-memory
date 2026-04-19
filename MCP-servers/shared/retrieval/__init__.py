@@ -217,7 +217,11 @@ async def _retrieve_parallel(
 async def _retrieve_hybrid(
     intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None
 ) -> list[ContextItem]:
-    """Production-grade Hybrid Search: Dense Vector + Sparse BM25."""
+    """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
+
+    Uses Qdrant v1.13 /points/query endpoint for true hybrid search.
+    Falls back gracefully on older versions or missing sparse indexes.
+    """
     query_text = (
         " ".join(intent.entities)
         if intent.entities
@@ -233,9 +237,49 @@ async def _retrieve_hybrid(
         else None
     )
 
+    results: list[ContextItem] = []
+
     async with httpx.AsyncClient() as client:
-        # 1. Dense Search
-        dense_items = []
+        # ── Hybrid: Dense + Sparse via /points/query (Qdrant v1.13+) ──
+        try:
+            vector = get_embedding(query_text)
+            sparse = bm25_tokenize(query_text)
+
+            body = {
+                "vector": vector,
+                "limit": k,
+                "with_payload": True,
+            }
+            # Add sparse if we have tokens
+            if sparse["indices"]:
+                body["sparse_vector"] = {"name": "text", "vector": sparse}
+            if search_filter:
+                body["filter"] = search_filter
+
+            # Try /points/query first (hybrid endpoint)
+            resp = await client.post(
+                f"{QDRANT_URL}/collections/{target_coll}/points/query", json=body
+            )
+            if resp.status_code == 200:
+                points = resp.json().get("result", {}).get("points", [])
+                for p in points:
+                    payload = p.get("payload", {})
+                    score = p.get("score", 0)
+                    results.append(
+                        ContextItem(
+                            content=payload.get("content", ""),
+                            source_level=payload.get("layer", level or 1),
+                            source_name=target_coll,
+                            score=score,
+                            metadata=payload,
+                            timestamp=_parse_ts(payload.get("created_at")),
+                        )
+                    )
+                return results
+        except Exception:
+            pass
+
+        # ── Fallback: Dense-only via /points/search ──
         try:
             vector = get_embedding(query_text)
             body = {
@@ -252,7 +296,7 @@ async def _retrieve_hybrid(
             if resp.status_code == 200:
                 for p in resp.json().get("result", []):
                     payload = p.get("payload", {})
-                    dense_items.append(
+                    results.append(
                         ContextItem(
                             content=payload.get("content", ""),
                             source_level=payload.get("layer", level or 1),
@@ -262,73 +306,12 @@ async def _retrieve_hybrid(
                             timestamp=_parse_ts(payload.get("created_at")),
                         )
                     )
-        except:
+        except Exception:
             pass
 
-        # 2. Sparse Search (BM25)
-        sparse_items = []
-        try:
-            sparse = bm25_tokenize(query_text)
-            if sparse["indices"]:
-                body = {
-                    "sparse_vector": {"name": "text", "vector": sparse},
-                    "limit": k,
-                    "score_threshold": MIN_SCORE,
-                    "with_payload": True,
-                }
-                if search_filter:
-                    body["filter"] = search_filter
-                resp = await client.post(
-                    f"{QDRANT_URL}/collections/{target_coll}/points/search/sparse",
-                    json=body,
-                )
-                if resp.status_code == 200:
-                    for p in resp.json().get("result", []):
-                        payload = p.get("payload", {})
-                        sparse_items.append(
-                            ContextItem(
-                                content=payload.get("content", ""),
-                                source_level=payload.get("layer", level or 1),
-                                source_name=target_coll,
-                                score=p.get("score", 0),
-                                metadata=payload,
-                                timestamp=_parse_ts(payload.get("created_at")),
-                            )
-                        )
-        except:
-            pass
-
-    return _rrf_fuse(dense_items, sparse_items, k)
+    return results
 
 
-def _rrf_fuse(
-    dense: list[ContextItem], sparse: list[ContextItem], k: int
-) -> list[ContextItem]:
-    """Reciprocal Rank Fusion for Production."""
-    by_id: dict[str, dict] = {}
-    for r, item in enumerate(dense):
-        mid = (
-            item.metadata.get("id")
-            or hashlib.md5(item.content[:100].encode()).hexdigest()
-        )
-        by_id[mid] = {"item": item, "d_rank": r + 1, "s_rank": 999}
-    for r, item in enumerate(sparse):
-        mid = (
-            item.metadata.get("id")
-            or hashlib.md5(item.content[:100].encode()).hexdigest()
-        )
-        if mid in by_id:
-            by_id[mid]["s_rank"] = r + 1
-        else:
-            by_id[mid] = {"item": item, "d_rank": 999, "s_rank": r + 1}
-
-    for data in by_id.values():
-        data["item"].score = (1.0 / (60 + data["d_rank"])) + (
-            1.0 / (60 + data["s_rank"])
-        )
-
-    results = sorted(by_id.values(), key=lambda x: x["item"].score, reverse=True)
-    return [d["item"] for d in results[:k]]
 
 
 async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:

@@ -56,6 +56,7 @@ from shared.models import (
 
 # Embedding via shared backend (llama_server HTTP, llama_cpp subprocess, etc.)
 from shared.embedding import get_embedding as llama_embed, async_embed, bm25_tokenize
+from shared.sanitize import validate_memorize, validate_ingest_event, sanitize_text, sanitize_user_id
 
 mcp = FastMCP("automem")
 
@@ -150,6 +151,12 @@ async def memorize(
         importance: 0.0-1.0
         tags: Comma-separated tags.
     """
+    # Sanitize inputs
+    clean = validate_memorize(content, mem_type, scope, tags)
+    content = clean["content"]
+    mem_type = clean["mem_type"]
+    scope = clean["scope"]
+    tags = ','.join(clean["tags"])
     scope_map = {
         "session": MemoryScope.SESSION,
         "agent": MemoryScope.AGENT,
@@ -204,6 +211,12 @@ async def ingest_event(
       diff_applied: A change was applied to filesystem
       diff_failed: A change failed to apply
     """
+    # Sanitize inputs
+    clean = validate_ingest_event(event_type, source, content)
+    event_type = clean["event_type"]
+    source = clean["source"]
+    content = clean["content"]
+
     type_map = {
         "terminal": RawEventType.TERMINAL,
         "file": RawEventType.FILE_ACCESS,

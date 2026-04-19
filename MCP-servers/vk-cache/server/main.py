@@ -60,6 +60,7 @@ from shared.embedding import get_embedding as llama_embed, async_embed
 # Retrieval router
 from shared.retrieval import retrieve as smart_retrieve
 from shared.retrieval import get_repo_map, prune_content
+from shared.sanitize import validate_request_context, validate_push_reminder, sanitize_text
 
 # Compliance verifier
 from shared.compliance import verify_compliance, add_rule, ProjectRule
@@ -243,6 +244,10 @@ async def request_context(
         scopes: Comma-separated allowed scopes.
         mode: standard | architect (architect uses code maps)
     """
+    # Sanitize inputs
+    clean = validate_request_context(query, intent)
+    query = clean["query"]
+    intent = clean["intent"]
     # Map intent to session type for the router
     session_type_map = {
         "answer": "dev",
@@ -410,6 +415,11 @@ async def push_reminder(
     agent_id: str = "default",
 ) -> str:
     """System pushes a context reminder to the LLM."""
+    # Sanitize inputs
+    clean = validate_push_reminder(query, agent_id)
+    query = clean["query"]
+    agent_id = clean["agent_id"]
+    reason = sanitize_text(reason, max_length=500, field="reason")
     results = await search_qdrant(query, limit=5)
     ranked = await _compress_results(results, 5)
     summary = _build_summary(ranked)

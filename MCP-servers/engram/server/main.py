@@ -34,6 +34,8 @@ if _project_root and str(_project_root) not in sys.path:
 from shared.env_loader import load_env
 load_env()
 
+from shared.sanitize import validate_save_decision, validate_vault_write, sanitize_filename, sanitize_text, sanitize_folder
+
 # Vault manager for Obsidian integration
 from shared.vault_manager import vault as _vault
 
@@ -105,12 +107,17 @@ async def save_decision(
         tags: Comma-separated tags.
         scope: agent | domain | personal | global-core
     """
+    # Sanitize all inputs before touching filesystem
+    clean = validate_save_decision(title, content, category, tags, scope)
+    title = clean["title"]
+    content = clean["content"]
+    category = clean["category"]
+    tag_list = clean["tags"]
+    scope = clean["scope"]
+
     _ensure_engram_path()
 
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    # Sanitize filename: remove chars invalid on any OS
-    import re
-    safe_title = re.sub(r'[<>:"/\\|?*]', '', title.lower().replace(' ', '-'))
+    safe_title = sanitize_filename(title)
     filename = f"{safe_title}.md"
 
     filepath = Path(ENGRAM_PATH) / scope / filename
@@ -273,7 +280,13 @@ async def vault_write(
         tags: Comma-separated tags
         author: human | system
     """
-    tags_list = [t.strip() for t in tags.split(",") if t.strip()]
+    # Sanitize all inputs before touching filesystem
+    clean = validate_vault_write(folder, filename, content, tags)
+    folder = clean["folder"]
+    filename = clean["filename"]
+    content = clean["content"]
+    tags_list = clean["tags"]
+
     path = _vault.write_note(folder, f"{filename}.md", {
         "type": note_type,
         "content": content,

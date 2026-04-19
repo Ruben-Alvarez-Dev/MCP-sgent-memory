@@ -42,6 +42,7 @@ load_env()
 
 # Embedding via shared backend
 from shared.embedding import get_embedding as llama_embed, async_embed
+from shared.sanitize import validate_add_memory, sanitize_text, normalize_query
 
 mcp = FastMCP("mem0")
 
@@ -97,6 +98,10 @@ async def add_memory(
     metadata: str = "",
 ) -> str:
     """Add a semantic memory (fact, preference, user knowledge)."""
+    # Sanitize inputs
+    clean = validate_add_memory(content, user_id)
+    content = clean["content"]
+    user_id = clean["user_id"]
     meta = json.loads(metadata) if metadata else {}
 
     client = get_mem0_client()
@@ -147,6 +152,10 @@ async def search_memory(
     limit: int = 10,
 ) -> str:
     """Search stored semantic memories."""
+    # Sanitize inputs
+    query = normalize_query(query)
+    user_id = sanitize_user_id(user_id) if user_id else DEFAULT_USER
+
     client = get_mem0_client()
     if client:
         result = client.search(query=query, user_id=user_id, limit=limit)

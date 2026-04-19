@@ -1,6 +1,6 @@
 #!/bin/bash
 # Start Qdrant vector store — launchd-compatible wrapper
-# Called by com.memory-server.qdrant.plist
+# Called by com.agent-memory.qdrant.plist
 set -e
 
 ulimit -n 10240 2>/dev/null || true

@@ -10,13 +10,13 @@ Cualquier desviación de estos puntos se considera un estado "ROTO".
 - [ ] **Bun**: Instalado y operativo en `/Users/ruben/.bun/bin/bun`.
 
 ## 2. Integridad Física (Ubicación por defecto)
-- [ ] **Directorio Base**: Debe existir `~/MCP-servers/MCP-memory-server`.
+- [ ] **Directorio Base**: Debe existir `~/MCP-servers/MCP-agent-memory`.
 - [ ] **Binarios Críticos**: 
-    - `~/MCP-servers/MCP-memory-server/engine/bin/llama-server` (Ejecutable)
-    - `~/MCP-servers/MCP-memory-server/bin/qdrant` (Ejecutable)
+    - `~/MCP-servers/MCP-agent-memory/engine/bin/llama-server` (Ejecutable)
+    - `~/MCP-servers/MCP-agent-memory/bin/qdrant` (Ejecutable)
 - [ ] **Modelos de IA**:
-    - `~/MCP-servers/MCP-memory-server/models/bge-m3-Q4_K_M.gguf` (Mínimo 430MB)
-    - `~/MCP-servers/MCP-memory-server/models/all-minilm-l6-v2_q8_0.gguf`
+    - `~/MCP-servers/MCP-agent-memory/models/bge-m3-Q4_K_M.gguf` (Mínimo 430MB)
+    - `~/MCP-servers/MCP-agent-memory/models/all-minilm-l6-v2_q8_0.gguf`
 
 ## 3. Servicios y Puertos
 - [ ] **Qdrant**: Corriendo en `http://127.0.0.1:6333`.
@@ -25,8 +25,8 @@ Cualquier desviación de estos puntos se considera un estado "ROTO".
 
 ## 4. Base de Datos y Memoria
 - [ ] **Colecciones Qdrant**: Deben existir `automem`, `conversations` y `mem0_memories`.
-- [ ] **Tools Database**: `~/MCP-servers/MCP-memory-server/tests/e2e/tools.db` debe tener > 100 herramientas.
-- [ ] **Vault (Obsidian)**: Mínimo 17 notas en `~/MCP-servers/MCP-memory-server/vault/`.
+- [ ] **Tools Database**: `~/MCP-servers/MCP-agent-memory/tests/e2e/tools.db` debe tener > 100 herramientas.
+- [ ] **Vault (Obsidian)**: Mínimo 17 notas en `~/MCP-servers/MCP-agent-memory/vault/`.
 
 ## 5. Herramientas y Plugins
 - [ ] **Delegate Tool**: NO usar en OpenCode 1.4.6 (regresión conocida).

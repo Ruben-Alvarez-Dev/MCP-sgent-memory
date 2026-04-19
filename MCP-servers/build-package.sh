@@ -14,7 +14,7 @@ set -e
 # ═══════════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-STAGE="${INSTALL_DIR:-$SCRIPT_DIR/dist/MCP-memory-server}"
+STAGE="${INSTALL_DIR:-$SCRIPT_DIR/dist/MCP-agent-memory}"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
@@ -67,7 +67,7 @@ echo "🔍 Resolving engine binaries..."
 ENGINE_FOUND=false
 
 # Source 1: Existing production install
-PROD_ENGINE="$HOME/MCP-servers/MCP-memory-server/bin/engine"
+PROD_ENGINE="$HOME/MCP-servers/MCP-agent-memory/bin/engine"
 if [ -d "$PROD_ENGINE/bin" ] && [ -f "$PROD_ENGINE/bin/llama-embedding" ]; then
     mkdir -p "$STAGE/engine/bin" "$STAGE/engine/lib"
     cp "$PROD_ENGINE/bin/llama-embedding" "$STAGE/engine/bin/"
@@ -124,9 +124,9 @@ if ls "$SCRIPT_DIR/models/"*.gguf &>/dev/null; then
 fi
 
 # Source 2: Production install
-if [ "$MODEL_FOUND" = "false" ] && [ -d "$HOME/MCP-servers/MCP-memory-server/bin/models" ]; then
+if [ "$MODEL_FOUND" = "false" ] && [ -d "$HOME/MCP-servers/MCP-agent-memory/bin/models" ]; then
     mkdir -p "$STAGE/models"
-    cp "$HOME/MCP-servers/MCP-memory-server/bin/models/"*.gguf "$STAGE/models/"
+    cp "$HOME/MCP-servers/MCP-agent-memory/bin/models/"*.gguf "$STAGE/models/"
     echo "  ✓ Models from production install"
     MODEL_FOUND=true
 fi
@@ -152,9 +152,9 @@ if [ -f "$SCRIPT_DIR/shared/qdrant/qdrant" ]; then
 fi
 
 # Source 2: Production
-if [ "$QDRANT_FOUND" = "false" ] && [ -f "$HOME/MCP-servers/MCP-memory-server/bin/qdrant" ]; then
+if [ "$QDRANT_FOUND" = "false" ] && [ -f "$HOME/MCP-servers/MCP-agent-memory/bin/qdrant" ]; then
     mkdir -p "$STAGE/shared/qdrant"
-    cp "$HOME/MCP-servers/MCP-memory-server/bin/qdrant" "$STAGE/shared/qdrant/"
+    cp "$HOME/MCP-servers/MCP-agent-memory/bin/qdrant" "$STAGE/shared/qdrant/"
     cp "$SCRIPT_DIR/shared/qdrant/config.yaml" "$STAGE/shared/qdrant/" 2>/dev/null || true
     echo "  ✓ Qdrant from production"
     QDRANT_FOUND=true

@@ -370,7 +370,7 @@ def bench_conversation_store(report: BenchReport, client: MCPClient):
     r, lat = client.call("conversation-store_1mcp_save_conversation", {
         "thread_id": thread_id,
         "messages_json": messages,
-        "metadata": json.dumps({"project": "MCP-memory-server", "topic": "qdrant"})
+        "metadata": json.dumps({"project": "MCP-agent-memory", "topic": "qdrant"})
     })
     report.add(TestResult("save_conversation", "ConvStore",
                           r is not None and r.get("status") == "saved", lat))
@@ -848,7 +848,7 @@ def main():
             for r in report.results
         ]
     }
-    with open("/Users/ruben/MCP-servers/MCP-memory-server/bench/results.json", "w") as f:
+    with open("/Users/ruben/MCP-servers/MCP-agent-memory/bench/results.json", "w") as f:
         json.dump(report_data, f, indent=2)
     print(f"📄 Results saved to bench/results.json")
 

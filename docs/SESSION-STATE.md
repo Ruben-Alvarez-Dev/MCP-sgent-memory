@@ -1,8 +1,8 @@
 # MCP Memory Server — Estado y Plan (2025-04-19)
 
 ## Rutas
-- **Producción**: `/Users/ruben/MCP-servers/MCP-memory-server/`
-- **Desarrollo**: `/Users/ruben/Code/PROJECT-MCP-memory-server/`
+- **Producción**: `/Users/ruben/MCP-servers/MCP-agent-memory/`
+- **Desarrollo**: `/Users/ruben/Code/PROJECT-MCP-agent-memory/`
 
 ## Estado del Sistema
 | Componente | Estado | Detalle |
@@ -44,11 +44,11 @@
 ## Plan Siguiente (priorizado por impacto)
 
 ### Sprint 5: Resiliencia ✅ COMPLETADO
-- [x] launchd plist para 1mcp gateway (`com.memory-server.gateway.plist`)
-- [x] launchd plist para Qdrant (`com.memory-server.qdrant.plist`)
+- [x] launchd plist para 1mcp gateway (`com.agent-memory.gateway.plist`)
+- [x] launchd plist para Qdrant (`com.agent-memory.qdrant.plist`)
 - [x] Circuit breaker en `shared/embedding.py` (3 failures → open, 30s recovery, fallback a subprocess)
 - [x] Health check unificado `shared/health.py` (6 checks: qdrant, llama-server, gateway, embedding, disk, launchd)
-- [x] Watchdog `scripts/watchdog.sh` + launchd cada 5 min (`com.memory-server.watchdog.plist`)
+- [x] Watchdog `scripts/watchdog.sh` + launchd cada 5 min (`com.agent-memory.watchdog.plist`)
 - [x] Eliminado plist viejo `com.memory.qdrant` (ruta obsoleta)
 - [x] Tests E2E: 62/62 pasados
 
@@ -63,7 +63,7 @@
 - [x] `scripts/lifecycle.sh` — JSONL rotation (10K lines), thinking sessions (30d), staging (7d)
 - [x] Heartbeats cleanup (7d), reminders dismissed (90d)
 - [x] Qdrant backup automático (snapshots semanales, keep 3)
-- [x] `com.memory-server.lifecycle.plist` (domingos 03:00)
+- [x] `com.agent-memory.lifecycle.plist` (domingos 03:00)
 - [x] `--status`, `--dry-run`, `--backup` modes
 
 ### Sprint 8: Fix Flows
@@ -87,7 +87,7 @@
 | Archivo | Propósito |
 |---|---|
 | `/Users/ruben/.config/1mcp/mcp.json` | Config gateway (7 servers) |
-| `~/Library/LaunchAgents/com.memory-server.llama-embedding.plist` | launchd auto-start |
+| `~/Library/LaunchAgents/com.agent-memory.llama-embedding.plist` | launchd auto-start |
 | `bin/engine/bin/llama-server` | HTTP embedding daemon |
 | `bin/models/bge-m3-Q4_K_M.gguf` | Modelo embedding (417MB) |
 | `src/shared/sanitize.py` | Capa sanitización universal |

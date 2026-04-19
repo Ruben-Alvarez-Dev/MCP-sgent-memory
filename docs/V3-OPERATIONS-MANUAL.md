@@ -9,7 +9,7 @@ El sistema se compone de dos bloques desacoplados:
 
 ## 2. Protocolo de Instalación Segura
 El script `MCP-servers/install.sh` ha sido blindado para evitar pérdida de datos.
-- **Ubicación por defecto**: `~/MCP-servers/MCP-memory-server`.
+- **Ubicación por defecto**: `~/MCP-servers/MCP-agent-memory`.
 - **Backups**: El instalador ahora crea automáticamente copias de seguridad de `tools.db` con timestamp antes de sobreescribir.
 - **Confirmación**: Se requiere confirmación manual (`y/N`) si se detecta una instalación previa para evitar borrados accidentales de colecciones en Qdrant.
 
@@ -21,13 +21,13 @@ Ejecutar los siguientes comandos en la terminal:
 ```bash
 # Quitar el atributo de sospecha de macOS
 xattr -d com.apple.quarantine /Users/ruben/.bun/bin/bun
-xattr -d com.apple.quarantine ~/MCP-servers/MCP-memory-server/engine/bin/llama-server
-xattr -d com.apple.quarantine ~/MCP-servers/MCP-memory-server/bin/qdrant
+xattr -d com.apple.quarantine ~/MCP-servers/MCP-agent-memory/engine/bin/llama-server
+xattr -d com.apple.quarantine ~/MCP-servers/MCP-agent-memory/bin/qdrant
 
 # Asegurar permisos de ejecución
 chmod +x /Users/ruben/.bun/bin/bun
-chmod +x ~/MCP-servers/MCP-memory-server/engine/bin/llama-server
-chmod +x ~/MCP-servers/MCP-memory-server/bin/qdrant
+chmod +x ~/MCP-servers/MCP-agent-memory/engine/bin/llama-server
+chmod +x ~/MCP-servers/MCP-agent-memory/bin/qdrant
 ```
 
 ## 4. Delegación de Agentes (OpenCode 1.4.6)
@@ -37,22 +37,22 @@ chmod +x ~/MCP-servers/MCP-memory-server/bin/qdrant
 - **Plugin**: El plugin en `~/.config/opencode/plugins/background-agents.ts` ha sido parcheado con advertencias descriptivas.
 
 ## 5. Gestión de la Memoria (Qdrant + Obsidian)
-- **Persistencia de Notas**: El Vault de Obsidian vive en `~/MCP-servers/MCP-memory-server/vault/`. El instalador NO borra tus notas.
+- **Persistencia de Notas**: El Vault de Obsidian vive en `~/MCP-servers/MCP-agent-memory/vault/`. El instalador NO borra tus notas.
 - **Re-indexado**: Si Qdrant se resetea, se debe forzar un re-indexado del Vault:
   ```bash
-  source ~/MCP-servers/MCP-memory-server/.venv/bin/activate
+  source ~/MCP-servers/MCP-agent-memory/.venv/bin/activate
   python3 -m src.search.service --reindex-vault
   ```
-- **Base de Datos de Herramientas**: Ubicada en `~/MCP-servers/MCP-memory-server/tests/e2e/tools.db`. Contiene más de 100 herramientas configuradas.
+- **Base de Datos de Herramientas**: Ubicada en `~/MCP-servers/MCP-agent-memory/tests/e2e/tools.db`. Contiene más de 100 herramientas configuradas.
 
 ## 6. Control de Servicios (Launchd)
 Los servicios arrancan solos al iniciar sesión. Para gestionarlos manualmente:
 ```bash
 # Reiniciar Qdrant
-launchctl stop com.memory-server.qdrant && launchctl start com.memory-server.qdrant
+launchctl stop com.agent-memory.qdrant && launchctl start com.agent-memory.qdrant
 
 # Reiniciar Gateway
-launchctl stop com.memory-server.gateway && launchctl start com.memory-server.gateway
+launchctl stop com.agent-memory.gateway && launchctl start com.agent-memory.gateway
 ```
 
 ---

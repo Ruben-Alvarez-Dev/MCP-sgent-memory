@@ -171,5 +171,5 @@ if not intent.entities:
 ---
 
 *Documento generado por pi con datos de 17 tests ejecutados el 16/04/2026.*
-*Proxy: `/Users/ruben/MCP-servers/MCP-memory-server/`*
-*Proyecto: `/Users/ruben/Code/PROJECT-MCP-memory-server/`*
+*Proxy: `/Users/ruben/MCP-servers/MCP-agent-memory/`*
+*Proyecto: `/Users/ruben/Code/PROJECT-MCP-agent-memory/`*

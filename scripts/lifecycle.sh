@@ -11,7 +11,7 @@
 #   ./scripts/lifecycle.sh --status       # Show data stats
 #
 # Cron (weekly):
-#   0 3 * * 0 /path/to/MCP-memory-server/scripts/lifecycle.sh >> ~/.memory/lifecycle.log 2>&1
+#   0 3 * * 0 /path/to/MCP-agent-memory/scripts/lifecycle.sh >> ~/.memory/lifecycle.log 2>&1
 
 set -euo pipefail
 

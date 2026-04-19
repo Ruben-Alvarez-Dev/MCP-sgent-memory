@@ -63,7 +63,7 @@ L5 CONTEXT      → Ephemeral packs (assembled on demand)
 
 1. Open `MCP-Memory-Server.dmg`
 2. Run `install.sh`
-3. Choose install location (default: `~/MCP-servers/MCP-memory-server/`)
+3. Choose install location (default: `~/MCP-servers/MCP-agent-memory/`)
 4. Wait for services to start
 
 ### Prerequisites
@@ -75,7 +75,7 @@ L5 CONTEXT      → Ephemeral packs (assembled on demand)
 ### What Gets Installed
 
 ```
-~/MCP-servers/MCP-memory-server/
+~/MCP-servers/MCP-agent-memory/
 ├── engine/                    ← Bundled llama.cpp + 11 libraries
 │   ├── bin/llama-embedding
 │   └── lib/*.dylib, *.so
@@ -99,8 +99,8 @@ L5 CONTEXT      → Ephemeral packs (assembled on demand)
 ./scripts/start-all.sh
 
 # Services auto-start via launchd. To manually control components:
-launchctl start com.memory-server.qdrant
-launchctl start com.memory-server.gateway  # if Node.js installed
+launchctl start com.agent-memory.qdrant
+launchctl start com.agent-memory.gateway  # if Node.js installed
 ```
 
 ### Embedding Engine (Híbrido - Dos Tiempos)
@@ -130,7 +130,7 @@ curl -s http://127.0.0.1:6333/collections   # Qdrant
 curl -s http://127.0.0.1:3050/health        # Gateway
 
 # Test engine
-source ~/MCP-servers/MCP-memory-server/.venv/bin/activate
+source ~/MCP-servers/MCP-agent-memory/.venv/bin/activate
 python3 -c "
 from shared.embedding import get_embedding
 vec = get_embedding('hello world')
@@ -280,12 +280,12 @@ VK_MAX_TOKENS=8000
 
 ```bash
 # Qdrant
-launchctl stop com.memory-server.qdrant
-launchctl start com.memory-server.qdrant
+launchctl stop com.agent-memory.qdrant
+launchctl start com.agent-memory.qdrant
 
 # Gateway
-launchctl stop com.memory-server.gateway
-launchctl start com.memory-server.gateway
+launchctl stop com.agent-memory.gateway
+launchctl start com.agent-memory.gateway
 
 # Check status
 launchctl list | grep memory-server
@@ -305,9 +305,9 @@ tail -f ~/.memory/gateway-error.log
 | Symptom | Solution |
 |---------|----------|
 | Qdrant not starting | Check `~/.memory/qdrant-error.log`, verify `ulimit -n 10240` |
-| Gateway not responding | `launchctl stop/start com.memory-server.gateway` |
-| Engine not found | Verify `~/MCP-servers/MCP-memory-server/engine/bin/llama-embedding` exists |
-| Model not found | Verify `~/MCP-servers/MCP-memory-server/models/*.gguf` exists |
+| Gateway not responding | `launchctl stop/start com.agent-memory.gateway` |
+| Engine not found | Verify `~/MCP-servers/MCP-agent-memory/engine/bin/llama-embedding` exists |
+| Model not found | Verify `~/MCP-servers/MCP-agent-memory/models/*.gguf` exists |
 | High memory usage | Run `autodream → consolidate` to prune old memories |
 
 ---
@@ -315,7 +315,7 @@ tail -f ~/.memory/gateway-error.log
 ## Testing
 
 ```bash
-cd ~/MCP-servers/MCP-memory-server
+cd ~/MCP-servers/MCP-agent-memory
 source .venv/bin/activate
 
 # Engine test

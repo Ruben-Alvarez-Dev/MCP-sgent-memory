@@ -10,7 +10,7 @@
 #   ./watchdog.sh --status     # Show detailed status
 #
 # Cron example:
-#   */5 * * * * /path/to/MCP-memory-server/scripts/watchdog.sh >> /tmp/memory-watchdog.log 2>&1
+#   */5 * * * * /path/to/MCP-agent-memory/scripts/watchdog.sh >> /tmp/memory-watchdog.log 2>&1
 
 set -euo pipefail
 
@@ -70,9 +70,9 @@ HEALTH_JSON=$("$PYTHON" -m shared.health --json 2>/dev/null) || true
 if [ -z "$HEALTH_JSON" ]; then
     log "❌ Health check failed to produce output"
     log "Attempting to restart all services..."
-    restart_service "com.memory-server.qdrant" "Qdrant"
-    restart_service "com.memory-server.llama-embedding" "llama-server"
-    restart_service "com.memory-server.gateway" "Gateway"
+    restart_service "com.agent-memory.qdrant" "Qdrant"
+    restart_service "com.agent-memory.llama-embedding" "llama-server"
+    restart_service "com.agent-memory.gateway" "Gateway"
     exit 1
 fi
 
@@ -101,25 +101,25 @@ for svc in $UNHEALTHY; do
     case "$svc" in
         qdrant)
             log "🔴 Qdrant is down"
-            restart_service "com.memory-server.qdrant" "Qdrant"
+            restart_service "com.agent-memory.qdrant" "Qdrant"
             ;;
         llama-server)
             log "🔴 llama-server is down"
-            restart_service "com.memory-server.llama-embedding" "llama-server"
+            restart_service "com.agent-memory.llama-embedding" "llama-server"
             ;;
         gateway)
             log "🔴 Gateway is down"
-            restart_service "com.memory-server.gateway" "Gateway"
+            restart_service "com.agent-memory.gateway" "Gateway"
             ;;
         embedding)
             log "🔴 Embedding pipeline degraded (circuit breaker may be open)"
             log "   This usually means llama-server is down. Restarting..."
-            restart_service "com.memory-server.llama-embedding" "llama-server"
+            restart_service "com.agent-memory.llama-embedding" "llama-server"
             ;;
         launchd)
             log "⚠️  Some launchd services not running"
             # Reload plists
-            for plist in ~/Library/LaunchAgents/com.memory-server.*.plist; do
+            for plist in ~/Library/LaunchAgents/com.agent-memory.*.plist; do
                 if [ -f "$plist" ]; then
                     label=$(basename "$plist" .plist)
                     PID=$(launchctl list | grep "$label" | awk '{print $1}' 2>/dev/null || echo "-")

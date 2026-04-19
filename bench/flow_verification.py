@@ -194,7 +194,7 @@ def test_ruta_2_decision_a_busqueda(mcp: MCP):
     log("R2", "save_decision", bool(dec_path), f"file={dec_path}", lat)
 
     # Paso 2: Verificar que existe el archivo en disco (engram path)
-    engram_base = "/Users/ruben/MCP-servers/MCP-memory-server/data/memory/engram"
+    engram_base = "/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/engram"
     found_file = False
     for root, dirs, files in os.walk(engram_base):
         for f in files:
@@ -355,7 +355,7 @@ def test_ruta_5_evento_a_qdrant(mcp: MCP):
     log("R5", "ingest_event terminal", r and "ingested" in (r.get("status", "") if r else ""), f"", lat)
 
     # Paso 2: Verificar JSONL
-    jsonl_path = "/Users/ruben/MCP-servers/MCP-memory-server/data/raw_events.jsonl"
+    jsonl_path = "/Users/ruben/MCP-servers/MCP-agent-memory/data/raw_events.jsonl"
     found_jsonl = False
     if os.path.exists(jsonl_path):
         with open(jsonl_path) as f:
@@ -411,7 +411,7 @@ def test_ruta_6_vault_filesystem(mcp: MCP):
     log("R6", "vault_write", r and r.get("status") == "written", f"Inbox/{filename}", lat)
 
     # Paso 2: Verificar archivo en disco
-    vault_path = f"/Users/ruben/MCP-servers/MCP-memory-server/data/vault/Inbox/{filename}.md"
+    vault_path = f"/Users/ruben/MCP-servers/MCP-agent-memory/data/vault/Inbox/{filename}.md"
     file_exists = os.path.exists(vault_path)
     file_content = open(vault_path).read() if file_exists else ""
     log("R6", "Archivo existe en disco", file_exists, vault_path)
@@ -453,7 +453,7 @@ def test_ruta_7_recordatorios(mcp: MCP):
     log("R7", "push_reminder", bool(rem_id), f"id={rem_id[:16]}...", lat)
 
     # Paso 2: Verificar archivo en disco
-    reminders_dir = "/Users/ruben/MCP-servers/MCP-memory-server/data/memory/reminders"
+    reminders_dir = "/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/reminders"
     found_file = False
     if os.path.exists(reminders_dir):
         for f in os.listdir(reminders_dir):
@@ -507,7 +507,7 @@ def test_ruta_8_pensamiento_y_diff(mcp: MCP):
     log("R8", "sequential_thinking", steps == 3, f"{steps} steps, pack={has_pack}", lat)
 
     # Paso 2: Verificar que los pasos se guardaron en disco
-    thoughts_dir = f"/Users/ruben/MCP-servers/MCP-memory-server/data/memory/thoughts/{session_id}"
+    thoughts_dir = f"/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/thoughts/{session_id}"
     steps_on_disk = len([f for f in os.listdir(thoughts_dir) if f.startswith("step_")]) if os.path.exists(thoughts_dir) else 0
     log("R8", "Pasos en disco", steps_on_disk >= 3, f"{steps_on_disk} files in {thoughts_dir}")
 
@@ -534,7 +534,7 @@ def test_ruta_8_pensamiento_y_diff(mcp: MCP):
     log("R8", "propose_change_set", r is not None and has_validation, f"status={r.get('status','?') if r else 'null'}", lat)
 
     # Paso 5: Verificar change set en staging buffer
-    staging_dir = "/Users/ruben/MCP-servers/MCP-memory-server/data/staging_buffer"
+    staging_dir = "/Users/ruben/MCP-servers/MCP-agent-memory/data/staging_buffer"
     found_staged = False
     if os.path.exists(staging_dir):
         for f in os.listdir(staging_dir):
@@ -588,7 +588,7 @@ roles:
     log("R9", "set_model_pack", r is not None, f"name=bench-{RUN_ID}", lat)
 
     # Paso 2: Verificar YAML en disco
-    packs_dir = "/Users/ruben/MCP-servers/MCP-memory-server/data/memory/engram/model-packs"
+    packs_dir = "/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/engram/model-packs"
     yaml_path = f"{packs_dir}/bench-{RUN_ID}.yaml"
     file_exists = os.path.exists(yaml_path)
     log("R9", "YAML existe en disco", file_exists, yaml_path)
@@ -642,7 +642,7 @@ def test_ruta_10_heartbeat_y_promotion(mcp: MCP):
     log("R10", "heartbeat", r and r.get("status") == "active", f"turns=10", lat)
 
     # Paso 2: Verificar archivo de heartbeat en disco
-    hb_dir = "/Users/ruben/MCP-servers/MCP-memory-server/data/memory/heartbeats"
+    hb_dir = "/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/heartbeats"
     hb_file = f"{hb_dir}/bench-agent-{RUN_ID}.json"
     found_hb = os.path.exists(hb_file)
     if found_hb:
@@ -807,7 +807,7 @@ def test_ruta_13_dream_y_consolidacion(mcp: MCP):
         log("R13", "consolidate (forced)", consol_ok, f"status={r.get('status','?')}", lat)
 
     # Paso 4: Dream data en disco
-    dream_dir = "/Users/ruben/MCP-servers/MCP-memory-server/data/memory/dream"
+    dream_dir = "/Users/ruben/MCP-servers/MCP-agent-memory/data/memory/dream"
     dream_files = os.listdir(dream_dir) if os.path.exists(dream_dir) else []
     log("R13", "Dream data en disco", len(dream_files) > 0, f"{len(dream_files)} files in {dream_dir}")
 
@@ -851,7 +851,7 @@ def main():
     print()
 
     # Save results
-    with open("/Users/ruben/MCP-servers/MCP-memory-server/bench/flow_results.json", "w") as f:
+    with open("/Users/ruben/MCP-servers/MCP-agent-memory/bench/flow_results.json", "w") as f:
         json.dump({"run_id": RUN_ID, "passed": passed, "failed": failed,
                    "total": passed + failed, "results": results,
                    "timestamp": datetime.now().isoformat()}, f, indent=2)

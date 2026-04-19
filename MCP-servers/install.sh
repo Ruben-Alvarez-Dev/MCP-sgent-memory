@@ -4,7 +4,7 @@ set -e
 # ═══════════════════════════════════════════════════════════════════
 # MCP Memory Server — Self-Contained Installer
 #
-# Installs to: ~/MCP-servers/MCP-memory-server/
+# Installs to: ~/MCP-servers/MCP-agent-memory/
 #
 # Layout (mirrors dev structure):
 #   INSTALL_DIR/
@@ -34,7 +34,7 @@ echo ""
 
 # ── Ask install location ──────────────────────────────────────────
 
-DEFAULT_DIR="$HOME/MCP-servers/MCP-memory-server"
+DEFAULT_DIR="$HOME/MCP-servers/MCP-agent-memory"
 echo "Install location [$DEFAULT_DIR]:"
 read -r INSTALL_DIR
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
@@ -108,8 +108,8 @@ if [ -f "$SCRIPT_DIR/engine/bin/llama-embedding" ]; then
     ENGINE_SRC="$SCRIPT_DIR/engine"
     echo "  ✓ Engine: bundled in installer"
 # 2. Existing production install
-elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/engine/bin/llama-embedding" ]; then
-    ENGINE_SRC="$HOME/MCP-servers/MCP-memory-server/bin/engine"
+elif [ -f "$HOME/MCP-servers/MCP-agent-memory/bin/engine/bin/llama-embedding" ]; then
+    ENGINE_SRC="$HOME/MCP-servers/MCP-agent-memory/bin/engine"
     echo "  ✓ Engine: existing production install"
 # 3. System llama.cpp (Homebrew)
 elif [ -x "$(command -v llama-embedding 2>/dev/null)" ]; then
@@ -128,8 +128,8 @@ if ls "$SCRIPT_DIR/models/"*.gguf &>/dev/null; then
     MODEL_SRC="$SCRIPT_DIR/models"
     echo "  ✓ Models: bundled ($(ls "$SCRIPT_DIR/models/"*.gguf | head -1 | xargs basename))"
 # 2. Existing production
-elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/models/bge-m3-Q4_K_M.gguf" ]; then
-    MODEL_SRC="$HOME/MCP-servers/MCP-memory-server/bin/models"
+elif [ -f "$HOME/MCP-servers/MCP-agent-memory/bin/models/bge-m3-Q4_K_M.gguf" ]; then
+    MODEL_SRC="$HOME/MCP-servers/MCP-agent-memory/bin/models"
     echo "  ✓ Models: existing production install"
 # 3. Check common locations
 elif [ -f "$HOME/.cache/lm-studio/models/bge-m3-Q4_K_M.gguf" ]; then
@@ -148,8 +148,8 @@ if [ -f "$SCRIPT_DIR/shared/qdrant/qdrant" ]; then
     QDRANT_BIN="$SCRIPT_DIR/shared/qdrant/qdrant"
     echo "  ✓ Qdrant: bundled"
 # 2. Existing production
-elif [ -f "$HOME/MCP-servers/MCP-memory-server/bin/qdrant" ]; then
-    QDRANT_BIN="$HOME/MCP-servers/MCP-memory-server/bin/qdrant"
+elif [ -f "$HOME/MCP-servers/MCP-agent-memory/bin/qdrant" ]; then
+    QDRANT_BIN="$HOME/MCP-servers/MCP-agent-memory/bin/qdrant"
     echo "  ✓ Qdrant: existing production"
 # 3. System
 elif command -v qdrant &>/dev/null; then
@@ -349,9 +349,9 @@ echo ""
 # Detect LLM backend
 LLM_BACKEND="ollama"
 LLM_MODEL="qwen2.5:7b"
-if [ -f "$HOME/MCP-servers/MCP-memory-server/config/.env" ]; then
-    EXISTING_BACKEND=$(grep "^LLM_BACKEND=" "$HOME/MCP-servers/MCP-memory-server/config/.env" 2>/dev/null | cut -d= -f2)
-    EXISTING_MODEL=$(grep "^LLM_MODEL=" "$HOME/MCP-servers/MCP-memory-server/config/.env" 2>/dev/null | cut -d= -f2)
+if [ -f "$HOME/MCP-servers/MCP-agent-memory/config/.env" ]; then
+    EXISTING_BACKEND=$(grep "^LLM_BACKEND=" "$HOME/MCP-servers/MCP-agent-memory/config/.env" 2>/dev/null | cut -d= -f2)
+    EXISTING_MODEL=$(grep "^LLM_MODEL=" "$HOME/MCP-servers/MCP-agent-memory/config/.env" 2>/dev/null | cut -d= -f2)
     [ -n "$EXISTING_BACKEND" ] && LLM_BACKEND="$EXISTING_BACKEND"
     [ -n "$EXISTING_MODEL" ] && LLM_MODEL="$EXISTING_MODEL"
 fi
@@ -715,12 +715,12 @@ if [ "$OS" = "Darwin" ]; then
     mkdir -p "$HOME/.memory"/{dream,engram,heartbeats,reminders,thoughts}
 
     # --- Qdrant ---
-    cat > "$HOME/Library/LaunchAgents/com.memory-server.qdrant.plist" << PLIST
+    cat > "$HOME/Library/LaunchAgents/com.agent-memory.qdrant.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.qdrant</string>
+    <key>Label</key><string>com.agent-memory.qdrant</string>
     <key>ProgramArguments</key><array>
         <string>$INSTALL_DIR/scripts/start-qdrant.sh</string>
     </array>
@@ -733,8 +733,8 @@ if [ "$OS" = "Darwin" ]; then
 </plist>
 PLIST
 
-    launchctl unload "$HOME/Library/LaunchAgents/com.memory-server.qdrant.plist" 2>/dev/null || true
-    launchctl load "$HOME/Library/LaunchAgents/com.memory-server.qdrant.plist"
+    launchctl unload "$HOME/Library/LaunchAgents/com.agent-memory.qdrant.plist" 2>/dev/null || true
+    launchctl load "$HOME/Library/LaunchAgents/com.agent-memory.qdrant.plist"
     echo "  ✓ Qdrant service installed"
 
     # Wait for Qdrant
@@ -764,12 +764,12 @@ PLIST
         NODE_DIR=$(dirname "$GATEWAY_EXEC")
         BIN_DIR=$(dirname "$GATEWAY_BIN")
 
-        cat > "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" << GWPLIST
+        cat > "$HOME/Library/LaunchAgents/com.agent-memory.gateway.plist" << GWPLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.gateway</string>
+    <key>Label</key><string>com.agent-memory.gateway</string>
     <key>ProgramArguments</key><array>
         <string>$GATEWAY_EXEC</string>
         <string>$GATEWAY_BIN</string>
@@ -794,8 +794,8 @@ GWPLIST
         mkdir -p "$HOME/.config/1mcp"
         cp "$INSTALL_DIR/config/mcp.json" "$HOME/.config/1mcp/mcp.json"
 
-        launchctl unload "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist" 2>/dev/null || true
-        launchctl load "$HOME/Library/LaunchAgents/com.memory-server.gateway.plist"
+        launchctl unload "$HOME/Library/LaunchAgents/com.agent-memory.gateway.plist" 2>/dev/null || true
+        launchctl load "$HOME/Library/LaunchAgents/com.agent-memory.gateway.plist"
         echo "  ✓ Gateway service installed (port 3050)"
     else
         echo "  ⚠ Gateway skipped (install Node.js 18+ and run: npm install -g @1mcp/agent)"

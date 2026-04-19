@@ -136,13 +136,13 @@ mkdir -p "$HOME/.memory"
 PLISTS_GENERATED=0
 
 # --- Qdrant ---
-QDRANT_PLIST="$LAUNCH_DIR/com.memory-server.qdrant.plist"
+QDRANT_PLIST="$LAUNCH_DIR/com.agent-memory.qdrant.plist"
 cat > "$QDRANT_PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.qdrant</string>
+    <key>Label</key><string>com.agent-memory.qdrant</string>
     <key>ProgramArguments</key>
     <array>
         <string>$DIR/src/shared/qdrant/start.sh</string>
@@ -157,7 +157,7 @@ cat > "$QDRANT_PLIST" << PLIST
 </dict>
 </plist>
 PLIST
-echo "  ✅ com.memory-server.qdrant.plist"
+echo "  ✅ com.agent-memory.qdrant.plist"
 ((PLISTS_GENERATED++))
 
 # --- llama-server ---
@@ -166,13 +166,13 @@ LLAMA_MODEL="$DIR/bin/models/bge-m3-Q4_K_M.gguf"
 LLAMA_LIB="$DIR/bin/engine/lib"
 
 if [ -f "$LLAMA_BIN" ] && [ -f "$LLAMA_MODEL" ]; then
-    LLAMA_PLIST="$LAUNCH_DIR/com.memory-server.llama-embedding.plist"
+    LLAMA_PLIST="$LAUNCH_DIR/com.agent-memory.llama-embedding.plist"
     cat > "$LLAMA_PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.llama-embedding</string>
+    <key>Label</key><string>com.agent-memory.llama-embedding</string>
     <key>ProgramArguments</key>
     <array>
         <string>$LLAMA_BIN</string>
@@ -200,14 +200,14 @@ if [ -f "$LLAMA_BIN" ] && [ -f "$LLAMA_MODEL" ]; then
 </dict>
 </plist>
 PLIST
-    echo "  ✅ com.memory-server.llama-embedding.plist"
+    echo "  ✅ com.agent-memory.llama-embedding.plist"
     ((PLISTS_GENERATED++))
 else
     echo "  ⚠️  llama-server binary/model not found, skipping plist"
 fi
 
 # --- Gateway ---
-GATEWAY_PLIST="$LAUNCH_DIR/com.memory-server.gateway.plist"
+GATEWAY_PLIST="$LAUNCH_DIR/com.agent-memory.gateway.plist"
 NODE_PATH="$(which node)"
 ONE_MCP_PATH="$(which 1mcp)"
 cat > "$GATEWAY_PLIST" << PLIST
@@ -215,7 +215,7 @@ cat > "$GATEWAY_PLIST" << PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.gateway</string>
+    <key>Label</key><string>com.agent-memory.gateway</string>
     <key>ProgramArguments</key>
     <array>
         <string>$NODE_PATH</string>
@@ -240,17 +240,17 @@ cat > "$GATEWAY_PLIST" << PLIST
 </dict>
 </plist>
 PLIST
-echo "  ✅ com.memory-server.gateway.plist"
+echo "  ✅ com.agent-memory.gateway.plist"
 ((PLISTS_GENERATED++))
 
 # --- Watchdog ---
-WATCHDOG_PLIST="$LAUNCH_DIR/com.memory-server.watchdog.plist"
+WATCHDOG_PLIST="$LAUNCH_DIR/com.agent-memory.watchdog.plist"
 cat > "$WATCHDOG_PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.memory-server.watchdog</string>
+    <key>Label</key><string>com.agent-memory.watchdog</string>
     <key>ProgramArguments</key>
     <array>
         <string>$DIR/scripts/watchdog.sh</string>
@@ -264,7 +264,7 @@ cat > "$WATCHDOG_PLIST" << PLIST
 </dict>
 </plist>
 PLIST
-echo "  ✅ com.memory-server.watchdog.plist"
+echo "  ✅ com.agent-memory.watchdog.plist"
 ((PLISTS_GENERATED++))
 
 # ── Reload launchd ─────────────────────────────────────────────────
@@ -272,7 +272,7 @@ echo "  ✅ com.memory-server.watchdog.plist"
 echo ""
 echo "${B}🔄 Reloading launchd services${X}"
 
-for plist in "$LAUNCH_DIR"/com.memory-server.*.plist; do
+for plist in "$LAUNCH_DIR"/com.agent-memory.*.plist; do
     label="$(basename "$plist" .plist)"
     # Unload if loaded
     launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true

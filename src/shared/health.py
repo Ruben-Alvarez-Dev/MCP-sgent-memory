@@ -200,9 +200,9 @@ def check_launchd() -> ServiceStatus:
         )
         # Core services that must always be running
         core_services = [
-            "com.memory-server.qdrant",
-            "com.memory-server.llama-embedding",
-            "com.memory-server.gateway",
+            "com.agent-memory.qdrant",
+            "com.agent-memory.llama-embedding",
+            "com.agent-memory.gateway",
         ]
         services = {}
         for line in result.stdout.splitlines():

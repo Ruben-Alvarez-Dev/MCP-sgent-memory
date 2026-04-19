@@ -127,7 +127,7 @@ async def save_conversation(
 
 **Test de verificación:**
 ```bash
-cd ~/MCP-servers/MCP-memory-server
+cd ~/MCP-servers/MCP-agent-memory
 .venv/bin/python3 -c "
 from servers.mem0_bridge.server.main import *
 import asyncio
@@ -330,7 +330,7 @@ def get_embedding(text: str) -> list[float]:
 
 **Test:**
 ```bash
-cd ~/MCP-servers/MCP-memory-server
+cd ~/MCP-servers/MCP-agent-memory
 .venv/bin/python3 -c "
 from shared.llm import get_llm
 llm = get_llm()
@@ -515,5 +515,5 @@ FASE 5 (Integración pi) ← requiere todo lo anterior
 ---
 
 *Especificación generada por pi — 16/04/2026*
-*Runtime: `/Users/ruben/MCP-servers/MCP-memory-server/`*
-*Proyecto: `/Users/ruben/Code/PROJECT-MCP-memory-server/`*
+*Runtime: `/Users/ruben/MCP-servers/MCP-agent-memory/`*
+*Proyecto: `/Users/ruben/Code/PROJECT-MCP-agent-memory/`*

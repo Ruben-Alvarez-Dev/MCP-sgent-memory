@@ -36,7 +36,7 @@ async def test_rank_and_fuse_calls_llm_ranker_when_needed():
     intent = QueryIntent(intent_type="code_lookup", entities=[], scope="", time_window="", needs_external=False, needs_ranking=True, needs_consolidation=False)
     
     async def mock_llm_for_rank(p: str): return '{"ranked_indices": [1, 0]}'
-    fused = await _rank_and_fuse(results, intent, "query", mock_llm_fn=mock_llm_for_rank)
+    fused = await _rank_and_fuse(results, intent, "query", llm_fn=mock_llm_for_rank)
 
     assert len(fused) == 2
     assert fused[0].content == "Low score, but relevant"

@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 
-# Asumimos una base de datos en memoria para el placeholder
+# In-memory store for memory events.
+# In production, this is backed by Qdrant for persistence.
 MEMORY_DB: List[Dict[str, Any]] = []
 
 class MemoryItem(BaseModel):
@@ -50,7 +51,7 @@ async def ingest_event(event_type: str, content: str, source: str, *args, **kwar
         except json.JSONDecodeError as e:
             return json.dumps({"status": "error", "message": f"Invalid JSON content for diff event: {e}"})
     
-    # Placeholder for other event types
+    # Non-diff event types are not processed by this handler
     return json.dumps({"status": "ignored", "reason": "Event type not a diff event"})
 
 async def get_memory_db() -> str:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable, List, Coroutine
 import httpx
 from shared.retrieval.code_map import generate_code_map, CodeMap
+from shared.embedding import get_embedding_spec
 
 # Default values from FUSION-SPEC-v3.md
 DEFAULT_SUFFIXES = [".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java", ".yaml", ".md"]
@@ -32,6 +33,9 @@ async def _build_code_map_points(
 
         embedding = await embed_fn(code_map.summary)
         
+        # Build embedding spec for payload traceability
+        spec = get_embedding_spec()
+        
         # Payload must not contain None values for Qdrant
         payload = {
             "layer": 2,
@@ -47,7 +51,15 @@ async def _build_code_map_points(
             "map_text": code_map.map_text,
             "summary": code_map.summary,
             "created_at": code_map.created_at,
-            "source": "code_map_indexer"
+            "source": "code_map_indexer",
+            "embedding_spec": {
+                "backend": spec.backend,
+                "model_id": spec.model_id,
+                "dim": spec.dim,
+                "metric": spec.metric,
+                "version": spec.version,
+                "key": spec.key,
+            },
         }
         
         # Unique ID based on file path to ensure upserts replace existing docs
@@ -72,7 +84,7 @@ async def upsert_repository_index(
 ):
     """
     Generates code maps for all files in a repository and upserts them into Qdrant.
-    This replaces the previous placeholder.
+    This replaces the previous inline implementation.
     """
     print("INFO: Starting code map generation and indexing...")
     points = await _build_code_map_points(project_root, embed_fn)

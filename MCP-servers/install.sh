@@ -210,7 +210,19 @@ mkdir -p "$INSTALL_DIR"/tests/e2e
 mkdir -p "$INSTALL_DIR"/vault/{Inbox,"Decisiones","Conocimiento",Episodios,Log_Global,Entidades,Personas,Templates}
 mkdir -p "$INSTALL_DIR"/vault/.system/{locks,backups,trash/{human-deleted,system-deleted},orphaned}
 
-echo "  ✓ Directory tree created"
+# Runtime data directories (servers expect these under MEMORY_SERVER_DIR/data/)
+mkdir -p "$INSTALL_DIR"/data/memory/{engram/{agent,domain,personal,project,global-core},dream,thoughts,heartbeats,reminders}
+mkdir -p "$INSTALL_DIR"/data/staging_buffer
+
+# Initialize AutoDream state (avoids [Errno 2] on first heartbeat)
+cat > "$INSTALL_DIR/data/memory/dream/state.json" << DSTATE
+{"last_promote_l1_l2":0,"last_promote_l2_l3":0,"last_promote_l3_l4":0,"last_dream":0,"turn_count":0,"total_consolidated":0,"total_dreams":0}
+DSTATE
+
+# Initialize empty raw events file (avoid [Errno 2] on first ingest)
+touch "$INSTALL_DIR"/data/raw_events.jsonl
+
+echo "  ✓ Directory tree created (src + vault + data)"
 
 # ══════════════════════════════════════════════════════════════════
 # PHASE 3: Install binaries
@@ -421,9 +433,11 @@ OLLAMA_URL=http://127.0.0.1:11434
 VAULT_PATH=$INSTALL_DIR/vault
 
 # ── Runtime Paths ──────────────────────────────────────────────────
-DREAM_PATH=\$HOME/.memory/dream
-ENGRAM_PATH=\$HOME/.memory/engram
-AUTOMEM_JSONL=\$HOME/.memory/raw_events.jsonl
+DREAM_PATH=$INSTALL_DIR/data/memory/dream
+ENGRAM_PATH=$INSTALL_DIR/data/memory/engram
+AUTOMEM_JSONL=$INSTALL_DIR/data/raw_events.jsonl
+HEARTBEATS_PATH=$INSTALL_DIR/data/memory/heartbeats
+REMINDERS_PATH=$INSTALL_DIR/data/memory/reminders
 
 # ── vk-cache ───────────────────────────────────────────────────────
 VK_MIN_SCORE=0.3
@@ -479,7 +493,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
         "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT",
-        "ENGRAM_PATH": "\$HOME/.memory/engram",
+        "ENGRAM_PATH": "$INSTALL_DIR/data/memory/engram",
         "VAULT_PATH": "$INSTALL_DIR/vault"
       },
       "tags": ["memory", "retrieval"],
@@ -719,7 +733,7 @@ if [ "$OS" = "Darwin" ]; then
     echo "── Phase 8: launchd services ─────────────────────────────────"
     echo ""
 
-    mkdir -p "$HOME/.memory"/{dream,engram,heartbeats,reminders,thoughts}
+    mkdir -p "$HOME/.memory"
 
     # --- Qdrant ---
     cat > "$HOME/Library/LaunchAgents/com.agent-memory.qdrant.plist" << PLIST
@@ -823,7 +837,9 @@ ERRORS=0
 for dir in src/shared src/automem/server src/autodream/server src/vk-cache/server \
            src/conversation-store/server src/mem0/server src/engram/server \
            src/sequential-thinking/server \
-           config vault models engine/bin scripts; do
+           config vault models engine/bin scripts \
+           data/memory/engram data/memory/dream data/memory/thoughts \
+           data/memory/heartbeats data/memory/reminders data/staging_buffer; do
     if [ -d "$INSTALL_DIR/$dir" ]; then
         echo "  ✓ $dir/"
     else
@@ -834,7 +850,8 @@ done
 
 # Check critical files
 for f in src/shared/__init__.py src/shared/embedding.py src/shared/env_loader.py \
-         config/.env config/mcp.json; do
+         config/.env config/mcp.json \
+         data/memory/dream/state.json data/raw_events.jsonl; do
     if [ -f "$INSTALL_DIR/$f" ]; then
         echo "  ✓ $f"
     else

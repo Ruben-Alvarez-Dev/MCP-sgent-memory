@@ -35,6 +35,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -44,7 +45,49 @@ from typing import Optional
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))  # BGE-M3 default
 EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "llama_cpp")
 EMBEDDING_ENDPOINT = os.getenv("EMBEDDING_ENDPOINT")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")  # optional override
+EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL", "bge-m3") # Default model ID
+EMBEDDING_VERSION = os.getenv("EMBEDDING_VERSION", "v1")
+EMBEDDING_METRIC = os.getenv("EMBEDDING_METRIC", "cosine")
+EMBEDDING_STRICT = os.getenv("EMBEDDING_STRICT", "true").lower() == "true"
+
+
+@dataclass(frozen=True)
+class EmbeddingSpec:
+    """Explicit contract for embeddings."""
+    backend: str
+    model_id: str
+    dim: int
+    metric: str
+    version: str
+
+    @property
+    def key(self) -> str:
+        """Stable key for this embedding configuration."""
+        return f"{self.backend}:{self.model_id}:{self.dim}:{self.metric}:{self.version}"
+
+
+def get_embedding_spec() -> EmbeddingSpec:
+    """Get the current embedding specification."""
+    return EmbeddingSpec(
+        backend=EMBEDDING_BACKEND,
+        model_id=EMBEDDING_MODEL_ID,
+        dim=EMBEDDING_DIM,
+        metric=EMBEDDING_METRIC,
+        version=EMBEDDING_VERSION,
+    )
+
+
+def _validate_embedding_vector(vector: list[float], spec: EmbeddingSpec) -> list[float]:
+    """Ensure the vector matches the expected dimensionality."""
+    if not isinstance(vector, list) or not vector:
+        raise RuntimeError("Embedding backend returned empty or invalid vector")
+    
+    if len(vector) != spec.dim:
+        raise RuntimeError(
+            f"Embedding dimension mismatch: expected {spec.dim}, got {len(vector)} "
+            f"from model={spec.model_id} backend={spec.backend} version={spec.version}"
+        )
+    return vector
 
 
 # ── Backend ABC ────────────────────────────────────────────────────
@@ -126,41 +169,50 @@ def _discover_model() -> Optional[Path]:
     """Find an embedding model by scanning near the shared/ directory.
 
     Searches:
-      1. EMBEDDING_MODEL env var (explicit path)
-      2. models/*.gguf near this file (any parent)
-      3. ~/.cache/lm-studio/models/*.gguf (LM Studio default)
+      1. EMBEDDING_MODEL_ID env var (explicit path or name)
+      2. Specific model patterns near this file (any parent)
+      3. LM Studio default cache
     """
     # Explicit path
-    if EMBEDDING_MODEL:
-        p = Path(EMBEDDING_MODEL)
+    if EMBEDDING_MODEL_ID:
+        p = Path(EMBEDDING_MODEL_ID)
         if p.exists():
             return p
         # Might be a name, search in common locations
         for parent in [Path(__file__).resolve()] + list(Path(__file__).resolve().parents):
-            candidate = parent / "models" / EMBEDDING_MODEL
+            candidate = parent / "models" / EMBEDDING_MODEL_ID
             if candidate.exists():
                 return candidate
 
-    # Scan for any .gguf near this file
+    # Scan for model patterns near this file
     current = Path(__file__).resolve()
+    
+    # In production, we ONLY want specific models.
+    # If EMBEDDING_STRICT is true, we don't allow generic fallbacks.
+    strict_patterns = ["*bge*m3*.gguf", "*bge*.gguf"] if EMBEDDING_STRICT else [
+        "*bge*m3*.gguf",        # BGE-M3 (1024 dims, best)
+        "*bge*.gguf",            # Any BGE
+        "*nomic*embed*.gguf",    # Nomic (768 dims)
+        "*_f16.gguf",            # MiniLM f16 (384 dims)
+        "*_q8*.gguf",            # MiniLM q8
+        "*_f32.gguf",            # MiniLM f32
+        "*.gguf",                # Any gguf (only if not strict)
+    ]
+
     for parent in [current] + list(current.parents):
         models_dir = parent / "models"
         if models_dir.exists():
-            # Preference: BGE-M3 > Nomic > MiniLM
-            for pattern in [
-                "*bge*m3*.gguf",        # BGE-M3 (1024 dims, best)
-                "*bge*.gguf",            # Any BGE
-                "*nomic*embed*.gguf",    # Nomic (768 dims)
-                "*_f16.gguf",            # MiniLM f16 (384 dims)
-                "*_q8*.gguf",            # MiniLM q8
-                "*_f32.gguf",            # MiniLM f32
-                "*.gguf",                # Any gguf
-            ]:
+            for pattern in strict_patterns:
                 matches = list(models_dir.glob(pattern))
                 if matches:
                     return matches[0]
 
-    # LM Studio default cache (fallback only)
+    if EMBEDDING_STRICT:
+        # In strict mode, if we haven't found a BGE model, we FAIL.
+        # Don't even try LM Studio fallback.
+        return None
+
+    # LM Studio default cache (fallback only if not strict)
     lm_models = Path(os.getenv("LM_STUDIO_MODELS", str(Path.home() / ".cache" / "lm-studio" / "models")))
     if lm_models.exists():
         matches = list(lm_models.glob("**/*.gguf"))
@@ -230,7 +282,8 @@ class LlamaCppBackend(EmbeddingBackend):
                 f"  stdout: {result.stdout[:200]}"
             )
 
-        return _parse_embedding_output(result.stdout)
+        vector = _parse_embedding_output(result.stdout)
+        return _validate_embedding_vector(vector, get_embedding_spec())
 
 
 # ── BM25 Sparse Vector Tokenizer ─────────────────────────────────
@@ -341,7 +394,8 @@ class HttpBackend(EmbeddingBackend):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read())
                 # OpenAI format
-                return data["data"][0]["embedding"]
+                vector = data["data"][0]["embedding"]
+                return _validate_embedding_vector(vector, get_embedding_spec())
         except Exception as e:
             raise RuntimeError(f"HttpBackend request failed: {e}") from e
 
@@ -402,18 +456,24 @@ class LlamaServerBackend(EmbeddingBackend):
             data = _json.loads(resp.read())
             # llama-server format: [{"index": 0, "embedding": [[float, ...]]}]
             # or: {"embedding": [float, ...]}
+            vector = []
             if isinstance(data, list) and data:
                 emb = data[0].get("embedding", [])
                 # Some versions wrap in an extra list
                 if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                    return emb[0]
-                return emb
-            if isinstance(data, dict):
+                    vector = emb[0]
+                else:
+                    vector = emb
+            elif isinstance(data, dict):
                 emb = data.get("embedding", [])
                 if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                    return emb[0]
-                return emb
-            raise ValueError(f"Unexpected embedding response format: {type(data)}")
+                    vector = emb[0]
+                else:
+                    vector = emb
+            else:
+                raise ValueError(f"Unexpected embedding response format: {type(data)}")
+            
+            return _validate_embedding_vector(vector, get_embedding_spec())
 
 
 # ── LRU Cache ──────────────────────────────────────────────────────

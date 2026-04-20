@@ -76,7 +76,7 @@ def test_complex_coding_flow_uses_only_local_calls(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(retrieval.httpx, "AsyncClient", local_async_client)
     monkeypatch.setattr(vk_main.httpx, "AsyncClient", local_async_client)
     monkeypatch.setattr(retrieval, "get_embedding", lambda _text: [0.0] * 3)
-    monkeypatch.setattr(vk_main, "_llama_embed_func", lambda _text: [0.0] * 384)
+    monkeypatch.setattr(vk_main, "async_embed", lambda _text: asyncio.sleep(0, result=[0.0] * 3))
     monkeypatch.setattr(retrieval, "classify_intent", lambda *a, **kw: QueryIntent(intent_type="code_lookup", entities=["pkg", "main", "helper"], scope="this_project", time_window="all", needs_external=False, needs_ranking=False, needs_consolidation=False))
     monkeypatch.setattr(retrieval, "_retrieve_engram", lambda *a, **kw: asyncio.sleep(0, result=[]))
     monkeypatch.setattr(vk_main, "_reminders_path", tmp_path / "reminders")

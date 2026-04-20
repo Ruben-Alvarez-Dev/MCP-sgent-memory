@@ -93,6 +93,35 @@ OS=$(uname -s)
 echo ""
 echo "Platform: $OS $MACHINE"
 
+# ── Port auto-detection ──────────────────────────────────────────────
+# Policy: try default port first. If occupied, increment until free.
+
+find_free_port() {
+    local start_port="$1"
+    local port="$start_port"
+    local max="$((start_port + 100))"  # Search up to 100 ports above default
+    while [ "$port" -le "$max" ]; do
+        if ! lsof -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+        port=$((port + 1))
+    done
+    # Fallback: no free port found in range
+    echo "$start_port"
+    return 1
+}
+
+QDRANT_PORT=$(find_free_port 6333)
+LLAMA_PORT=$(find_free_port 8081)
+GATEWAY_PORT=$(find_free_port 3050)
+
+echo ""
+echo "Ports (auto-detected):"
+echo "  Qdrant:      $QDRANT_PORT"
+echo "  Embeddings:  $LLAMA_PORT"
+echo "  Gateway:     $GATEWAY_PORT"
+
 # ══════════════════════════════════════════════════════════════════
 # PHASE 1: Source resolution — find engine, models, qdrant
 # ══════════════════════════════════════════════════════════════════
@@ -170,7 +199,7 @@ echo "── Phase 2: Creating directory structure ─────────�
 echo ""
 
 # Servers go into src/ — SAME layout as dev (servers are siblings of shared/)
-mkdir -p "$INSTALL_DIR"/src/{automem,autodream,vk-cache,conversation-store,mem0,engram,sequential-thinking,,}/server
+mkdir -p "$INSTALL_DIR"/src/{automem,autodream,vk-cache,conversation-store,mem0,engram,sequential-thinking}/server
 mkdir -p "$INSTALL_DIR"/src/shared/{llm,retrieval,compliance,vault_manager,models,qdrant}
 mkdir -p "$INSTALL_DIR"/engine/{bin,lib}
 mkdir -p "$INSTALL_DIR"/models
@@ -273,7 +302,7 @@ echo ""
 
 # Source servers: look in both dev layout ($SCRIPT_DIR/$server/) 
 # and flat layout ($SCRIPT_DIR/servers/$server/)
-SERVERS="automem autodream vk-cache conversation-store mem0 engram sequential-thinking  "
+SERVERS="automem autodream vk-cache conversation-store mem0 engram sequential-thinking"
 
 for server in $SERVERS; do
     # Try dev layout first (current structure: MCP-servers/$server/)
@@ -356,12 +385,11 @@ if [ -f "$HOME/MCP-servers/MCP-agent-memory/config/.env" ]; then
     [ -n "$EXISTING_MODEL" ] && LLM_MODEL="$EXISTING_MODEL"
 fi
 
-# Detect embedding dimension based on available model
-EMBEDDING_DIM=384  # MiniLM default
-if ls "$INSTALL_DIR/models/"*bge*m3* &>/dev/null; then
-    EMBEDDING_DIM=1024
-elif ls "$INSTALL_DIR/models/"*nomic* &>/dev/null; then
-    EMBEDDING_DIM=768
+# Detect embedding dimension based on available model.
+# Default is 1024 (BGE-M3) — the production standard for this project.
+EMBEDDING_DIM=1024
+if ls "$INSTALL_DIR/models/"*nomic* &>/dev/null && ! ls "$INSTALL_DIR/models/"*bge* &>/dev/null; then
+    EMBEDDING_DIM=768  # Only if BGE is absent and Nomic is all we have
 fi
 
 cat > "$INSTALL_DIR/config/.env" << EOF
@@ -373,7 +401,7 @@ MEMORY_SERVER_DIR=$INSTALL_DIR
 PYTHONPATH=$INSTALL_DIR/src
 
 # ── Shared Infrastructure ──────────────────────────────────────────
-QDRANT_URL=http://127.0.0.1:6333
+QDRANT_URL=http://127.0.0.1:$QDRANT_PORT
 QDRANT_COLLECTION=automem
 CONV_COLLECTION=conversations
 MEM0_COLLECTION=mem0_memories
@@ -424,7 +452,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333",
+        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT",
         "EMBEDDING_MODEL": "bge-m3",
         "EMBEDDING_DIM": "$EMBEDDING_DIM"
       },
@@ -437,7 +465,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333",
+        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT",
         "LLM_BACKEND": "$LLM_BACKEND",
         "LLM_MODEL": "$LLM_MODEL"
       },
@@ -450,7 +478,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333",
+        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT",
         "ENGRAM_PATH": "\$HOME/.memory/engram",
         "VAULT_PATH": "$INSTALL_DIR/vault"
       },
@@ -463,7 +491,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333"
+        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT"
       },
       "tags": ["memory", "conversations"],
       "disabled": false
@@ -474,7 +502,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333"
+        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT"
       },
       "tags": ["memory", "semantic"],
       "disabled": false
@@ -498,27 +526,6 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
         "MEMORY_SERVER_DIR": "$INSTALL_DIR"
       },
       "tags": ["reasoning", "planning"],
-      "disabled": false
-    },
-    "": {
-      "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/src//server/main.py"],
-      "env": {
-        "PYTHONPATH": "$INSTALL_DIR/src",
-        "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:6333"
-      },
-      "tags": ["memory", "facade"],
-      "disabled": false
-    },
-    "": {
-      "command": "$PYTHON_VENV",
-      "args": ["-u", "$INSTALL_DIR/src//server/main.py"],
-      "env": {
-        "PYTHONPATH": "$INSTALL_DIR/src",
-        "MEMORY_SERVER_DIR": "$INSTALL_DIR"
-      },
-      "tags": ["docs", "proxy"],
       "disabled": false
     }
   }
@@ -567,7 +574,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
 ENGINE_DIR="$INSTALL_DIR/engine"
 MODEL_DIR="$INSTALL_DIR/models"
-PORT="\${LLAMA_SERVER_PORT:-8080}"
+PORT="\${LLAMA_SERVER_PORT:-$LLAMA_PORT}"
 HOST="\${LLAMA_SERVER_HOST:-127.0.0.1}"
 LOG_FILE="\${LLAMA_SERVER_LOG:-$INSTALL_DIR/logs/embedding-server.log}"
 PID_FILE="$INSTALL_DIR/logs/embedding-server.pid"
@@ -659,14 +666,14 @@ INSTALL_DIR="$(dirname "$SCRIPT_DIR")"
 echo "🧠 Starting MCP Memory Server ecosystem..."
 
 # 1. Qdrant
-if ! curl -s http://127.0.0.1:6333/health > /dev/null 2>&1; then
+if ! curl -s http://127.0.0.1:$QDRANT_PORT/health > /dev/null 2>&1; then
     echo "📦 Starting Qdrant..."
     "$SCRIPT_DIR/start-qdrant.sh" &
     sleep 3
 fi
 
 # 2. Embedding server
-if ! curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
+if ! curl -s http://127.0.0.1:$LLAMA_PORT/health > /dev/null 2>&1; then
     echo "🚀 Starting embedding server..."
     "$SCRIPT_DIR/start-embedding-server.sh"
 fi
@@ -690,7 +697,7 @@ export MEMORY_SERVER_DIR="$INSTALL_DIR"
 export EMBEDDING_BACKEND=llama_server
 
 if command -v 1mcp &>/dev/null; then
-    exec 1mcp serve --port 3050 --enable-config-reload false
+    exec 1mcp serve --port $GATEWAY_PORT --enable-config-reload false
 else
     echo "ERROR: 1mcp not installed. Run: npm install -g @1mcp/agent"
     exit 1
@@ -742,11 +749,11 @@ PLIST
     sleep 3
 
     # Create collections
-    if curl -s http://127.0.0.1:6333/health &>/dev/null; then
+    if curl -s http://127.0.0.1:$QDRANT_PORT/health &>/dev/null; then
         echo "  ✓ Qdrant running"
         for col in automem conversations mem0_memories; do
-            curl -s -X DELETE "http://127.0.0.1:6333/collections/$col" &>/dev/null || true
-            curl -s -X PUT "http://127.0.0.1:6333/collections/$col" \
+            curl -s -X DELETE "http://127.0.0.1:$QDRANT_PORT/collections/$col" &>/dev/null || true
+            curl -s -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/$col" \
                 -H "Content-Type: application/json" \
                 -d "{\"vectors\":{\"size\":$EMBEDDING_DIM,\"distance\":\"Cosine\"},\"sparse_vectors\":{\"text\":{\"index\":{\"type\":\"bm25\"}}}}" \
                 &>/dev/null && echo "  ✓ Collection $col ($EMBEDDING_DIMd + BM25)"
@@ -774,7 +781,7 @@ PLIST
         <string>$GATEWAY_EXEC</string>
         <string>$GATEWAY_BIN</string>
         <string>serve</string>
-        <string>--port</string><string>3050</string>
+        <string>--port</string><string>$GATEWAY_PORT</string>
         <string>--enable-config-reload</string><string>false</string>
     </array>
     <key>WorkingDirectory</key><string>$INSTALL_DIR</string>
@@ -796,7 +803,7 @@ GWPLIST
 
         launchctl unload "$HOME/Library/LaunchAgents/com.agent-memory.gateway.plist" 2>/dev/null || true
         launchctl load "$HOME/Library/LaunchAgents/com.agent-memory.gateway.plist"
-        echo "  ✓ Gateway service installed (port 3050)"
+        echo "  ✓ Gateway service installed (port $GATEWAY_PORT)"
     else
         echo "  ⚠ Gateway skipped (install Node.js 18+ and run: npm install -g @1mcp/agent)"
     fi
@@ -815,7 +822,7 @@ ERRORS=0
 # Check directory structure
 for dir in src/shared src/automem/server src/autodream/server src/vk-cache/server \
            src/conversation-store/server src/mem0/server src/engram/server \
-           src/sequential-thinking/server src//server src//server \
+           src/sequential-thinking/server \
            config vault models engine/bin scripts; do
     if [ -d "$INSTALL_DIR/$dir" ]; then
         echo "  ✓ $dir/"
@@ -848,6 +855,68 @@ else
     ERRORS=$((ERRORS+1))
 fi
 
+# ── Service health checks ─────────────────────────────────────────
+
+echo ""
+echo "  Services:"
+
+# Qdrant
+QDRANT_OK=false
+for i in $(seq 1 10); do
+    if curl -sf http://127.0.0.1:$QDRANT_PORT/healthz > /dev/null 2>&1; then
+        QDRANT_OK=true
+        break
+    fi
+    sleep 1
+done
+if $QDRANT_OK; then
+    echo "  ✓ Qdrant healthy (port $QDRANT_PORT)"
+else
+    echo "  ✗ Qdrant NOT responding (port $QDRANT_PORT)"
+    ERRORS=$((ERRORS+1))
+fi
+
+# Verify collection dimensions match EMBEDDING_DIM
+if $QDRANT_OK; then
+    for col in automem conversations mem0_memories; do
+        COL_INFO=$(curl -sf "http://127.0.0.1:$QDRANT_PORT/collections/$col" 2>/dev/null)
+        if [ -n "$COL_INFO" ]; then
+            COL_DIM=$(echo "$COL_INFO" | "$PYTHON_VENV" -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    cfg = data.get('result', {}).get('config', {}).get('params', {}).get('vectors', {})
+    size = cfg.get('size', 0)
+    print(size)
+except: print(0)
+" 2>/dev/null || echo "0")
+            if [ "$COL_DIM" = "$EMBEDDING_DIM" ]; then
+                echo "  ✓ Collection $col: ${COL_DIM}d vectors"
+            else
+                echo "  ✗ Collection $col: ${COL_DIM}d (expected ${EMBEDDING_DIM}d)"
+                ERRORS=$((ERRORS+1))
+            fi
+        fi
+    done
+fi
+
+# Embedding pipeline
+EMBED_OK=false
+if PYTHONPATH="$INSTALL_DIR/src" EMBEDDING_BACKEND=noop EMBEDDING_DIM="$EMBEDDING_DIM" \
+    "$PYTHON_VENV" -c "
+from shared.embedding import get_embedding_spec, NoOpBackend
+spec = get_embedding_spec()
+backend = NoOpBackend()
+vec = backend.embed('health check')
+assert len(vec) == $EMBEDDING_DIM, f'Expected {$EMBEDDING_DIM}, got {len(vec)}'
+print(f'  ✓ Embedding pipeline: {spec.dim}d, model={spec.model_id}, backend={spec.backend}')
+" 2>/dev/null; then
+    EMBED_OK=true
+else
+    echo "  ✗ Embedding pipeline FAILED"
+    ERRORS=$((ERRORS+1))
+fi
+
 # ══════════════════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════════════════
@@ -865,9 +934,9 @@ echo "╚═══════════════════════�
 echo ""
 echo "  Location:    $INSTALL_DIR ($TOTAL_SIZE)"
 echo "  Layout:      src/ (servers + shared are siblings)"
-echo "  Qdrant:      http://127.0.0.1:6333"
+echo "  Qdrant:      http://127.0.0.1:$QDRANT_PORT"
 if [ "$GATEWAY_AVAILABLE" = "true" ]; then
-    echo "  Gateway:     http://127.0.0.1:3050"
+    echo "  Gateway:     http://127.0.0.1:$GATEWAY_PORT"
 fi
 echo "  Vault:       $INSTALL_DIR/vault/"
 echo "  Config:      $INSTALL_DIR/config/.env"
@@ -876,7 +945,7 @@ echo "  Services:"
 echo "    launchctl list | grep memory-server"
 echo ""
 echo "  Connect agents:"
-echo "    URL:  http://127.0.0.1:3050/mcp"
+echo "    URL:  http://127.0.0.1:$GATEWAY_PORT/mcp"
 echo "    Type: http (SSE transport)"
 echo ""
 echo "  Manual start:"

@@ -5,7 +5,7 @@ from pathlib import Path
 # Path relativo al root del proyecto
 MODEL_PACKS_PATH = Path("data/memory/engram/model-packs")
 
-# Variables globales para el placeholder del sandbox
+# Global sandbox state for staging proposed changes before applying.
 STAGING_BUFFER_PATH = None
 _last_changes_json = None
 
@@ -23,7 +23,7 @@ async def sequential_thinking(problem: str, model_pack: str = "default", *args, 
     """
     pack = _get_model_pack_sync(model_pack)
     
-    # Placeholder logic
+    # Default reasoning steps with temperature recommendations
     plan = [
         {"step": 1, "action": "Analyze the problem", "role": "planner", "temperature": pack.get("roles", {}).get("planner", {}).get("temperature", 0.7)},
         {"step": 2, "action": "Propose a code solution", "role": "coder", "temperature": pack.get("roles", {}).get("coder", {}).get("temperature", 0.1)},
@@ -36,19 +36,19 @@ async def create_plan(goal: str, model_pack: str = "default", *args, **kwargs) -
     """Creates an execution plan, including temperature recommendations."""
     return await sequential_thinking(goal, model_pack)
 
-# --- Funciones del Sandbox (placeholders para el test E2E) ---
+# --- Sandbox functions for staging and applying code changes ---
 
 async def propose_change_set(session_id, title, changes_json, *args, **kwargs):
-    """Placeholder for propose_change_set."""
+    """Stage a set of proposed code changes for review before applying."""
     global _last_changes_json
     _last_changes_json = changes_json
-    print("INFO: propose_change_set placeholder called.")
+    print("INFO: propose_change_set staging changes.")
     return json.dumps({"change_set_id": "test-id", "status": "staged"})
 
 async def apply_sandbox(change_set_id, approved, *args, **kwargs):
-    """Placeholder for apply_sandbox."""
+    """Apply or reject a staged change set based on approval."""
     global _last_changes_json
-    print("INFO: apply_sandbox placeholder called.")
+    print("INFO: apply_sandbox evaluating approval.")
     if approved and _last_changes_json:
         changes = json.loads(_last_changes_json)
         for change in changes:

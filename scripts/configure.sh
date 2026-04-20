@@ -30,8 +30,25 @@ esac
 DIR="$(cd "$DIR" && pwd)"
 
 # Configurable with sane defaults
-QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
-LLAMA_SERVER_URL="${LLAMA_SERVER_URL:-http://127.0.0.1:8081}"
+# Auto-detect free ports — increment if occupied
+find_free_port() {
+    local start_port="$1"
+    local port="$start_port"
+    local max="$((start_port + 100))"
+    while [ "$port" -le "$max" ]; do
+        if ! lsof -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; then
+            echo "$port"
+            return 0
+        fi
+        port=$((port + 1))
+    done
+    echo "$start_port"
+    return 1
+}
+
+QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:$(find_free_port 6333)}"
+LLAMA_SERVER_URL="${LLAMA_SERVER_URL:-http://127.0.0.1:$(find_free_port 8081)}"
+GATEWAY_PORT="${GATEWAY_PORT:-$(find_free_port 3050)}"
 LLM_BACKEND="${LLM_BACKEND:-ollama}"
 LLM_MODEL="${LLM_MODEL:-qwen2.5:7b}"
 
@@ -177,7 +194,7 @@ if [ -f "$LLAMA_BIN" ] && [ -f "$LLAMA_MODEL" ]; then
     <array>
         <string>$LLAMA_BIN</string>
         <string>-m</string><string>$LLAMA_MODEL</string>
-        <string>--port</string><string>8081</string>
+        <string>--port</string><string>$(echo "$LLAMA_SERVER_URL" | grep -o '[0-9]*$')</string>
         <string>--host</string><string>127.0.0.1</string>
         <string>--embedding</string>
         <string>--pooling</string><string>mean</string>
@@ -221,7 +238,7 @@ cat > "$GATEWAY_PLIST" << PLIST
         <string>$NODE_PATH</string>
         <string>$ONE_MCP_PATH</string>
         <string>serve</string>
-        <string>--port</string><string>3050</string>
+        <string>--port</string><string>$GATEWAY_PORT</string>
         <string>--enable-config-reload</string><string>false</string>
     </array>
     <key>WorkingDirectory</key><string>$DIR</string>

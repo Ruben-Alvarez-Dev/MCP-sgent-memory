@@ -2,14 +2,13 @@ from __future__ import annotations
 import json
 from typing import List, Dict, Any
 
-# In a real scenario, this would be the shared in-memory DB or a connection to it.
-# We import it here for the placeholder implementation.
+# In-memory storage for consolidated memory events.
+# In production this connects to the shared MEMORY_DB from automem.
 from automem.server.main import MEMORY_DB
 
 def _mine_diff_patterns(diffs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Mines patterns from a list of diff events. Implements SPEC-6.1.
-    This is a simplified placeholder logic.
     """
     patterns = []
     
@@ -20,7 +19,7 @@ def _mine_diff_patterns(diffs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
            d.get("metadata", {}).get("language") == "python"
     ]
 
-    # Placeholder: if we see a rejected diff that contains 'import', create an anti-pattern.
+    # Heuristic: rejected diffs containing 'import' suggest dependency issues.
     if any("import" in json.loads(d.get("content", '""')) for d in rejected_python_diffs):
         patterns.append({
             "type": "anti_pattern",

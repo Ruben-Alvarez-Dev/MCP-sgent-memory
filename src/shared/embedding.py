@@ -8,7 +8,7 @@ Provides a unified interface for generating embeddings with swappable backends:
 Configuration is entirely env-driven and project-agnostic:
   EMBEDDING_BACKEND   = llama_cpp | http | noop  (default: llama_cpp)
   EMBEDDING_MODEL     = model path or name (backend-specific)
-  EMBEDDING_DIM       = vector dimensionality  (default: 384)
+   EMBEDDING_DIM       = vector dimensionality  (default: 1024, BGE-M3)
   EMBEDDING_ENDPOINT  = URL for http backend   (e.g. http://localhost:11434/api/embeddings)
 
 For llama_cpp backend (default):

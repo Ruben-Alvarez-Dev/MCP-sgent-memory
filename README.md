@@ -14,13 +14,11 @@ L0 (Raw Events) → L1 (Working) → L2 (Short-term) → L3 (Semantic) → L4 (C
 |--------|------|---------|
 | **automem** | - | Fast memory store/retrieve |
 | **autodream** | - | Background consolidation & dream cycle |
-| **engram-facade** | 3050 | Main MCP gateway (unified API) |
-| **engram-bridge** | - | Bridges engram operations |
 | **conversation-store** | - | Thread/conversation persistence |
 | **sequential-thinking** | - | Step-by-step reasoning chains |
-| **vk-cache** | - | Vector knowledge cache |
-| **context7-proxy** | - | Context window proxy |
-| **mem0-bridge** | - | Mem0 compatibility layer |
+| **vk-cache** | - | Vector knowledge cache & context retrieval |
+| **mem0** | - | Mem0 compatibility layer |
+| **engram** | - | Decision store & Obsidian vault |
 
 ### Hub Bridge (Python)
 

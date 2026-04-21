@@ -1,0 +1,4 @@
+qdrant    32040 ruben  612u  IPv4 0xadf9714f8cc00bbd      0t0  TCP 127.0.0.1:6333 (LISTEN)
+llama-ser 33545 ruben    3u  IPv4 0x26636f98a9a2fd92      0t0  TCP 127.0.0.1:8081 (LISTEN)
+node      51975 ruben   32u  IPv4 0xc7a028dc065384d6      0t0  TCP 127.0.0.1:3050 (LISTEN)
+ollama    83634 ruben    3u  IPv6 0x3eabb7821c68d3cc      0t0  TCP *:11434 (LISTEN)

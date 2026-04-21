@@ -1,0 +1,421 @@
+--- MCP-servers/automem/server/main.py	2026-04-20 21:22:58
++++ src/automem/server/main.py	2026-04-20 21:22:58
+@@ -1,371 +1,59 @@
+-"""AutoMem — Real-time Memory Ingestion Daemon.
+-
+-Runs INDEPENDENTLY of the LLM agent. Always ON.
+-Captures events from filesystem, terminal, git, and system.
+-Promotes raw events → working memory → episodic memory.
+-
+-Frequency:
+-  - Every user message: embed + index (L1 working)
+-  - Every N turns: promote to episodic (L2)
+-  - On session close: tag and finalize
+-
+-No LLM required. Works with agent disconnected.
+-Embeddings via shared backend (llama_server, llama_cpp, noop).
+-"""
+-
+ from __future__ import annotations
+-
+-import asyncio
+ import json
+-import os
+-import sys
+-from datetime import datetime
++import uuid
+ from pathlib import Path
+-from typing import Any
++import datetime
++from zoneinfo import ZoneInfo
++from pydantic import BaseModel, Field
++from typing import List, Dict, Any
+ 
+-import httpx
+-from mcp.server.fastmcp import FastMCP
++# In-memory store for memory events.
++# In production, this is backed by Qdrant for persistence.
++MEMORY_DB: List[Dict[str, Any]] = []
+ 
+-_project_root = Path(os.getenv("MEMORY_SERVER_DIR", Path(__file__).resolve().parents[3]))
++class MemoryItem(BaseModel):
++    memory_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
++    content: str
++    layer: int
++    type: str # e.g., "STEP", "OBSERVATION"
++    metadata: Dict[str, Any] = Field(default_factory=dict)
++    created_at: str = Field(default_factory=lambda: datetime.datetime.now(ZoneInfo("UTC")).isoformat())
+ 
+-
+-from shared.env_loader import load_env
+-load_env()
+-from shared.models import (
+-    HeartbeatStatus,
+-    MemoryItem,
+-    MemoryLayer,
+-    MemoryScope,
+-    MemoryType,
+-    RawEvent,
+-    RawEventType,
+-)
+-
+-# Embedding via shared backend (llama_server HTTP, llama_cpp subprocess, etc.)
+-from shared.embedding import get_embedding as llama_embed, async_embed, bm25_tokenize
+-from shared.sanitize import validate_memorize, validate_ingest_event, sanitize_text, sanitize_user_id
+-
+-mcp = FastMCP("automem")
+-
+-# ── Configuration ──────────────────────────────────────────────────
+-
+-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "automem")
+-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))
+-JSONL_PATH = os.getenv("AUTOMEM_JSONL", str(_project_root / "data" / "raw_events.jsonl") if _project_root else "")
+-PROMOTION_INTERVAL = int(os.getenv("AUTOMEM_PROMOTE_EVERY", "10"))  # turns
+-STAGING_BUFFER = Path(os.getenv("STAGING_BUFFER", str(_project_root / "data" / "staging_buffer") if _project_root else ""))
+-
+-# ── Qdrant helpers ─────────────────────────────────────────────────
+-
+-async def ensure_collection():
+-    """Create Qdrant collection with dense + sparse vectors if not exists."""
+-    async with httpx.AsyncClient() as client:
+-        resp = await client.get(f"{QDRANT_URL}/collections")
+-        existing = [c["name"] for c in resp.json().get("result", {}).get("collections", [])]
+-        if QDRANT_COLLECTION not in existing:
+-            await client.put(
+-                f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}",
+-                json={
+-                    "vectors": {"size": EMBEDDING_DIM, "distance": "Cosine"},
+-                    "sparse_vectors": {"text": {"index": {"type": "bm25"}}},
+-                },
+-            )
+-
+-async def embed_text(text: str) -> list[float]:
+-    """Generate embedding via configured backend."""
+-    return await async_embed(text)
+-
+-async def store_memory(item: MemoryItem):
+-    """Store a memory item in Qdrant with dense + sparse vectors."""
+-    await ensure_collection()
+-
+-    # Generate dense embedding
+-    vector = await embed_text(item.content) if item.embedding is None else item.embedding
+-
+-    # Generate BM25 sparse vector
+-    sparse = bm25_tokenize(item.content)
+-
+-    point = {
+-        "id": item.memory_id,
+-        "vector": vector,
+-        "sparse_vectors": {"text": sparse},
+-        "payload": item.model_dump(mode="json"),
+-    }
+-
+-    async with httpx.AsyncClient() as client:
+-        await client.put(
+-            f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points?wait=true",
+-            json={"points": [point]},
+-        )
+-
+-async def append_raw_jsonl(event: RawEvent):
+-    """Append raw event to JSONL file (L0 audit trail)."""
+-    path = Path(JSONL_PATH)
+-    path.parent.mkdir(parents=True, exist_ok=True)
+-    with open(path, "a") as f:
+-        f.write(event.model_dump_json() + "\n")
+-
+-def ensure_staging_buffer() -> Path:
+-    """Ensure the virtual staging buffer directory exists."""
+-    STAGING_BUFFER.mkdir(parents=True, exist_ok=True)
+-    return STAGING_BUFFER
+-
+-# ── Public MCP Tools ──────────────────────────────────────────────
+-
+-@mcp.tool()
+-async def memorize(
+-    content: str,
+-    mem_type: str = "fact",
+-    scope: str = "session",
+-    scope_id: str = "current",
+-    importance: float = 0.5,
+-    tags: str = "",
+-) -> str:
+-    """Store a memory. AutoMem ingests it immediately.
+-
+-    Args:
+-        content: The memory content.
+-        mem_type: fact | step | preference | decision | episode | summary
+-        scope: session | agent | domain | personal | global-core
+-        scope_id: e.g. 'frontend', 'ruben', 'session-abc'
+-        importance: 0.0-1.0
+-        tags: Comma-separated tags.
++async def ingest_event(event_type: str, content: str, source: str, *args, **kwargs) -> str:
+     """
+-    # Sanitize inputs
+-    clean = validate_memorize(content, mem_type, scope, tags)
+-    content = clean["content"]
+-    mem_type = clean["mem_type"]
+-    scope = clean["scope"]
+-    tags = ','.join(clean["tags"])
+-    scope_map = {
+-        "session": MemoryScope.SESSION,
+-        "agent": MemoryScope.AGENT,
+-        "domain": MemoryScope.DOMAIN,
+-        "personal": MemoryScope.PERSONAL,
+-        "global-core": MemoryScope.GLOBAL_CORE,
+-    }
+-
+-    item = MemoryItem(
+-        layer=MemoryLayer.WORKING,
+-        scope_type=scope_map.get(scope, MemoryScope.AGENT),
+-        scope_id=scope_id,
+-        type=MemoryType(mem_type),
+-        content=content,
+-        importance=importance,
+-        topic_ids=[t.strip() for t in tags.split(",") if t.strip()],
+-    )
+-
+-    await store_memory(item)
+-
+-    # Also append as raw event for audit
+-    raw = RawEvent(
+-        type=RawEventType.AGENT_ACTION,
+-        source="automem",
+-        actor_id=scope_id,
+-        attributes={"memory_id": item.memory_id, "type": mem_type},
+-    )
+-    await append_raw_jsonl(raw)
+-
+-    return json.dumps({
+-        "status": "stored",
+-        "memory_id": item.memory_id,
+-        "layer": "L1_WORKING",
+-        "scope": item.full_scope,
+-    }, indent=2)
+-
+-@mcp.tool()
+-async def ingest_event(
+-    event_type: str,
+-    source: str,
+-    content: str,
+-    actor_id: str = "system",
+-    session_id: str = "",
+-) -> str:
+-    """Ingest a raw L0 event (terminal, git, file, system, diff).
+-
+-    Supports diff events for autoaprendizaje:
+-      diff_proposed: A change was proposed (content = DiffChange JSON)
+-      diff_accepted: A change was accepted
+-      diff_rejected: A change was rejected
+-      diff_applied: A change was applied to filesystem
+-      diff_failed: A change failed to apply
++    Ingests an event into memory. Handles diff events specifically.
++    Implements SPEC-3.2.
+     """
+-    # Sanitize inputs
+-    clean = validate_ingest_event(event_type, source, content)
+-    event_type = clean["event_type"]
+-    source = clean["source"]
+-    content = clean["content"]
+-
+-    type_map = {
+-        "terminal": RawEventType.TERMINAL,
+-        "file": RawEventType.FILE_ACCESS,
+-        "git": RawEventType.GIT_EVENT,
+-        "agent": RawEventType.AGENT_ACTION,
+-        "ide": RawEventType.IDE_EVENT,
+-        "system": RawEventType.SYSTEM,
+-        # Diff events (SPEC-3.2)
+-        "diff_proposed": RawEventType.AGENT_ACTION,
+-        "diff_accepted": RawEventType.AGENT_ACTION,
+-        "diff_rejected": RawEventType.AGENT_ACTION,
+-        "diff_applied": RawEventType.AGENT_ACTION,
+-        "diff_failed": RawEventType.AGENT_ACTION,
+-    }
+-
+-    is_diff_event = event_type.startswith("diff_")
+-
+-    event = RawEvent(
+-        type=type_map.get(event_type, RawEventType.SYSTEM),
+-        source=source,
+-        actor_id=actor_id,
+-        session_id=session_id,
+-        attributes={"content": content, "event_subtype": event_type},
+-    )
+-
+-    await append_raw_jsonl(event)
+-
+-    # Auto-promote to working memory if important enough
+-    mem_type = MemoryType.FACT
+-    importance = 0.3
+-    extra_metadata = {}
+-
+-    if is_diff_event:
+-        # Diff events get special treatment for autoaprendizaje
++    if event_type.startswith("diff_"):
+         try:
+-            diff_data = json.loads(content) if content.startswith("{") else {"summary": content}
+-            extra_metadata = {
+-                "diff_event": event_type,
+-                "file_path": diff_data.get("file_path", ""),
+-                "language": diff_data.get("language", ""),
+-                "status": event_type.replace("diff_", ""),
++            diff_data = json.loads(content)
++            layer = 1 # Working Memory
++            mem_type = "STEP"
++            metadata = {
++                "source": source,
++                "event_type": event_type,
++                "file_path": diff_data.get("file_path"),
++                "language": diff_data.get("language"),
++                "change_id": diff_data.get("change_id"),
+             }
+-            if event_type == "diff_rejected":
+-                importance = 0.7  # Failures are more important to learn from
+-                extra_metadata["reject_reason"] = diff_data.get("reject_reason", "")
+-            elif event_type == "diff_applied":
+-                importance = 0.6
+-        except json.JSONDecodeError:
+-            pass
++            
++            mem_item = MemoryItem(
++                content=json.dumps(diff_data.get("diff_text")),
++                layer=layer,
++                type=mem_type,
++                metadata=metadata
++            )
++            
++            MEMORY_DB.append(mem_item.model_dump())
++            
++            return json.dumps({"status": "ingested", "memory_id": mem_item.memory_id})
+ 
+-    if len(content) > 20 or is_diff_event:  # Non-trivial or diff event
+-        item = MemoryItem(
+-            layer=MemoryLayer.WORKING,
+-            scope_type=MemoryScope.SESSION if session_id else MemoryScope.AGENT,
+-            scope_id=session_id or "system",
+-            type=mem_type,
+-            content=content[:2000],
+-            source_event_ids=[event.event_id],
+-            importance=importance,
+-            metadata=extra_metadata,
+-        )
+-        await store_memory(item)
++        except json.JSONDecodeError as e:
++            return json.dumps({"status": "error", "message": f"Invalid JSON content for diff event: {e}"})
++    
++    # Non-diff event types are not processed by this handler
++    return json.dumps({"status": "ignored", "reason": "Event type not a diff event"})
+ 
+-    result_status = "L0_RAW + L1_WORKING"
+-    if is_diff_event:
+-        result_status += " (diff tracked)"
+-
+-    return json.dumps({
+-        "status": "ingested",
+-        "event_id": event.event_id,
+-        "layer": result_status,
+-    }, indent=2)
+-
+-@mcp.tool()
+-async def heartbeat(
+-    agent_id: str,
+-    session_id: str = "",
+-    turn_count: int = 0,
+-) -> str:
+-    """Update agent heartbeat. Call every turn to signal the agent is alive.
+-
+-    If heartbeat stops, the daemon continues ingest but pauses context injection.
+-    """
+-    status = HeartbeatStatus(
+-        agent_id=agent_id,
+-        session_id=session_id,
+-        turn_count=turn_count,
+-        status="active",
+-    )
+-
+-    # Store heartbeat
+-    hb_dir = Path(os.getenv("HEARTBEATS_PATH", str(_project_root / "data" / "memory" / "heartbeats") if _project_root else ""))
+-    hb_path = hb_dir / f"{agent_id}.json"
+-    hb_path.parent.mkdir(parents=True, exist_ok=True)
+-    hb_path.write_text(status.model_dump_json(indent=2))
+-
+-    # Check if promotion is due
+-    promote_due = turn_count > 0 and turn_count % PROMOTION_INTERVAL == 0
+-
+-    return json.dumps({
+-        "status": "active",
+-        "agent_id": agent_id,
+-        "turn_count": turn_count,
+-        "promotion_due": promote_due,
+-        "message": "Daemon running — memory ingest active",
+-    }, indent=2)
+-
+-@mcp.tool()
+-async def status() -> str:
+-    """Show AutoMem daemon status — always ON regardless of agent state."""
+-    # Check Qdrant
+-    qdrant_ok = False
+-    try:
+-        async with httpx.AsyncClient() as client:
+-            resp = await client.get(f"{QDRANT_URL}/collections")
+-            qdrant_ok = resp.status_code == 200
+-    except Exception:
+-        qdrant_ok = False  # Qdrant not reachable
+-
+-    # Check llama.cpp
+-    llama_ok = False
+-    try:
+-        from shared.embedding import _get_llama_cmd
+-        llama_ok = _get_llama_cmd() is not None
+-    except Exception:
+-        llama_ok = False  # Embedding engine not available
+-
+-    # Check JSONL
+-    jsonl_path = Path(JSONL_PATH)
+-    raw_events = 0
+-    if jsonl_path.exists():
+-        raw_events = sum(1 for _ in open(jsonl_path))
+-
+-    # Count stored memories
+-    memory_count = 0
+-    if qdrant_ok:
+-        try:
+-            async with httpx.AsyncClient() as client:
+-                resp = await client.get(f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}")
+-                memory_count = resp.json().get("result", {}).get("points_count", 0)
+-        except Exception:
+-            memory_count = 0  # Can't count points
+-
+-    # Check heartbeat
+-    hb_path = Path(os.getenv("HEARTBEATS_PATH", str(_project_root / "data" / "memory" / "heartbeats") if _project_root else ""))
+-    agents = []
+-    if hb_path.exists():
+-        for f in hb_path.glob("*.json"):
+-            data = json.loads(f.read_text())
+-            agents.append(data)
+-
+-    staging_dir = ensure_staging_buffer()
+-    staged_changes = sum(1 for _ in staging_dir.glob("*.json"))
+-
+-    return json.dumps({
+-        "daemon": "AutoMem",
+-        "status": "RUNNING",
+-        "qdrant": "OK" if qdrant_ok else "DOWN",
+-        "llama_cpp": "OK" if llama_ok else "NOT_INSTALLED",
+-        "raw_events_jsonl": raw_events,
+-        "stored_memories": memory_count,
+-        "staging_buffer": str(staging_dir),
+-        "staged_change_sets": staged_changes,
+-        "active_agents": agents,
+-        "note": "Daemon runs independently — works even when LLM is disconnected",
+-    }, indent=2)
+-
+-def main() -> None:
+-    mcp.run()
+-
+-if __name__ == "__main__":
+-    main()
++async def get_memory_db() -> str:
++    """Helper for testing to inspect the in-memory DB."""
++    return json.dumps(MEMORY_DB)

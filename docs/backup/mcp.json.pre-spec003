@@ -1,0 +1,90 @@
+{
+  "mcpServers": {
+    "automem": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/automem/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+        "QDRANT_URL": "http://127.0.0.1:6333",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "http://127.0.0.1:8081",
+        "EMBEDDING_DIM": "1024"
+      },
+      "tags": ["memory", "ingest"],
+      "disabled": false
+    },
+    "autodream": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/autodream/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+        "QDRANT_URL": "http://127.0.0.1:6333",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "http://127.0.0.1:8081",
+        "LLM_BACKEND": "ollama",
+        "LLM_MODEL": "qwen2.5:7b"
+      },
+      "tags": ["memory", "consolidation"],
+      "disabled": false
+    },
+    "vk-cache": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/vk-cache/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+        "QDRANT_URL": "http://127.0.0.1:6333",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "http://127.0.0.1:8081"
+      },
+      "tags": ["memory", "retrieval"],
+      "disabled": false
+    },
+    "conversation-store": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/conversation-store/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+        "QDRANT_URL": "http://127.0.0.1:6333"
+      },
+      "tags": ["memory", "conversations"],
+      "disabled": false
+    },
+    "mem0": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/mem0/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+        "QDRANT_URL": "http://127.0.0.1:6333",
+        "EMBEDDING_BACKEND": "llama_server",
+        "LLAMA_SERVER_URL": "http://127.0.0.1:8081"
+      },
+      "tags": ["memory", "semantic"],
+      "disabled": false
+    },
+    "engram": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/engram/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory"
+      },
+      "tags": ["memory", "decisions", "vault"],
+      "disabled": false
+    },
+    "sequential-thinking": {
+      "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+      "args": ["-u", "/Users/ruben/MCP-servers/MCP-agent-memory/src/sequential-thinking/server/main.py"],
+      "env": {
+        "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
+        "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory"
+      },
+      "tags": ["reasoning", "planning"],
+      "disabled": false
+    }
+  }
+}

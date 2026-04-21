@@ -1,0 +1,21 @@
+=== Server versions pre-restoration ===
+automem:       59 lines
+autodream:       60 lines
+vk-cache:      102 lines
+engram:       50 lines
+mem0:      246 lines
+sequential-thinking: MISSING from src/
+conversation-store: MISSING from src/
+
+=== Shared modules pre-restoration ===
+src/shared/diff_sandbox.py:      461 lines
+src/shared/embedding.py:      847 lines
+src/shared/health.py:      321 lines
+src/shared/llm/config.py:       79 lines
+src/shared/models/__init__.py:        0 lines
+src/shared/models/repo.py:        8 lines
+src/shared/retrieval/__init__.py:      228 lines
+src/shared/retrieval/code_map.py:      175 lines
+src/shared/retrieval/index_repo.py:      116 lines
+src/shared/retrieval/repo_map.py:        1 lines
+src/shared/sanitize.py:      649 lines

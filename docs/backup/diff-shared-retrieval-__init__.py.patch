@@ -1,0 +1,606 @@
+--- MCP-servers/shared/retrieval/__init__.py	2026-04-20 21:22:57
++++ src/shared/retrieval/__init__.py	2026-04-20 21:22:58
+@@ -1,412 +1,228 @@
+-"""Retrieval Router — decides WHAT to retrieve, FROM WHERE, and HOW MUCH.
+-
+-The brain of vk-cache. Routes each query through:
+-  1. classify_intent() — deterministic intent classification (<0.1ms)
+-  2. profile selection — picks retrieval profile based on intent + session type
+-  3. parallel retrieval — queries all relevant levels/sources concurrently
+-  4. rank & fuse — combines results with recency + entity boosts
+-  5. context packing — assembles within token budget
+-"""
+-
+-from __future__ import annotations
+-
++from dataclasses import dataclass
++import os
++from typing import List, Dict
+ import asyncio
+-import hashlib
+ import httpx
+-import os
+-import sys
+-from dataclasses import dataclass, field
+-from datetime import datetime, timezone
+-from pathlib import Path
+-from typing import Any
++from pydantic import BaseModel
++from .index_repo import upsert_repository_index
++from shared.llm.config import rank_by_relevance, ContextItem, QueryIntent
++from shared.models.repo import RepoNode
++from shared.embedding import get_embedding as _real_get_embedding, get_embedding_spec
+ 
+-from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
+-from ..embedding import get_embedding, bm25_tokenize
+-from .index_repo import build_repo_index_points, upsert_repository_index
+-from .pruner import prune_content
+-from .repo_map import get_repo_map
+ 
+-# ── Configuration ──────────────────────────────────────────────────
++def get_repo_map(file_path: str, project_root: str = "") -> str:
++    """Retrieve a tree representation of the repository structure."""
++    from pathlib import Path
++    root = Path(project_root) if project_root else Path(file_path).parent
++    lines = []
++    for p in sorted(root.rglob("*")):
++        if any(part in p.parts for part in {".git", "node_modules", "__pycache__", ".venv", "qdrant_storage"}):
++            continue
++        rel = p.relative_to(root)
++        prefix = "  " * (len(rel.parts) - 1) if len(rel.parts) > 1 else ""
++        marker = "/" if p.is_dir() else ""
++        lines.append(f"{prefix}{rel.name}{marker}")
++    return "\n".join(lines) if lines else f"{file_path}"
+ 
+-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "automem")
+-CONV_COLLECTION = os.getenv("CONV_COLLECTION", "conversations")
+-MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "mem0_memories")
+-_MSD = os.getenv("MEMORY_SERVER_DIR", "")
+-ENGRAM_PATH = os.getenv(
+-    "ENGRAM_PATH",
+-    os.path.join(_MSD, "data", "memory", "engram") if _MSD else str(Path.home() / ".memory" / "engram")
+-)
+-MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
+-MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
+ 
++def prune_content(source: str, path: str = "", max_tokens: int = 100) -> str:
++    """Prune content to fit within token limits while preserving structure."""
++    import ast
++    if not source or max_tokens <= 0:
++        return ""
++    # Rough token estimate: 1 token ≈ 4 chars
++    max_chars = max_tokens * 4
++    if len(source) <= max_chars:
++        return source
++    # For Python, try AST-aware pruning
++    if path.endswith(".py"):
++        try:
++            tree = ast.parse(source)
++            pruned_parts = []
++            current_len = 0
++            for node in ast.iter_child_nodes(tree):
++                segment = ast.get_source_segment(source, node)
++                if segment and current_len + len(segment) <= max_chars:
++                    pruned_parts.append(segment)
++                    current_len += len(segment)
++                elif segment:
++                    # Include just the signature/first line
++                    first_line = segment.split("\n")[0]
++                    pruned_parts.append(first_line + " ...")
++                    current_len += len(first_line) + 4
++            return "\n".join(pruned_parts)
++        except SyntaxError:
++            pass
++    # Generic truncation at last complete line
++    truncated = source[:max_chars]
++    last_newline = truncated.rfind("\n")
++    return truncated[:last_newline] if last_newline > 0 else truncated
+ 
+-# ── Retrieval Profiles ────────────────────────────────────────────
+-
+-
+ @dataclass
+-class RetrievalProfile:
+-    name: str
+-    level_weights: dict[int, float]
+-    top_k_per_level: dict[int, int]
+-    token_budget: int
+-    max_time_ms: int
+-    needs_ai_ranking: bool
+-    domain_keywords: list[str] = field(default_factory=list)
+-    is_builtin: bool = True
++class ContextPack:
++    query: str
++    total_tokens: int
++    sections: List[Dict[str, str]]
+ 
++def get_embedding(text: str) -> list[float]:
++    """Get embedding vector using the shared embedding backend."""
++    return _real_get_embedding(text)
+ 
+-PROFILES: dict[str, RetrievalProfile] = {}
++def classify_intent(query: str) -> QueryIntent:
++    """Classify query intent using heuristic keyword analysis.
+ 
++    Determines the type of query to optimize retrieval strategy:
++    - code_lookup: Searching for specific code, functions, or files.
++    - plan: Planning or architecture questions.
++    - debug: Error diagnosis or debugging questions.
++    - answer: General knowledge or conceptual questions.
++    """
++    q = query.lower()
+ 
+-def _register_profile(profile: RetrievalProfile) -> None:
+-    PROFILES[profile.name] = profile
++    # Extract potential entity names (CamelCase, snake_case identifiers)
++    import re
++    entities = re.findall(r'[A-Z][a-zA-Z]+|_[a-z]+_|`[^`]+`', query)
+ 
++    # Determine intent type from keywords (order matters: more specific first)
++    if any(kw in q for kw in ("error", "bug", "fix", "debug", "crash", "traceback", "exception", "fail")):
++        intent_type = "debug"
++    elif any(kw in q for kw in ("where is", "find", "locate", "file", "function", "class", "method", "import")):
++        intent_type = "code_lookup"
++    elif any(kw in q for kw in ("plan", "design", "architect", "how should", "approach", "strategy")):
++        intent_type = "plan"
++    else:
++        intent_type = "answer"
+ 
+-_register_profile(
+-    RetrievalProfile(
+-        name="dev",
+-        level_weights={1: 1.0, 2: 0.9, 3: 0.7, 4: 0.5, 5: 0.3},
+-        top_k_per_level={1: 15, 2: 10, 3: 10, 4: 5, 5: 5},
+-        token_budget=48000,
+-        max_time_ms=2000,
+-        needs_ai_ranking=False,
+-        domain_keywords=[
+-            "function",
+-            "class",
+-            "method",
+-            "test",
+-            "bug",
+-            "code",
+-            "repo",
+-            "implement",
+-            "refactor",
+-            "module",
+-            "api",
+-            "endpoint",
+-        ],
+-    )
+-)
++    # Determine scope
++    if any(kw in q for kw in ("external", "docs", "documentation", "library", "package")):
++        scope = "external"
++    else:
++        scope = "this_project"
+ 
+-_register_profile(
+-    RetrievalProfile(
+-        name="docs",
+-        level_weights={3: 1.0, 4: 0.9, 5: 0.7, 2: 0.5, 1: 0.3},
+-        top_k_per_level={1: 5, 2: 10, 3: 15, 4: 10, 5: 5},
+-        token_budget=48000,
+-        max_time_ms=2000,
+-        needs_ai_ranking=False,
+-        domain_keywords=[
+-            "spec",
+-            "adr",
+-            "rfc",
+-            "design",
+-            "architecture",
+-            "proposal",
+-            "decision record",
+-            "document",
+-            "requirements",
+-            "srs",
+-        ],
++    # Determine if external resources are needed
++    needs_external = scope == "external" or any(
++        kw in q for kw in ("latest", "current", "version", "changelog", "release", "docs")
+     )
+-)
+ 
+-_register_profile(
+-    RetrievalProfile(
+-        name="default",
+-        level_weights={1: 1.0, 2: 0.8, 3: 0.6},
+-        top_k_per_level={1: 10, 2: 10, 3: 10},
+-        token_budget=32000,
+-        max_time_ms=3000,
+-        needs_ai_ranking=False,
+-        domain_keywords=[],
++    # Determine if LLM ranking would help
++    needs_ranking = intent_type in ("plan", "debug") or len(query.split()) > 10
++
++    return QueryIntent(
++        intent_type=intent_type,
++        entities=entities,
++        scope=scope,
++        time_window="all",
++        needs_external=needs_external,
++        needs_ranking=needs_ranking,
++        needs_consolidation=False,
+     )
+-)
+ 
+-INTENT_TO_PROFILE = {
+-    "code_lookup": "dev",
+-    "decision_recall": "dev",
+-    "how_to": "dev",
+-    "relationship": "dev",
+-    "summary": "docs",
+-    "conversation_recall": "default",
+-    "error_diagnosis": "dev",
+-    "pattern_match": "default",
+-}
++async def _retrieve_engram(query: str, *args, **kwargs) -> List[ContextItem]:
++    """Retrieve decisions and patterns from the Engram store.
+ 
++    Queries the Engram MCP server for relevant stored decisions,
++    patterns, and architectural knowledge.
++    """
++    results: List[ContextItem] = []
++    try:
++        from shared.embedding import async_embed
++        embedding = await async_embed(query)
++        qdrant_url = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
++        collection = os.getenv("ENGRAM_COLLECTION", "automem")
+ 
+-@dataclass
+-class ContextItem:
+-    content: str
+-    source_level: int
+-    source_name: str
+-    score: float
+-    combined_score: float = 0.0
+-    timestamp: datetime | None = None
+-    metadata: dict = field(default_factory=dict)
+-
+-
+-@dataclass
+-class ContextPack:
+-    sections: list[dict]
+-    total_tokens: int
+-    sources_used: list[str]
+-    confidence: float
+-    profile: str
+-    query: str = ""
+-    staleness_warnings: list[str] = field(default_factory=list)
+-
+-
+-async def retrieve(
+-    query: str,
+-    session_type: str = "coding",
+-    token_budget: int | None = None,
+-    open_files: list[str] | None = None,
+-) -> ContextPack:
+-    intent = classify_intent(query, session_type, open_files)
+-    setattr(intent, "_original_query", query)
+-
+-    profile_name = INTENT_TO_PROFILE.get(intent.intent_type, "default")
+-    profile = PROFILES.get(profile_name, PROFILES["default"])
+-    if token_budget:
+-        profile = RetrievalProfile(**{**profile.__dict__, "token_budget": token_budget})
+-
+-    results = await _retrieve_parallel(intent, profile)
+-    ranked = _rank_and_fuse(results, profile, intent)
+-    pack = _pack_context(ranked, profile, intent)
+-    pack.query = query
+-    return pack
+-
+-
+-async def _retrieve_parallel(
+-    intent: QueryIntent, profile: RetrievalProfile
+-) -> dict[str, list[ContextItem]]:
+-    tasks: dict[str, asyncio.Task] = {}
+-    for level, weight in profile.level_weights.items():
+-        if weight < 0.1:
+-            continue
+-        k = profile.top_k_per_level.get(level, 3)
+-
+-        if level == 0:
+-            tasks["L0"] = asyncio.create_task(
+-                _retrieve_hybrid(intent, k, collection=CONV_COLLECTION)
++        async with httpx.AsyncClient() as client:
++            response = await client.post(
++                f"{qdrant_url}/collections/{collection}/points/search",
++                json={
++                    "vector": embedding,
++                    "limit": 5,
++                    "with_payload": True,
++                    "filter": {"must": [{"key": "type", "match": {"value": "decision"}}]}
++                },
++                timeout=10.0,
+             )
+-        elif level == 1:
+-            tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1))
+-        elif level == 2:
+-            tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2))
+-            tasks["L2_engram"] = asyncio.create_task(_retrieve_engram(intent, k))
+-        elif level == 3:
+-            tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3))
+-        elif level == 4:
+-            tasks["L4"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=4))
+-        elif level == 5:
+-            tasks["L5"] = asyncio.create_task(
+-                _retrieve_hybrid(intent, k, collection=MEM0_COLLECTION)
+-            )
++            response.raise_for_status()
++            points = response.json().get("result", [])
++            for p in points:
++                results.append(ContextItem(
++                    content=p["payload"].get("content", ""),
++                    source_name=p["payload"].get("title", "engram"),
++                    source_level=p["payload"].get("layer", 4),
++                    score=p["score"],
++                ))
++    except Exception as e:
++        print(f"WARNING: Engram retrieval failed: {e}")
++    return results
+ 
+-    raw_results: dict[str, list[ContextItem]] = {}
+-    for name, task in tasks.items():
+-        try:
+-            raw_results[name] = await task
+-        except:
+-            raw_results[name] = []
+-    return raw_results
++async def _rank_and_fuse(results_by_level: Dict[str, List[ContextItem]], intent: QueryIntent, query: str, llm_fn=None) -> List[ContextItem]:
++    """Rank and fuse results from multiple retrieval sources.
+ 
++    When LLM ranking is needed (intent.needs_ranking), an LLM call function
++    must be provided via llm_fn. Without it, falls back to score-based sorting.
++    """
++    all_items = [item for sublist in results_by_level.values() for item in sublist]
++    all_items.sort(key=lambda x: x.score, reverse=True)
++    if intent.needs_ranking and llm_fn is not None:
++        print("INFO: LLM ranking is enabled for this query.")
++        all_items = await rank_by_relevance(query, all_items, llm_fn)
++    elif intent.needs_ranking and llm_fn is None:
++        print("INFO: LLM ranking requested but no LLM function provided. Using score-based order.")
++    return all_items
+ 
+-async def _retrieve_hybrid(
+-    intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None
+-) -> list[ContextItem]:
+-    """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
+-
+-    Uses /points/search (returns proper scores in Qdrant v1.13).
+-    Sparse BM25 is applied as a second pass when available.
++async def retrieve(query: str, session_type: str = "dev", token_budget: int = 2500) -> ContextPack:
+     """
+-    query_text = (
+-        " ".join(intent.entities)
+-        if intent.entities
+-        else getattr(intent, "_original_query", "")
+-    )
+-    if not query_text:
+-        return []
++    Main entry point for context retrieval.
++    Queries the vector database and assembles a ContextPack.
++    """
++    intent = classify_intent(query)
++    embedding = get_embedding(query)
+ 
+-    target_coll = collection or QDRANT_COLLECTION
+-    search_filter = (
+-        {"must": [{"key": "layer", "match": {"value": level}}]}
+-        if level is not None
+-        else None
+-    )
++    results: List[ContextItem] = []
++    qdrant_url = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
++    collection = os.getenv("QDRANT_COLLECTION", "automem")
+ 
+-    results: list[ContextItem] = []
+-
+     async with httpx.AsyncClient() as client:
+-        # ── 1. Dense search via /points/search (reliable scores) ──
+         try:
+-            vector = get_embedding(query_text)
+-            body = {
+-                "vector": vector,
+-                "limit": k,
+-                "score_threshold": MIN_SCORE,
+-                "with_payload": True,
+-            }
+-            if search_filter:
+-                body["filter"] = search_filter
+-            resp = await client.post(
+-                f"{QDRANT_URL}/collections/{target_coll}/points/search", json=body
++            response = await client.post(
++                f"{qdrant_url}/collections/{collection}/points/search",
++                json={
++                    "vector": embedding,
++                    "limit": 10,
++                    "with_payload": True,
++                    "filter": {"must": [{"key": "type", "match": {"value": "code_map"}}]}
++                },
++                timeout=10.0,
+             )
+-            if resp.status_code == 200:
+-                for p in resp.json().get("result", []):
+-                    payload = p.get("payload", {})
+-                    results.append(
+-                        ContextItem(
+-                            content=payload.get("content", ""),
+-                            source_level=payload.get("layer", level or 1),
+-                            source_name=target_coll,
+-                            score=p.get("score", 0),
+-                            metadata=payload,
+-                            timestamp=_parse_ts(payload.get("created_at")),
+-                        )
+-                    )
+-        except Exception:
+-            pass
++            response.raise_for_status()
++            points = response.json().get("result", [])
++            for p in points:
++                results.append(ContextItem(
++                    content=p["payload"].get("content", ""),
++                    source_name=p["payload"].get("file_path", "unknown"),
++                    source_level=p["payload"].get("layer", 1),
++                    score=p["score"]
++                ))
++        except Exception as e:
++            print(f"WARNING: Qdrant retrieval failed: {e}")
+ 
+-    return results
++    fused_items = await _rank_and_fuse({"qdrant": results}, intent, query)
+ 
+-
+-
+-
+-async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:
+-    engram_path = Path(ENGRAM_PATH)
+-    if not engram_path.exists():
+-        return []
+-    results = []
+-    query_terms = set(w.lower() for w in intent.entities)
+-    if not query_terms:
+-        return []
+-    for md_file in engram_path.rglob("*.md"):
+-        try:
+-            content = md_file.read_text()
+-            if any(word in content.lower() for word in query_terms):
+-                results.append(
+-                    ContextItem(
+-                        content=content,
+-                        source_level=3,
+-                        source_name="engram",
+-                        score=0.6,
+-                        timestamp=datetime.fromtimestamp(md_file.stat().st_mtime),
+-                        metadata={"type": "decision"},
+-                    )
+-                )
+-        except:
+-            pass
+-    results.sort(key=lambda x: x.score, reverse=True)
+-    return results[:k]
+-
+-
+-def _rank_and_fuse(
+-    results: dict[str, list[ContextItem]],
+-    profile: RetrievalProfile,
+-    intent: QueryIntent,
+-) -> list[ContextItem]:
+-    all_items: list[ContextItem] = []
+-    for source, items in results.items():
+-        level_num = int(source[1]) if len(source) > 1 and source[1].isdigit() else 1
+-        level_weight = profile.level_weights.get(level_num, 0.5)
+-        for item in items:
+-            recency = _recency_score(item.timestamp, intent.time_window)
+-            item.combined_score = (level_weight * item.score * 0.7) + (recency * 0.3)
+-            all_items.append(item)
+-    all_items.sort(key=lambda x: x.combined_score, reverse=True)
+-
+-    # SPEC-4.1: LLM ranking for complex queries
+-    if intent.needs_ranking and len(all_items) > 5:
+-        try:
+-            query_text = getattr(intent, "_original_query", "") or " ".join(intent.entities)
+-            ranked = rank_by_relevance(
+-                query=query_text,
+-                items=[{"content": item.content, "item": item} for item in all_items],
+-                top_k=profile.token_budget // 500,
+-            )
+-            all_items = [r["item"] for r in ranked]
+-        except Exception:
+-            pass  # Ranking failed, use score-based order
+-
+-    return all_items
+-
+-
+-def _recency_score(timestamp: datetime | None, time_window: str) -> float:
+-    if not timestamp:
+-        return 0.3
+-    now = datetime.now(timezone.utc) if timestamp.tzinfo else datetime.now()
+-    age_hours = (now - timestamp).total_seconds() / 3600
+-    return max(0, 1.0 - age_hours / 720.0)
+-
+-
+-def _pack_context(
+-    items: list[ContextItem], profile: RetrievalProfile, intent: QueryIntent
+-) -> ContextPack:
+     sections = []
+-    total_tokens = 0
+-    sources_used = set()
+-    buffer_rules = [
+-        i
+-        for i in items
+-        if i.metadata.get("type") in ["rule", "pattern", "standard", "instruction"]
+-    ]
+-    buffer_structure = [
+-        i for i in items if i.source_name == "repo_map" or i.source_level == 4
+-    ]
+-    buffer_dynamic = [
+-        i for i in items if i not in buffer_rules and i not in buffer_structure
+-    ]
++    current_tokens = 0
++    for item in fused_items:
++        # Approximate token count (1 word ≈ 1.3 tokens)
++        item_tokens = int(len(item.content.split()) * 1.3)
++        if current_tokens + item_tokens > token_budget:
++            break
++        sections.append({
++            "source": "qdrant",
++            "name": item.source_name,
++            "content": item.content
++        })
++        current_tokens += item_tokens
+ 
+-    RULE_BUDGET, STRUCT_BUDGET = 8000, 16000
+-
+-    def _add(item: ContextItem, is_rule: bool = False):
+-        nonlocal total_tokens
+-        content = prune_content(item.content, max_tokens=2048, is_rule=is_rule)
+-        tokens = len(content) // 4
+-        if total_tokens + tokens > profile.token_budget:
+-            return False
+-        sections.append(
+-            {
+-                "level": item.source_level,
+-                "source": item.source_name,
+-                "content": content,
+-                "confidence": round(item.combined_score, 2),
+-                "type": item.metadata.get("type", "unknown"),
+-            }
+-        )
+-        total_tokens += tokens
+-        sources_used.add(item.source_name)
+-        return True
+-
+-    for item in sorted(buffer_rules, key=lambda x: x.combined_score, reverse=True):
+-        if total_tokens < RULE_BUDGET:
+-            _add(item, is_rule=True)
+-    for item in sorted(buffer_structure, key=lambda x: x.combined_score, reverse=True):
+-        if total_tokens < (RULE_BUDGET + STRUCT_BUDGET):
+-            _add(item)
+-    for item in sorted(buffer_dynamic, key=lambda x: x.combined_score, reverse=True):
+-        if total_tokens < profile.token_budget:
+-            _add(item)
+-
+     return ContextPack(
+-        sections=sections,
+-        total_tokens=total_tokens,
+-        sources_used=sorted(sources_used),
+-        confidence=0.8,
+-        profile=profile.name,
++        query=query,
++        total_tokens=current_tokens,
++        sections=sections
+     )
+-
+-
+-def _parse_ts(ts_str: Any) -> datetime | None:
+-    if not ts_str:
+-        return None
+-    try:
+-        return datetime.fromisoformat(str(ts_str).replace("Z", "+00:00"))
+-    except:
+-        return None
+-
+-
+-__all__ = ["ContextItem", "ContextPack", "PROFILES", "RetrievalProfile", "retrieve"]

@@ -1,0 +1,404 @@
+--- MCP-servers/shared/embedding.py	2026-04-20 21:22:57
++++ src/shared/embedding.py	2026-04-20 21:22:58
+@@ -8,7 +8,7 @@
+ Configuration is entirely env-driven and project-agnostic:
+   EMBEDDING_BACKEND   = llama_cpp | http | noop  (default: llama_cpp)
+   EMBEDDING_MODEL     = model path or name (backend-specific)
+-  EMBEDDING_DIM       = vector dimensionality  (default: 384)
++   EMBEDDING_DIM       = vector dimensionality  (default: 1024, BGE-M3)
+   EMBEDDING_ENDPOINT  = URL for http backend   (e.g. http://localhost:11434/api/embeddings)
+ 
+ For llama_cpp backend (default):
+@@ -32,7 +32,10 @@
+ import re
+ import subprocess
+ import sys
++import threading
++import time
+ from abc import ABC, abstractmethod
++from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Optional
+ 
+@@ -42,9 +45,51 @@
+ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1024"))  # BGE-M3 default
+ EMBEDDING_BACKEND = os.getenv("EMBEDDING_BACKEND", "llama_cpp")
+ EMBEDDING_ENDPOINT = os.getenv("EMBEDDING_ENDPOINT")
+-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")  # optional override
++EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL", "bge-m3") # Default model ID
++EMBEDDING_VERSION = os.getenv("EMBEDDING_VERSION", "v1")
++EMBEDDING_METRIC = os.getenv("EMBEDDING_METRIC", "cosine")
++EMBEDDING_STRICT = os.getenv("EMBEDDING_STRICT", "true").lower() == "true"
+ 
+ 
++@dataclass(frozen=True)
++class EmbeddingSpec:
++    """Explicit contract for embeddings."""
++    backend: str
++    model_id: str
++    dim: int
++    metric: str
++    version: str
++
++    @property
++    def key(self) -> str:
++        """Stable key for this embedding configuration."""
++        return f"{self.backend}:{self.model_id}:{self.dim}:{self.metric}:{self.version}"
++
++
++def get_embedding_spec() -> EmbeddingSpec:
++    """Get the current embedding specification."""
++    return EmbeddingSpec(
++        backend=EMBEDDING_BACKEND,
++        model_id=EMBEDDING_MODEL_ID,
++        dim=EMBEDDING_DIM,
++        metric=EMBEDDING_METRIC,
++        version=EMBEDDING_VERSION,
++    )
++
++
++def _validate_embedding_vector(vector: list[float], spec: EmbeddingSpec) -> list[float]:
++    """Ensure the vector matches the expected dimensionality."""
++    if not isinstance(vector, list) or not vector:
++        raise RuntimeError("Embedding backend returned empty or invalid vector")
++    
++    if len(vector) != spec.dim:
++        raise RuntimeError(
++            f"Embedding dimension mismatch: expected {spec.dim}, got {len(vector)} "
++            f"from model={spec.model_id} backend={spec.backend} version={spec.version}"
++        )
++    return vector
++
++
+ # ── Backend ABC ────────────────────────────────────────────────────
+ 
+ class EmbeddingBackend(ABC):
+@@ -124,41 +169,50 @@
+     """Find an embedding model by scanning near the shared/ directory.
+ 
+     Searches:
+-      1. EMBEDDING_MODEL env var (explicit path)
+-      2. models/*.gguf near this file (any parent)
+-      3. ~/.cache/lm-studio/models/*.gguf (LM Studio default)
++      1. EMBEDDING_MODEL_ID env var (explicit path or name)
++      2. Specific model patterns near this file (any parent)
++      3. LM Studio default cache
+     """
+     # Explicit path
+-    if EMBEDDING_MODEL:
+-        p = Path(EMBEDDING_MODEL)
++    if EMBEDDING_MODEL_ID:
++        p = Path(EMBEDDING_MODEL_ID)
+         if p.exists():
+             return p
+         # Might be a name, search in common locations
+         for parent in [Path(__file__).resolve()] + list(Path(__file__).resolve().parents):
+-            candidate = parent / "models" / EMBEDDING_MODEL
++            candidate = parent / "models" / EMBEDDING_MODEL_ID
+             if candidate.exists():
+                 return candidate
+ 
+-    # Scan for any .gguf near this file
++    # Scan for model patterns near this file
+     current = Path(__file__).resolve()
++    
++    # In production, we ONLY want specific models.
++    # If EMBEDDING_STRICT is true, we don't allow generic fallbacks.
++    strict_patterns = ["*bge*m3*.gguf", "*bge*.gguf"] if EMBEDDING_STRICT else [
++        "*bge*m3*.gguf",        # BGE-M3 (1024 dims, best)
++        "*bge*.gguf",            # Any BGE
++        "*nomic*embed*.gguf",    # Nomic (768 dims)
++        "*_f16.gguf",            # MiniLM f16 (384 dims)
++        "*_q8*.gguf",            # MiniLM q8
++        "*_f32.gguf",            # MiniLM f32
++        "*.gguf",                # Any gguf (only if not strict)
++    ]
++
+     for parent in [current] + list(current.parents):
+         models_dir = parent / "models"
+         if models_dir.exists():
+-            # Preference: BGE-M3 > Nomic > MiniLM
+-            for pattern in [
+-                "*bge*m3*.gguf",        # BGE-M3 (1024 dims, best)
+-                "*bge*.gguf",            # Any BGE
+-                "*nomic*embed*.gguf",    # Nomic (768 dims)
+-                "*_f16.gguf",            # MiniLM f16 (384 dims)
+-                "*_q8*.gguf",            # MiniLM q8
+-                "*_f32.gguf",            # MiniLM f32
+-                "*.gguf",                # Any gguf
+-            ]:
++            for pattern in strict_patterns:
+                 matches = list(models_dir.glob(pattern))
+                 if matches:
+                     return matches[0]
+ 
+-    # LM Studio default cache (fallback only)
++    if EMBEDDING_STRICT:
++        # In strict mode, if we haven't found a BGE model, we FAIL.
++        # Don't even try LM Studio fallback.
++        return None
++
++    # LM Studio default cache (fallback only if not strict)
+     lm_models = Path(os.getenv("LM_STUDIO_MODELS", str(Path.home() / ".cache" / "lm-studio" / "models")))
+     if lm_models.exists():
+         matches = list(lm_models.glob("**/*.gguf"))
+@@ -228,7 +282,8 @@
+                 f"  stdout: {result.stdout[:200]}"
+             )
+ 
+-        return _parse_embedding_output(result.stdout)
++        vector = _parse_embedding_output(result.stdout)
++        return _validate_embedding_vector(vector, get_embedding_spec())
+ 
+ 
+ # ── BM25 Sparse Vector Tokenizer ─────────────────────────────────
+@@ -339,7 +394,8 @@
+             with urllib.request.urlopen(req, timeout=15) as resp:
+                 data = json.loads(resp.read())
+                 # OpenAI format
+-                return data["data"][0]["embedding"]
++                vector = data["data"][0]["embedding"]
++                return _validate_embedding_vector(vector, get_embedding_spec())
+         except Exception as e:
+             raise RuntimeError(f"HttpBackend request failed: {e}") from e
+ 
+@@ -400,18 +456,24 @@
+             data = _json.loads(resp.read())
+             # llama-server format: [{"index": 0, "embedding": [[float, ...]]}]
+             # or: {"embedding": [float, ...]}
++            vector = []
+             if isinstance(data, list) and data:
+                 emb = data[0].get("embedding", [])
+                 # Some versions wrap in an extra list
+                 if isinstance(emb, list) and emb and isinstance(emb[0], list):
+-                    return emb[0]
+-                return emb
+-            if isinstance(data, dict):
++                    vector = emb[0]
++                else:
++                    vector = emb
++            elif isinstance(data, dict):
+                 emb = data.get("embedding", [])
+                 if isinstance(emb, list) and emb and isinstance(emb[0], list):
+-                    return emb[0]
+-                return emb
+-            raise ValueError(f"Unexpected embedding response format: {type(data)}")
++                    vector = emb[0]
++                else:
++                    vector = emb
++            else:
++                raise ValueError(f"Unexpected embedding response format: {type(data)}")
++            
++            return _validate_embedding_vector(vector, get_embedding_spec())
+ 
+ 
+ # ── LRU Cache ──────────────────────────────────────────────────────
+@@ -462,8 +524,151 @@
+     @property
+     def dim(self) -> int:
+         return self._backend.dim
++
++
++# ── Circuit Breaker ───────────────────────────────────────────────
++
++class CircuitBreaker:
++    """Circuit breaker for embedding backends.
++
++    States:
++      CLOSED   — Normal operation. Requests go through.
++      OPEN     — Too many failures. Requests fail fast / fallback.
++      HALF_OPEN — Testing recovery. One request allowed.
++
++    Configuration:
++      FAILURE_THRESHOLD  — Consecutive failures before opening (default: 3)
++      RECOVERY_TIMEOUT   — Seconds before trying half-open (default: 30)
++      HALF_OPEN_MAX      — Consecutive successes in half-open to close (default: 2)
++    """
++
++    CLOSED = "closed"
++    OPEN = "open"
++    HALF_OPEN = "half_open"
++
++    def __init__(
++        self,
++        name: str = "embedding",
++        failure_threshold: int = 3,
++        recovery_timeout: float = 30.0,
++        half_open_max: int = 2,
++    ):
++        self.name = name
++        self.failure_threshold = failure_threshold
++        self.recovery_timeout = recovery_timeout
++        self.half_open_max = half_open_max
++        self._state = self.CLOSED
++        self._failure_count = 0
++        self._success_count = 0
++        self._last_failure_time: float = 0
++        self._lock = threading.Lock()
+ 
++    @property
++    def state(self) -> str:
++        with self._lock:
++            # Auto-transition from OPEN → HALF_OPEN after timeout
++            if self._state == self.OPEN:
++                if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
++                    self._state = self.HALF_OPEN
++                    self._success_count = 0
++            return self._state
+ 
++    @property
++    def is_open(self) -> bool:
++        return self.state == self.OPEN
++
++    def record_success(self) -> str:
++        with self._lock:
++            if self._state == self.HALF_OPEN:
++                self._success_count += 1
++                if self._success_count >= self.half_open_max:
++                    self._state = self.CLOSED
++                    self._failure_count = 0
++            elif self._state == self.CLOSED:
++                self._failure_count = 0
++            return self._state
++
++    def record_failure(self) -> str:
++        with self._lock:
++            self._failure_count += 1
++            self._last_failure_time = time.monotonic()
++            if self._state == self.HALF_OPEN:
++                self._state = self.OPEN
++            elif self._state == self.CLOSED:
++                if self._failure_count >= self.failure_threshold:
++                    self._state = self.OPEN
++            return self._state
++
++    @property
++    def stats(self) -> dict:
++        return {
++            "name": self.name,
++            "state": self.state,
++            "failure_count": self._failure_count,
++            "success_count": self._success_count,
++            "failure_threshold": self.failure_threshold,
++            "recovery_timeout": self.recovery_timeout,
++        }
++
++
++# Module-level circuit breaker for llama-server
++_llama_server_breaker = CircuitBreaker(
++    name="llama-server",
++    failure_threshold=int(os.getenv("CIRCUIT_BREAKER_FAILURE_THRESHOLD", "3")),
++    recovery_timeout=float(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "30")),
++    half_open_max=int(os.getenv("CIRCUIT_BREAKER_HALF_OPEN_MAX", "2")),
++)
++
++
++def _embed_with_retry(
++    backend: EmbeddingBackend,
++    text: str,
++    max_retries: int = 2,
++    initial_delay: float = 0.5,
++    breaker: CircuitBreaker | None = None,
++    fallback_backend: EmbeddingBackend | None = None,
++) -> list[float]:
++    """Embed with retry + circuit breaker + fallback.
++
++    Strategy:
++      1. If circuit breaker is OPEN → use fallback immediately
++      2. Try primary backend with exponential backoff
++      3. On success → record_success on breaker
++      4. On all retries exhausted → record_failure on breaker, try fallback
++    """
++    # Fast path: circuit open → fallback
++    if breaker and breaker.is_open:
++        if fallback_backend and fallback_backend.is_available():
++            return fallback_backend.embed(text)
++        # No fallback available, try anyway (breaker might be stale)
++
++    last_error = None
++    for attempt in range(max_retries + 1):
++        try:
++            result = backend.embed(text)
++            if breaker:
++                breaker.record_success()
++            return result
++        except Exception as e:
++            last_error = e
++            if attempt < max_retries:
++                delay = initial_delay * (2 ** attempt)  # exponential backoff
++                time.sleep(delay)
++
++    # All retries exhausted
++    if breaker:
++        breaker.record_failure()
++
++    # Try fallback
++    if fallback_backend and fallback_backend.is_available():
++        try:
++            return fallback_backend.embed(text)
++        except Exception:
++            pass  # Fallback also failed, raise original error
++
++    raise last_error  # type: ignore
++
++
+ # ── Registry & default ────────────────────────────────────────────
+ 
+ _BACKENDS = {
+@@ -520,10 +725,35 @@
+ # ── Public API (unchanged for backwards compatibility) ─────────────
+ 
+ def get_embedding(text: str) -> list[float]:
+-    """Get embedding vector using the configured backend (cached)."""
+-    return _get_default_backend().embed(text)
++    """Get embedding vector using the configured backend (cached).
+ 
++    For LlamaServerBackend: uses circuit breaker + retry + fallback to subprocess.
++    For other backends: direct call through LRU cache.
++    """
++    backend = _get_default_backend()
++    # Unwrap cache to check inner backend
++    inner = backend._backend if isinstance(backend, EmbeddingCache) else backend
+ 
++    if isinstance(inner, LlamaServerBackend):
++        # Circuit breaker + retry + fallback to subprocess
++        fallback = LlamaCppBackend()
++        vector = _embed_with_retry(
++            backend=inner,
++            text=text,
++            max_retries=2,
++            initial_delay=0.3,
++            breaker=_llama_server_breaker,
++            fallback_backend=fallback if fallback.is_available() else None,
++        )
++        # Update cache
++        if isinstance(backend, EmbeddingCache):
++            key = text if len(text) <= 200 else f"__hash:{hash(text)}"
++            backend._cache[key] = vector
++        return vector
++
++    return backend.embed(text)
++
++
+ def get_embeddings(texts: list[str]) -> list[list[float]]:
+     """Get embedding vectors for multiple texts."""
+     if not texts:
+@@ -532,12 +762,14 @@
+     return [backend.embed(t) for t in texts]
+ 
+ 
+-def get_cache_stats() -> dict[str, int]:
+-    """Get embedding cache statistics."""
++def get_cache_stats() -> dict:
++    """Get embedding cache statistics + circuit breaker state."""
+     backend = _get_default_backend()
++    stats: dict = {"hits": 0, "misses": 0, "size": 0, "maxsize": 0}
+     if isinstance(backend, EmbeddingCache):
+-        return backend.stats
+-    return {"hits": 0, "misses": 0, "size": 0, "maxsize": 0}
++        stats = backend.stats
++    stats["circuit_breaker"] = _llama_server_breaker.stats
++    return stats
+ 
+ 
+ # ── Legacy helpers (for backwards compatibility with existing servers) ──

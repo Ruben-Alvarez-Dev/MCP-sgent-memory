@@ -52,7 +52,6 @@ async def test_list_model_packs(mock_packs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="requires pyyaml module")
 async def test_set_model_pack_success(mock_packs):
     new_pack = '{"name": "experimental", "roles": {"coder": {"temperature": 0.0}}}'
     result = await engram_main.set_model_pack("experimental", new_pack)
@@ -61,7 +60,6 @@ async def test_set_model_pack_success(mock_packs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="requires pyyaml module")
 async def test_set_model_pack_invalid_json(mock_packs):
     invalid_json = '{"name": "bad", "roles": }'
     result = await engram_main.set_model_pack("bad", invalid_json)

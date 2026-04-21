@@ -388,7 +388,7 @@ async def list_model_packs() -> str:
                 "name": data.get("name", f.stem),
                 "description": data.get("description", ""),
                 "filename": f.name,
-                "roles": list(data.get("roles", {}).keys()),
+                "roles": list((data.get("roles") or {}).keys()),
             })
         except Exception:
             packs.append({"name": f.stem, "filename": f.name, "error": "parse failed"})
@@ -414,6 +414,9 @@ async def set_model_pack(name: str, yaml_content: str) -> str:
     if not isinstance(data, dict) or "roles" not in data:
         return json.dumps({"status": "error", "error": "YAML must have 'roles' key with role definitions"}, indent=2)
 
+    if not isinstance(data.get("roles"), dict):
+        return json.dumps({"status": "error", "error": "'roles' must be a mapping of role definitions"}, indent=2)
+
     pack_path = _get_packs_dir() / f"{name}.yaml"
     pack_path.write_text(yaml_content, encoding="utf-8")
 
@@ -421,7 +424,7 @@ async def set_model_pack(name: str, yaml_content: str) -> str:
         "status": "saved",
         "name": name,
         "path": str(pack_path),
-        "roles": list(data.get("roles", {}).keys()),
+        "roles": list((data.get("roles") or {}).keys()),
     }, indent=2)
 
 if __name__ == "__main__":

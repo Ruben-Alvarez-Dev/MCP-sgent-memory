@@ -16,7 +16,10 @@ MOCK_WORKING = [{"content": "test", "scope_type": "agent", "scope_id": "system",
 async def test_consolidate_runs_without_error():
     """Consolidate function runs and returns valid JSON status."""
     with patch("autodream.server.main.query_memories", return_value=MOCK_WORKING), \
-         patch("autodream.server.main.update_memory", new_callable=AsyncMock):
+         patch("autodream.server.main.update_memory", new_callable=AsyncMock), \
+         patch("autodream.server.main.promote_l1_to_l2", new_callable=AsyncMock, return_value='{"status": "ok"}'), \
+         patch("autodream.server.main.promote_l2_to_l3", new_callable=AsyncMock, return_value='{"status": "ok"}'), \
+         patch("autodream.server.main.promote_l3_to_l4", new_callable=AsyncMock, return_value='{"status": "ok"}'):
         from autodream.server.main import consolidate
         result_json = await consolidate()
         result = json.loads(result_json)

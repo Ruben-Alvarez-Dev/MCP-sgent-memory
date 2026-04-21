@@ -52,6 +52,17 @@ GATEWAY_PORT="${GATEWAY_PORT:-$(find_free_port 3050)}"
 LLM_BACKEND="${LLM_BACKEND:-ollama}"
 LLM_MODEL="${LLM_MODEL:-qwen2.5:7b}"
 
+# Persist resolved ports for runtime port discovery
+mkdir -p "$DIR/data"
+cat > "$DIR/data/resolved_ports.json" << PORTS
+{
+  "qdrant": $(echo "$QDRANT_URL" | grep -o '[0-9]*$'),
+  "llama_server": $(echo "$LLAMA_SERVER_URL" | grep -o '[0-9]*$'),
+  "gateway": $GATEWAY_PORT
+}
+PORTS
+echo "  Resolved ports saved to data/resolved_ports.json"
+
 MCP_CONFIG="${ONE_MCP_CONFIG:-$HOME/.config/1mcp/mcp.json}"
 TEMPLATE="$PROJECT_ROOT/config/mcp.json.template"
 

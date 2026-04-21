@@ -421,11 +421,11 @@ class LlamaServerBackend(EmbeddingBackend):
     Requires llama-server running as a daemon process.
 
     Env vars:
-      LLAMA_SERVER_URL  — Server URL (default: http://127.0.0.1:8080)
+      LLAMA_SERVER_URL  — Server URL (default: http://127.0.0.1:8081)
     """
 
     def __init__(self):
-        self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080")
+        self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
         self._available: Optional[bool] = None
 
     def is_available(self) -> bool:

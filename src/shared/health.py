@@ -240,7 +240,7 @@ def run_health_check(qdrant_url: str | None = None,
     """Run all health checks and return a report."""
     qdrant_url = qdrant_url or os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
     llama_url = llama_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
-    gateway_url = gateway_url or "http://127.0.0.1:3050"
+    gateway_url = gateway_url or os.getenv("GATEWAY_URL", "http://127.0.0.1:3050")
     base_dir = base_dir or os.getenv("MEMORY_SERVER_DIR")
 
     report = HealthReport()

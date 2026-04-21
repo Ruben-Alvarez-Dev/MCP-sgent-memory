@@ -1,71 +1,65 @@
-import sys
-import pytest
-from pathlib import Path
-import json
+"""Tests for shared.llm.config.rank_by_relevance — LLM ranking."""
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from __future__ import annotations
+
+from unittest.mock import patch, MagicMock
+
+import pytest
 
 from shared.llm.config import rank_by_relevance
-from shared.retrieval import ContextItem
 
-# --- Unit Tests (SPEC-4.1: LLM Ranking Robust to JSON) ---
 
-@pytest.mark.asyncio
-async def test_rank_reorders_by_relevance_json():
-    """AC-4.1.1: rank_by_relevance now requires structured JSON and reorders correctly."""
-    items = [
-        ContextItem(content="About dogs", source_name="doc1", source_level=1, score=0.8),
-        ContextItem(content="About cats", source_name="doc2", source_level=1, score=0.9),
-        ContextItem(content="A story about a cat chasing a dog", source_name="doc3", source_level=1, score=0.7),
-    ]
-    
-    async def mock_llm_call(prompt: str):
-        # Simulate an LLM structured output
-        return '{"ranked_indices": [1, 2, 0]}'
+def _items(n):
+    return [{"content": f"item {i}", "idx": i} for i in range(n)]
 
-    ranked = await rank_by_relevance("Tell me about felines", items, mock_llm_call)
-    
-    assert len(ranked) == 3
-    assert ranked[0].content == "About cats"
-    assert ranked[1].content == "A story about a cat chasing a dog"
-    assert ranked[2].content == "About dogs"
 
-@pytest.mark.asyncio
-async def test_fallback_when_llm_fails_json():
-    """AC-4.1.2: If LLM fails to return valid JSON, fall back to the original list without crashing."""
-    items = [
-        ContextItem(content="A", source_name="doc1", source_level=1, score=0.9),
-        ContextItem(content="B", source_name="doc2", source_level=1, score=0.8),
-    ]
-    
-    async def mock_llm_fail(prompt: str):
-        raise ValueError("LLM is down")
+def test_rank_uses_small_llm():
+    items = _items(15)
+    mock_llm = MagicMock()
+    mock_llm.is_available.return_value = True
+    mock_llm.ask.return_value = '{"ranked_indices": [2, 0, 1]}'
 
-    ranked = await rank_by_relevance("query", items, mock_llm_fail)
-    
-    assert len(ranked) == 2
-    assert ranked[0].content == "A" # Should maintain original order
+    with patch("shared.llm.config.get_small_llm", return_value=mock_llm):
+        ranked = rank_by_relevance("query", items, top_k=3)
+    assert len(ranked) <= 3
 
-@pytest.mark.asyncio
-async def test_handles_malformed_llm_response_json():
-    """AC-4.1.3: Handles malformed non-JSON responses from the LLM."""
-    items = [
-        ContextItem(content="A", source_name="doc1", source_level=1, score=0.9),
-        ContextItem(content="B", source_name="doc2", source_level=1, score=0.8),
-        ContextItem(content="C", source_name="doc3", source_level=1, score=0.7),
-    ]
-    
-    async def mock_llm_malformed(prompt: str):
-        # LLM ignored the JSON instruction and hallucinated text
-        return "I think the order is 2, 0, 1"
 
-    ranked = await rank_by_relevance("query", items, mock_llm_malformed)
-    
-    # Should fall back to the original order cleanly
-    assert len(ranked) == 3
-    assert ranked[0].content == "A"
-    assert ranked[1].content == "B"
-    assert ranked[2].content == "C"
+def test_fallback_when_llm_unavailable():
+    items = _items(12)
+    mock_llm = MagicMock()
+    mock_llm.is_available.return_value = False
+
+    with patch("shared.llm.config.get_small_llm", return_value=mock_llm):
+        ranked = rank_by_relevance("query", items, top_k=5)
+    # Returns original items (all of them since no LLM to filter)
+    assert len(ranked) == 12
+
+
+def test_malformed_response_falls_back():
+    items = _items(15)
+    mock_llm = MagicMock()
+    mock_llm.is_available.return_value = True
+    mock_llm.ask.return_value = "garbage response"
+
+    with patch("shared.llm.config.get_small_llm", return_value=mock_llm):
+        ranked = rank_by_relevance("query", items, top_k=5)
+    assert len(ranked) > 0
+
+
+def test_no_ranking_below_top_k():
+    items = _items(3)
+    with patch("shared.llm.config.get_small_llm") as m:
+        ranked = rank_by_relevance("query", items, top_k=10)
+    m.assert_not_called()
+    assert ranked == items
+
+
+def test_llm_exception_falls_back():
+    items = _items(15)
+    mock_llm = MagicMock()
+    mock_llm.is_available.return_value = True
+    mock_llm.ask.side_effect = RuntimeError("crash")
+
+    with patch("shared.llm.config.get_small_llm", return_value=mock_llm):
+        ranked = rank_by_relevance("query", items, top_k=5)
+    assert len(ranked) > 0

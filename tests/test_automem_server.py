@@ -1,52 +1,78 @@
-import sys
-import pytest
-import json
-from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock
+"""Tests for automem.server.main — event ingestion, memory storage."""
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+from __future__ import annotations
+
+import json
+from unittest.mock import patch, AsyncMock
+
+import pytest
+
+import automem.server.main as automem_main
 
 
 @pytest.mark.asyncio
-async def test_ingest_event_creates_diff_event():
-    """ingest_event with diff_proposed returns ingested status."""
-    with patch("automem.server.main.store_memory", new_callable=AsyncMock) as mock_store, \
-         patch("automem.server.main.append_raw_jsonl") as mock_append:
-        mock_store.return_value = None
-        from automem.server.main import ingest_event
-
-        diff_payload = {
-            "file_path": "test.py",
-            "diff_text": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
-            "language": "python",
-            "change_id": "test_commit_hash_123",
-        }
-        result_json = await ingest_event(
+async def test_ingest_diff_event():
+    with patch.object(automem_main, "store_memory", new_callable=AsyncMock), \
+         patch.object(automem_main, "append_raw_jsonl"):
+        result = await automem_main.ingest_event(
             event_type="diff_proposed",
-            content=json.dumps(diff_payload),
+            content=json.dumps({
+                "file_path": "test.py",
+                "diff_text": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
+                "language": "python",
+                "change_id": "abc123",
+            }),
             source="ralph_worktree",
         )
-        result = json.loads(result_json)
-        assert result["status"] == "ingested"
-        assert result.get("status") == "ingested" or result.get("event_type") == "diff_proposed"
+    data = json.loads(result)
+    assert data["status"] == "ingested"
 
 
 @pytest.mark.asyncio
-async def test_ingest_event_handles_terminal():
-    """ingest_event with terminal event works."""
-    with patch("automem.server.main.store_memory", new_callable=AsyncMock) as mock_store, \
-         patch("automem.server.main.append_raw_jsonl"):
-        mock_store.return_value = None
-        from automem.server.main import ingest_event
-
-        result_json = await ingest_event(
+async def test_ingest_terminal_event():
+    with patch.object(automem_main, "store_memory", new_callable=AsyncMock), \
+         patch.object(automem_main, "append_raw_jsonl"):
+        result = await automem_main.ingest_event(
             event_type="terminal",
             content='{"cmd": "ls", "exit": 0}',
             source="bash",
         )
-        result = json.loads(result_json)
-        assert result["status"] == "ingested"
-        assert result.get("status") == "ingested" or result.get("event_type") == "terminal"
+    data = json.loads(result)
+    assert data["status"] == "ingested"
+
+
+@pytest.mark.asyncio
+async def test_memorize_stores_fact():
+    with patch.object(automem_main, "store_memory", new_callable=AsyncMock) as mock_store:
+        result = await automem_main.memorize(
+            content="User prefers dark mode",
+            mem_type="preference",
+            scope="personal",
+            importance=0.8,
+        )
+    data = json.loads(result)
+    assert data["status"] == "stored"
+    mock_store.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_memorize_rejects_empty_content():
+    with pytest.raises(Exception):  # SanitizeError
+        await automem_main.memorize(content="", mem_type="fact")
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_returns_agent_id():
+    with patch.object(automem_main, "store_memory", new_callable=AsyncMock):
+        result = await automem_main.heartbeat(agent_id="test-agent", turn_count=5)
+    data = json.loads(result)
+    assert data["agent_id"] == "test-agent"
+    assert data["turn_count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_status_returns_daemon_info():
+    result = await automem_main.status()
+    data = json.loads(result)
+    assert data["daemon"] == "AutoMem"
+    assert "qdrant" in data

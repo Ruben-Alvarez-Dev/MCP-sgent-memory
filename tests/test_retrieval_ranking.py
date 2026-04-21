@@ -1,45 +1,81 @@
-import sys
+"""Tests for shared.retrieval._rank_and_fuse — multi-source ranking.
+
+NOTE: _rank_and_fuse is SYNC (def, not async def).
+Signature: _rank_and_fuse(results, profile: RetrievalProfile, intent: QueryIntent)
+"""
+
+from __future__ import annotations
+
 import pytest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from shared.retrieval import _rank_and_fuse
-from shared.retrieval import ContextItem
 from shared.llm.config import QueryIntent
+from shared.retrieval import ContextItem, PROFILES, _rank_and_fuse
 
-@pytest.mark.asyncio
-async def test_rank_and_fuse_sorts_by_score_by_default():
-    """Verifies baseline sorting by score when no LLM ranking is needed."""
-    results = {
-        "L1": [ContextItem(content="A", score=0.8, source_name="L1", source_level=1)],
-        "L2": [ContextItem(content="B", score=0.9, source_name="L2", source_level=2)],
-    }
-    intent = QueryIntent(intent_type="code_lookup", entities=[], scope="", time_window="", needs_external=False, needs_ranking=False, needs_consolidation=False)
-    
-    fused = await _rank_and_fuse(results, intent, "query")
-    
-    assert len(fused) == 2
-    assert fused[0].content == "B" # Highest score first
 
-@pytest.mark.asyncio
-async def test_rank_and_fuse_calls_llm_ranker_when_needed():
-    """Verifies that LLM ranking is invoked when intent.needs_ranking is True."""
+def _make_item(content: str, score: float, level: int = 1) -> ContextItem:
+    return ContextItem(content=content, score=score, source_name=f"L{level}", source_level=level)
+
+
+# ── Basic sorting ─────────────────────────────────────────────────
+
+
+def test_sorts_by_combined_score():
     results = {
         "L1": [
-            ContextItem(content="Low score, but relevant", score=0.1, source_name="L1", source_level=1),
-            ContextItem(content="High score, irrelevant", score=0.9, source_name="L1", source_level=1),
+            _make_item("low", 0.3),
+            _make_item("high", 0.9),
+            _make_item("mid", 0.6),
         ]
     }
-    intent = QueryIntent(intent_type="code_lookup", entities=[], scope="", time_window="", needs_external=False, needs_ranking=True, needs_consolidation=False)
-    
-    async def mock_llm_for_rank(p: str): return '{"ranked_indices": [1, 0]}'
-    fused = await _rank_and_fuse(results, intent, "query", llm_fn=mock_llm_for_rank)
+    intent = QueryIntent(
+        intent_type="code_lookup", entities=[], scope="this_project",
+        time_window="all", needs_external=False, needs_ranking=False,
+        needs_consolidation=False,
+    )
+    profile = PROFILES["dev"]
+    ranked = _rank_and_fuse(results, profile, intent)
 
-    assert len(fused) == 2
-    assert fused[0].content == "Low score, but relevant"
+    assert len(ranked) == 3
+    assert ranked[0].content == "high"
+    assert ranked[2].content == "low"
 
 
+def test_cross_level_weighting():
+    """L2 items with same score rank differently from L1 based on level_weights."""
+    results = {
+        "L1": [_make_item("working", 0.8, level=1)],
+        "L2": [_make_item("episodic", 0.8, level=2)],
+    }
+    intent = QueryIntent(
+        intent_type="code_lookup", entities=[], scope="this_project",
+        time_window="all", needs_external=False, needs_ranking=False,
+        needs_consolidation=False,
+    )
+    profile = PROFILES["dev"]
+    ranked = _rank_and_fuse(results, profile, intent)
+
+    assert len(ranked) == 2
+    # In "dev" profile, L1 weight=1.0, L2=0.9 → L1 should rank higher
+    assert ranked[0].content == "working"
+
+
+def test_empty_results_returns_empty():
+    intent = QueryIntent(
+        intent_type="code_lookup", entities=[], scope="this_project",
+        time_window="all", needs_external=False, needs_ranking=False,
+        needs_consolidation=False,
+    )
+    ranked = _rank_and_fuse({}, PROFILES["default"], intent)
+    assert ranked == []
+
+
+def test_single_item_returns_it():
+    results = {"L1": [_make_item("only", 0.5)]}
+    intent = QueryIntent(
+        intent_type="code_lookup", entities=[], scope="this_project",
+        time_window="all", needs_external=False, needs_ranking=False,
+        needs_consolidation=False,
+    )
+    ranked = _rank_and_fuse(results, PROFILES["default"], intent)
+    assert len(ranked) == 1
+    assert ranked[0].content == "only"

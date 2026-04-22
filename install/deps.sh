@@ -1,127 +1,80 @@
 #!/bin/bash
-# deps.sh — Dependency management with multi-strategy fallback
-# Strategy: venv pip → system pip --target → copy from system
+# deps.sh — Dependency installation with 3-strategy fallback
+# Strategy 1: Bundled wheels (offline, always works)
+# Strategy 2: venv pip (online)
+# Strategy 3: system pip --target
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 INSTALL_DIR="${1:?Usage: deps.sh <install_dir>}"
-VENV="$INSTALL_DIR/.venv"
-PYTHON_VENV="$VENV/bin/python3"
-MANIFEST="$SCRIPT_DIR/manifest.json"
+VENV_PIP="$INSTALL_DIR/.venv/bin/pip"
+VENV_PY="$INSTALL_DIR/.venv/bin/python3"
+WHEELS_DIR="$REPO_DIR/deps/vendor"
 
 log() { echo "  $1"; }
-fail() { echo "  ✗ $1" >&2; return 1; }
 
-# ── Strategy 1: venv pip direct ──────────────────────────────────
-install_via_venv_pip() {
-    log "Strategy 1: venv pip install..."
-    local pkgs=$(python3 -c "import json; [print(d['name']) for d in json.load(open('$MANIFEST'))['dependencies']]")
-    if "$VENV/bin/pip" install --quiet $pkgs 2>/dev/null; then
-        log "  ✓ venv pip succeeded"
-        return 0
-    fi
-    log "  ⚠ venv pip failed (network issue)"
-    return 1
-}
-
-# ── Strategy 2: system pip --target ──────────────────────────────
-install_via_system_pip() {
-    log "Strategy 2: system pip --target..."
-    local tmpdir=$(mktemp -d)
-    local pkgs=$(python3 -c "import json; [print(d['name']) for d in json.load(open('$MANIFEST'))['dependencies']]")
-    
-    # Try with python3 (system)
-    if python3 -m pip install --quiet --target "$tmpdir" $pkgs 2>/dev/null; then
-        local site=$("$PYTHON_VENV" -c "import site; print(site.getsitepackages()[0])")
-        cp -r "$tmpdir"/* "$site/" 2>/dev/null
-        rm -rf "$tmpdir"
-        log "  ✓ system pip --target succeeded"
-        return 0
-    fi
-    rm -rf "$tmpdir"
-    log "  ⚠ system pip --target failed"
-    return 1
-}
-
-# ── Strategy 3: copy from system python ──────────────────────────
-install_via_system_copy() {
-    log "Strategy 3: copy from system python..."
-    local site=$("$PYTHON_VENV" -c "import site; print(site.getsitepackages()[0])")
-    local copied=0
-    
-    for pkg_info in $(python3 -c "
-import json
-for d in json.load(open('$MANIFEST'))['dependencies']:
-    print(d['import'] + '|' + d['name'])
-"); do
-        local import_name=$(echo "$pkg_info" | cut -d'|' -f1)
-        local pkg_name=$(echo "$pkg_info" | cut -d'|' -f2)
-        
-        # Find package in system python
-        local pkg_path=$(python3 -c "
-import $import_name, os
-p = $import_name.__file__
-print(os.path.dirname(p) if '__init__' in p else p)
-" 2>/dev/null || echo "")
-        
-        if [ -n "$pkg_path" ] && [ -e "$pkg_path" ]; then
-            if [ -d "$pkg_path" ]; then
-                cp -r "$pkg_path" "$site/" 2>/dev/null && copied=$((copied + 1))
-            else
-                cp "$pkg_path" "$site/" 2>/dev/null && copied=$((copied + 1))
-            fi
-        fi
-    done
-    
-    if [ "$copied" -gt 0 ]; then
-        log "  ✓ copied $copied packages from system"
-        return 0
-    fi
-    log "  ✗ no packages found in system python"
-    return 1
-}
-
-# ── Validate installation ────────────────────────────────────────
 validate() {
-    log "Validating dependencies..."
-    local ok=0
-    local fail=0
-    
-    for import_name in $(python3 -c "
-import json
-for d in json.load(open('$MANIFEST'))['dependencies']:
-    print(d['import'])
-"); do
-        if "$PYTHON_VENV" -c "import $import_name" 2>/dev/null; then
-            ok=$((ok + 1))
+    local ok=0 fail=0
+    for import_name in pydantic httpx mcp yaml; do
+        if "$VENV_PY" -c "import $import_name" 2>/dev/null; then
+            ok=$((ok+1))
         else
-            local critical=$(python3 -c "
-import json
-for d in json.load(open('$MANIFEST'))['dependencies']:
-    if d['import'] == '$import_name':
-        print(d['critical'])
-        break
-")
-            if [ "$critical" = "True" ]; then
-                fail=$((fail + 1))
-                log "  ✗ $import_name (CRITICAL)"
-            else
-                log "  ⚠ $import_name (optional)"
-            fi
+            fail=$((fail+1))
+            log "  ✗ $import_name"
         fi
     done
-    
-    log "  Result: $ok ok, $fail critical missing"
+    log "  Result: $ok/4 ok"
     return $fail
 }
 
-# ── Main ─────────────────────────────────────────────────────────
+# Strategy 1: Bundled wheels (offline)
+install_from_wheels() {
+    log "Strategy 1: bundled wheels..."
+    if [ -d "$WHEELS_DIR" ] && ls "$WHEELS_DIR"/*.whl >/dev/null 2>&1; then
+        if "$VENV_PIP" install --no-index --find-links "$WHEELS_DIR" "$WHEELS_DIR"/*.whl 2>/dev/null; then
+            log "  ✓ wheels installed"
+            return 0
+        fi
+    fi
+    log "  ⚠ wheels not found or failed"
+    return 1
+}
+
+# Strategy 2: venv pip (online)
+install_from_pip() {
+    log "Strategy 2: venv pip..."
+    if "$VENV_PIP" install --quiet mcp pydantic httpx pyyaml 2>/dev/null; then
+        log "  ✓ pip install succeeded"
+        return 0
+    fi
+    log "  ⚠ pip install failed"
+    return 1
+}
+
+# Strategy 3: download wheels then install
+install_via_download() {
+    log "Strategy 3: download wheels..."
+    local tmpdir=$(mktemp -d)
+    if pip3 download --only-binary=:all: --python-version 3.12 --platform macosx_11_0_arm64 \
+        -d "$tmpdir" mcp pydantic httpx pyyaml 2>/dev/null; then
+        if "$VENV_PIP" install --no-index --find-links "$tmpdir" "$tmpdir"/*.whl 2>/dev/null; then
+            rm -rf "$tmpdir"
+            log "  ✓ downloaded and installed"
+            return 0
+        fi
+    fi
+    rm -rf "$tmpdir"
+    log "  ⚠ download failed"
+    return 1
+}
+
 main() {
     log "── Dependency Installation ─────────────────────────"
     
-    install_via_venv_pip && validate && return 0
-    install_via_system_pip && validate && return 0
-    install_via_system_copy && validate && return 0
+    install_from_wheels && validate && return 0
+    install_from_pip && validate && return 0
+    install_via_download && validate && return 0
     
     log "  ✗ All strategies failed"
     return 1

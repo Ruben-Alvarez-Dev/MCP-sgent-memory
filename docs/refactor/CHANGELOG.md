@@ -51,12 +51,17 @@ Format: [Phase] - YYYY-MM-DD
 
 ---
 
-## [Phase 2] - TBD
+## [Phase 2] - 2026-04-22
 
 ### Changed
 - All 7 server modules refactored to use shared infrastructure
-- Each module exports `register_tools()` function
-- No raw httpx or os.getenv in server modules
+- Each module imports QdrantClient and Config from shared
+- Each module exports `register_tools(mcp, qdrant, config, prefix)` function
+- Removed 2516 lines of duplicated boilerplate code
+- 50/51 tools refactored (verify_compliance_tool temporarily dropped from vk-cache)
+
+### Commit
+- `f71af26` — refactor(servers): all 7 modules use shared QdrantClient, Config, and register_tools()
 
 ---
 

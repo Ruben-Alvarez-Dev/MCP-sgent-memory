@@ -15,14 +15,14 @@
 - [ ] Phase 1 acceptance: all existing tests pass, zero duplication of Qdrant/embedding code in shared/
 
 ## Phase 2: Server Refactoring
-- [ ] Refactor automem → uses QdrantClient + BaseServer pattern
-- [ ] Refactor autodream → uses QdrantClient + BaseServer pattern
-- [ ] Refactor vk-cache → uses QdrantClient + BaseServer pattern
-- [ ] Refactor conversation-store → uses QdrantClient + BaseServer pattern
-- [ ] Refactor mem0 → uses QdrantClient + BaseServer pattern
-- [ ] Refactor engram → uses QdrantClient + BaseServer pattern
-- [ ] Refactor sequential-thinking → uses QdrantClient + BaseServer pattern
-- [ ] Each module exports `register_tools(mcp, qdrant, prefix)` function
+- [x] Refactor automem → uses QdrantClient + Config + register_tools()
+- [x] Refactor autodream → uses QdrantClient + Config + register_tools()
+- [x] Refactor vk-cache → uses QdrantClient + Config + register_tools()
+- [x] Refactor conversation-store → uses QdrantClient + Config + register_tools()
+- [x] Refactor mem0 → uses QdrantClient + Config + register_tools()
+- [x] Refactor engram → uses Config + register_tools()
+- [x] Refactor sequential-thinking → uses Config + register_tools()
+- [x] Each module exports `register_tools(mcp, qdrant, config, prefix)` function
 - [ ] Phase 2 acceptance: each server runs standalone, 51 tools still work
 
 ## Phase 3: Unified Server Rewrite

@@ -5,6 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_SCRIPTS="$(dirname "$SCRIPT_DIR")/install"
 LLAMA_PORT="${2:-8081}"
 
+# ── Auto-bootstrap: if run via "curl | bash", download repo automatically ──
+if [ ! -f "$SCRIPT_DIR/automem/server/main.py" ]; then
+    REPO_URL="https://github.com/Ruben-Alvarez-Dev/MCP-sgent-memory.git"
+    BOOTSTRAP_DIR=$(mktemp -d -t mcp-memory.XXXXXX)
+    echo "  Downloading MCP-agent-memory..."
+    git clone --depth 1 --filter=blob:none --sparse "$REPO_URL" "$BOOTSTRAP_DIR/repo" 2>/dev/null
+    cd "$BOOTSTRAP_DIR/repo"
+    git sparse-checkout set servers install deps 2>/dev/null
+    echo "  ✓ Downloaded to $BOOTSTRAP_DIR/repo"
+    echo ""
+    # Re-execute from the downloaded repo
+    bash "$BOOTSTRAP_DIR/repo/servers/install.sh" "$@" 
+    _exit_code=$?
+    rm -rf "$BOOTSTRAP_DIR"
+    exit $_exit_code
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║   MCP Memory Server — Installer v4                     ║"
@@ -202,7 +219,56 @@ echo "── Phase 7: Services ────────────────�
 if [ -f "$INSTALL_SCRIPTS/services.sh" ]; then
     bash "$INSTALL_SCRIPTS/services.sh" "$INSTALL_DIR" 6333 start "$LLAMA_PORT"
 else
-    echo "  ⚠ services.sh not found"
+    # Inline fallback: start Qdrant + llama-server + create collections
+    _qp=6333
+    _lp="$LLAMA_PORT"
+
+    # -- Qdrant --
+    if curl -sf "http://127.0.0.1:$_qp/healthz" >/dev/null 2>&1; then
+        echo "  ✓ Qdrant already running (port $_qp)"
+    else
+        _qb=""
+        if [ -x "$INSTALL_DIR/bin/qdrant" ]; then
+            _qb="$INSTALL_DIR/bin/qdrant"
+        elif [ -f "$SCRIPT_DIR/shared/qdrant/qdrant" ]; then
+            mkdir -p "$INSTALL_DIR/bin"
+            cp "$SCRIPT_DIR/shared/qdrant/qdrant" "$INSTALL_DIR/bin/"
+            cp "$SCRIPT_DIR/shared/qdrant/config.yaml" "$INSTALL_DIR/bin/" 2>/dev/null || true
+            chmod +x "$INSTALL_DIR/bin/qdrant"
+            _qb="$INSTALL_DIR/bin/qdrant"
+        elif command -v qdrant &>/dev/null; then
+            _qb="$(command -v qdrant)"
+        fi
+        if [ -n "$_qb" ]; then
+            nohup "$_qb" --config-path "$INSTALL_DIR/bin/config.yaml" >/tmp/qdrant-mcp.log 2>&1 &
+            echo "  ✓ Qdrant starting (port $_qp)"
+            for _i in $(seq 1 20); do curl -sf "http://127.0.0.1:$_qp/healthz" >/dev/null 2>&1 && break; sleep 1; done
+        else
+            echo "  ⚠ Qdrant binary not found — install: brew install qdrant"
+        fi
+    fi
+
+    # -- Collections --
+    for _c in automem conversations mem0_memories; do
+        curl -sf -X PUT "http://127.0.0.1:$_qp/collections/$_c"             -H "Content-Type: application/json"             -d '{"vectors":{"size":1024,"distance":"Cosine"},"sparse_vectors":{"text":{"index":{"type":"bm25"}}}}' >/dev/null 2>&1
+        echo "  ✓ Collection $_c"
+    done
+
+    # -- llama-server --
+    if curl -sf "http://127.0.0.1:$_lp/health" >/dev/null 2>&1; then
+        echo "  ✓ llama-server already running (port $_lp)"
+    else
+        _m=$(find "$INSTALL_DIR/models" -name "*.gguf" 2>/dev/null | head -1)
+        _lb="$INSTALL_DIR/engine/bin/llama-server"
+        if [ -x "$_lb" ] && [ -n "$_m" ]; then
+            nohup "$_lb" -m "$_m" --embedding --pooling mean -ngl 99                 --host 127.0.0.1 --port "$_lp" >/tmp/llama-server-mcp.log 2>&1 &
+            echo "  ✓ llama-server starting (port $_lp, loading model — up to 120s)"
+            for _i in $(seq 1 120); do curl -sf "http://127.0.0.1:$_lp/health" >/dev/null 2>&1 && break; sleep 1; done
+            curl -sf "http://127.0.0.1:$_lp/health" >/dev/null 2>&1 && echo "  ✓ llama-server healthy" || echo "  ⚠ llama-server not responding"
+        else
+            echo "  ⚠ llama-server binary or model not found"
+        fi
+    fi
 fi
 
 # Phase 8: Verification (modular)
@@ -211,7 +277,61 @@ echo "── Phase 8: Verification ───────────────
 if [ -f "$INSTALL_SCRIPTS/verify.sh" ]; then
     bash "$INSTALL_SCRIPTS/verify.sh" "$INSTALL_DIR" 6333 "$LLAMA_PORT"
 else
-    echo "  ⚠ verify.sh not found — run manually"
+    # Inline fallback: comprehensive verification
+    _vp="$INSTALL_DIR/.venv/bin/python3"
+    _qp=6333; _lp="$LLAMA_PORT"; _ok=0; _ko=0
+    _ck() { if [ -e "$1" ]; then echo "  ✓ $2"; _ok=$((_ok+1)); else echo "  ✗ $2"; _ko=$((_ko+1)); fi }
+    _cu() { if curl -sf "$1" >/dev/null 2>&1; then echo "  ✓ $2"; _ok=$((_ok+1)); else echo "  ✗ $2"; _ko=$((_ko+1)); fi }
+
+    echo "  [Files]"
+    for _m in automem autodream vk-cache conversation-store mem0 engram sequential-thinking; do
+        _ck "$INSTALL_DIR/src/$_m/server/main.py" "src/$_m/server/main.py"
+    done
+    _ck "$INSTALL_DIR/src/unified/server/main.py" "unified server"
+    _ck "$INSTALL_DIR/config/.env" "config/.env"
+    _ck "$INSTALL_DIR/config/mcp.json" "config/mcp.json"
+
+    echo "  [Binaries]"
+    _ck "$INSTALL_DIR/engine/bin/llama-server" "llama-server (compiled with Metal)"
+    _ck "$INSTALL_DIR/engine/bin/llama-cli" "llama-cli"
+
+    echo "  [Model]"
+    _mc=$(find "$INSTALL_DIR/models" -name "*.gguf" 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$_mc" -gt 0 ]; then
+        _mm=$(find "$INSTALL_DIR/models" -name "*.gguf" | head -1)
+        echo "  ✓ Model: $(basename "$_mm") ($(du -h "$_mm" | cut -f1))"; _ok=$((_ok+1))
+    else echo "  ✗ No .gguf models"; _ko=$((_ko+1)); fi
+
+    echo "  [Services]"
+    _cu "http://127.0.0.1:$_qp/healthz" "Qdrant (port $_qp)"
+    _cu "http://127.0.0.1:$_lp/health" "llama-server (port $_lp)"
+
+    echo "  [Collections]"
+    for _c in automem conversations mem0_memories; do
+        _cu "http://127.0.0.1:$_qp/collections/$_c" "collection $_c"
+    done
+
+    echo "  [Embeddings]"
+    _eb=$(curl -sf -X POST "http://127.0.0.1:$_lp/embedding" -H "Content-Type: application/json" -d '{"content":"test"}' 2>/dev/null)
+    if [ -n "$_eb" ]; then
+        _dm=$(echo "$_eb" | "$_vp" -c "import sys,json; d=json.load(sys.stdin); print(len(d[0]['embedding']) if isinstance(d,list) else len(d.get('embedding',[])))" 2>/dev/null) || _dm=0
+        if [ "$_dm" -ge 384 ]; then echo "  ✓ Embeddings: $_dm dimensions"; _ok=$((_ok+1))
+        else echo "  ✗ Wrong dimensions: $_dm"; _ko=$((_ko+1)); fi
+    else echo "  ✗ Embeddings not working"; _ko=$((_ko+1)); fi
+
+    echo "  [Python]"
+    if PYTHONPATH="$INSTALL_DIR/src" "$_vp" -c "
+import sys; sys.path.insert(0,'$INSTALL_DIR/src')
+from shared.env_loader import load_env; load_env()
+import importlib.util
+spec=importlib.util.spec_from_file_location('u','$INSTALL_DIR/src/unified/server/main.py')
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(f'  ✓ Unified: {len(m.mcp._tool_manager._tools)} tools, {len(m._loaded)} modules')
+" 2>/dev/null; then _ok=$((_ok+1))
+    else echo "  ✗ Unified server failed"; _ko=$((_ko+1)); fi
+
+    echo ""
+    if [ "$_ko" -eq 0 ]; then echo "  ✅ All checks passed ($_ok)"; else echo "  ⚠ $_ko checks failed ($_ok passed)"; fi
 fi
 
 echo ""

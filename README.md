@@ -40,6 +40,16 @@ All 7 memory modules are consolidated into **one MCP server** entry point with p
 
 ## Installation
 
+### One-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ruben-Alvarez-Dev/MCP-sgent-memory/main/servers/install.sh | bash
+```
+
+This single command auto-downloads the repo, compiles llama.cpp from source with Metal (macOS) or CUDA (Linux), downloads the BGE-M3 model, installs deps, starts Qdrant + llama-server, creates collections, generates config, and verifies everything.
+
+### Manual
+
 ```bash
 git clone https://github.com/Ruben-Alvarez-Dev/MCP-sgent-memory.git
 cd MCP-sgent-memory/servers

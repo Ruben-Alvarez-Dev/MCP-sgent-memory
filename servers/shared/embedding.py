@@ -32,7 +32,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -416,52 +418,12 @@ class LlamaServerBackend(EmbeddingBackend):
 
 # ── LRU Cache ──────────────────────────────────────────────────────
 
-class EmbeddingCache:
-    """Simple LRU cache for embeddings. Same text = same vector, no call."""
+_cache_hits = 0
+_cache_misses = 0
 
-    def __init__(self, backend: EmbeddingBackend, maxsize: int = 512):
-        self._backend = backend
-        self._maxsize = maxsize
-        self._cache: dict[str, list[float]] = {}
-        self._order: list[str] = []  # LRU order (oldest first)
-        self._hits = 0
-        self._misses = 0
 
-    @property
-    def stats(self) -> dict[str, int]:
-        return {"hits": self._hits, "misses": self._misses, "size": len(self._cache), "maxsize": self._maxsize}
-
-    def embed(self, text: str) -> list[float]:
-        # Use hash for long texts to save memory
-        key = text if len(text) <= 200 else f"__hash:{hash(text)}"
-
-        if key in self._cache:
-            # Move to end (most recently used)
-            self._order.remove(key)
-            self._order.append(key)
-            self._hits += 1
-            return self._cache[key]
-
-        # Cache miss — compute
-        vector = self._backend.embed(text)
-
-        self._cache[key] = vector
-        self._order.append(key)
-        self._misses += 1
-
-        # Evict oldest if over capacity
-        while len(self._cache) > self._maxsize:
-            oldest = self._order.pop(0)
-            self._cache.pop(oldest, None)
-
-        return vector
-
-    def is_available(self) -> bool:
-        return self._backend.is_available()
-
-    @property
-    def dim(self) -> int:
-        return self._backend.dim
+def _get_cache_stats() -> dict[str, int]:
+    return {"hits": _cache_hits, "misses": _cache_misses}
 
 
 # ── Registry & default ────────────────────────────────────────────
@@ -486,42 +448,61 @@ def get_backend(name: Optional[str] = None) -> EmbeddingBackend:
     return cls()
 
 
-# Module-level singleton (lazy)
+# Module-level singleton (thread-safe)
 _default_backend: Optional[EmbeddingBackend] = None
+_backend_lock = threading.Lock()
+_backend_cache_fn = None
 
 
 def _get_default_backend() -> EmbeddingBackend:
-    """Get the default backend, with auto-detection and caching.
-
-    Priority: llama_server (if running) > configured backend.
-    Always wrapped in LRU cache.
-    """
-    global _default_backend
+    """Get the default backend with thread-safe initialization."""
+    global _default_backend, _backend_cache_fn
     if _default_backend is not None:
         return _default_backend
 
-    # If user explicitly requested a backend, respect that
-    explicit = os.getenv("EMBEDDING_BACKEND")
-    if explicit:
-        backend = get_backend(explicit)
-    else:
-        # Auto-detect: try server first, fallback to subprocess
-        server = LlamaServerBackend()
-        if server.is_available():
-            backend = server
-        else:
-            backend = LlamaCppBackend()
+    with _backend_lock:
+        if _default_backend is not None:
+            return _default_backend
 
-    # Wrap in LRU cache
-    _default_backend = EmbeddingCache(backend, maxsize=int(os.getenv("EMBEDDING_CACHE_SIZE", "512")))
+        explicit = os.getenv("EMBEDDING_BACKEND")
+        if explicit:
+            backend = get_backend(explicit)
+        else:
+            server = LlamaServerBackend()
+            if server.is_available():
+                backend = server
+            else:
+                backend = LlamaCppBackend()
+
+        _default_backend = backend
+
+        # Create lru_cache wrapper for embed calls
+        maxsize = int(os.getenv("EMBEDDING_CACHE_SIZE", "512"))
+
+        @lru_cache(maxsize=maxsize)
+        def _cached_embed(text: str) -> tuple:
+            global _cache_misses
+            _cache_misses += 1
+            return tuple(backend.embed(text))
+
+        _backend_cache_fn = _cached_embed
+
     return _default_backend
 
 
 # ── Public API (unchanged for backwards compatibility) ─────────────
 
 def get_embedding(text: str) -> list[float]:
-    """Get embedding vector using the configured backend (cached)."""
-    return _get_default_backend().embed(text)
+    """Get embedding vector using the configured backend (cached via lru_cache)."""
+    global _cache_hits
+    _get_default_backend()  # ensure initialized
+    cache_key = text if len(text) <= 200 else text[:200]
+    if _backend_cache_fn is not None:
+        result = _backend_cache_fn(cache_key)
+        if result and isinstance(result, tuple):
+            _cache_hits += 1
+            return list(result)
+    return _default_backend.embed(text)
 
 
 def get_embeddings(texts: list[str]) -> list[list[float]]:
@@ -534,10 +515,11 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
 
 def get_cache_stats() -> dict[str, int]:
     """Get embedding cache statistics."""
-    backend = _get_default_backend()
-    if isinstance(backend, EmbeddingCache):
-        return backend.stats
-    return {"hits": 0, "misses": 0, "size": 0, "maxsize": 0}
+    global _cache_hits, _cache_misses
+    if _backend_cache_fn is not None:
+        info = _backend_cache_fn.cache_info()
+        return {"hits": info.hits, "misses": info.misses, "size": info.currsize, "maxsize": info.maxsize}
+    return {"hits": _cache_hits, "misses": _cache_misses, "size": 0, "maxsize": 0}
 
 
 # ── Legacy helpers (for backwards compatibility with existing servers) ──

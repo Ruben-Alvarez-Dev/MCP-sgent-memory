@@ -189,5 +189,8 @@ def load_env() -> Path:
     return env_file if env_file else Path("")
 
 
-# Auto-load on import
-_loaded_from = load_env()
+def get_config() -> "Config":
+    """Load env and return a Config instance. Convenience function."""
+    from shared.config import Config
+    load_env()
+    return Config.from_env()

@@ -27,7 +27,7 @@ load_env()
 from mcp.server.fastmcp import FastMCP
 
 # ── Unified server ─────────────────────────────────────────────────
-mcp = FastMCP("memory")
+mcp = FastMCP("MCP-agent-memory")
 
 # ── Module registry ────────────────────────────────────────────────
 # Each entry: (import_name, filesystem_path, tool_prefix)

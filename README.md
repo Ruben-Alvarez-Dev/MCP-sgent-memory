@@ -42,7 +42,7 @@ All 7 memory modules are consolidated into **one MCP server** entry point with p
 
 ```bash
 git clone https://github.com/Ruben-Alvarez-Dev/MCP-sgent-memory.git
-cd MCP-sgent-memory/MCP-servers
+cd MCP-sgent-memory/servers
 bash install.sh
 ```
 
@@ -90,7 +90,7 @@ The installer generates `config/mcp.json` with a single unified server:
 ```json
 {
   "mcpServers": {
-    "memory": {
+    "MCP-agent-memory": {
       "command": "~/MCP-servers/MCP-agent-memory/.venv/bin/python3",
       "args": ["-u", "~/MCP-servers/MCP-agent-memory/src/unified/server/main.py"],
       "env": {
@@ -114,7 +114,7 @@ cp ~/MCP-servers/MCP-agent-memory/config/mcp.json ~/.pi/mcp.json
 ### Connecting to Claude Code
 
 ```bash
-claude mcp add -s user memory \
+claude mcp add -s user MCP-agent-memory \
   --env PYTHONPATH=~/MCP-servers/MCP-agent-memory/src \
   --env MEMORY_SERVER_DIR=~/MCP-servers/MCP-agent-memory \
   --env QDRANT_URL=http://127.0.0.1:6333 \
@@ -217,7 +217,7 @@ claude mcp add -s user memory \
 
 The unified server imports all 7 module servers dynamically at startup:
 
-1. Creates a single `FastMCP("memory")` instance
+1. Creates a single `FastMCP("MCP-agent-memory")` instance
 2. For each server module, imports its `main.py` (which creates its own internal `FastMCP`)
 3. Extracts tools from each module's `_tool_manager._tools`
 4. Re-registers them with `mcp.add_tool(fn, name=f"{prefix}_{original_name}")`
@@ -250,7 +250,7 @@ The `autodream_dream` tool runs a background consolidation process:
 
 ```
 MCP-sgent-memory/
-├── MCP-servers/           ← All source code (this is what install.sh copies)
+├── servers/           ← All source code (this is what install.sh copies)
 │   ├── automem/
 │   ├── autodream/
 │   ├── vk-cache/
@@ -276,7 +276,7 @@ MCP-sgent-memory/
 ### Running Tests
 
 ```bash
-cd MCP-servers
+cd servers
 PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 ```
 
@@ -284,7 +284,7 @@ PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
 
 ```bash
 # Install to ~/MCP-servers/MCP-agent-memory/
-cd MCP-servers && bash install.sh
+cd servers cd MCP-servers && bashcd MCP-servers && bash bash install.sh
 
 # Test the unified server
 cd ~/MCP-servers/MCP-agent-memory

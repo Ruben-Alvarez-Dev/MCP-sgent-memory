@@ -5,7 +5,7 @@ This directory contains all server source code, the unified entry point, shared 
 ## Structure
 
 ```
-MCP-servers/
+servers/
 ├── automem/               ← Memory ingestion daemon
 ├── autodream/             ← Consolidation & dream cycle
 ├── vk-cache/              ← Vector retrieval & context assembly

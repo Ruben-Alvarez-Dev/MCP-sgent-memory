@@ -6,12 +6,12 @@
 ---
 
 ## Phase 1: Shared Infrastructure
-- [ ] Create `shared/qdrant_client.py` — centralized Qdrant HTTP operations
-- [ ] Create `shared/config.py` — centralized configuration with validation
-- [ ] Refactor `shared/embedding.py` — replace custom cache with `functools.lru_cache`, fix global state
-- [ ] Refactor `shared/env_loader.py` — remove auto-load on import
-- [ ] Unit tests for shared/qdrant_client.py
-- [ ] Unit tests for shared/config.py
+- [x] Create `shared/qdrant_client.py` — centralized Qdrant HTTP operations
+- [x] Create `shared/config.py` — centralized configuration with validation
+- [x] Refactor `shared/embedding.py` — replace custom cache with `functools.lru_cache`, fix global state
+- [x] Refactor `shared/env_loader.py` — remove auto-load on import
+- [x] Unit tests for shared/qdrant_client.py
+- [x] Unit tests for shared/config.py
 - [ ] Phase 1 acceptance: all existing tests pass, zero duplication of Qdrant/embedding code in shared/
 
 ## Phase 2: Server Refactoring

@@ -34,15 +34,20 @@ Format: [Phase] - YYYY-MM-DD
 
 ---
 
-## [Phase 1] - TBD
+## [Phase 1] - 2026-04-22
 
 ### Added
-- `shared/qdrant_client.py` — centralized Qdrant operations
-- `shared/config.py` — type-safe configuration
+- `shared/qdrant_client.py` — centralized Qdrant operations (ensure_collection, upsert, search, scroll, get, count)
+- `shared/config.py` — type-safe configuration with validation (40+ env vars)
+- `servers/tests/test_qdrant_client.py` — unit tests for QdrantClient
+- `servers/tests/test_config.py` — unit tests for Config
 
 ### Changed
-- `shared/embedding.py` — functools.lru_cache, thread-safe state
-- `shared/env_loader.py` — no auto-load on import
+- `shared/embedding.py` — replaced custom EmbeddingCache with functools.lru_cache, added threading.Lock for thread-safe backend initialization
+- `shared/env_loader.py` — removed auto-load on import (`_loaded_from = load_env()`), added `get_config()` convenience function
+
+### Commit
+- `7a3b3cc` — feat(shared): add QdrantClient and Config, refactor embedding and env_loader
 
 ---
 

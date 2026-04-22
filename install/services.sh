@@ -1,6 +1,8 @@
 #!/bin/bash
 # services.sh — Qdrant + llama-server management
 set -euo pipefail
+SCRIPT_DIR_SVC="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR_SVC="$(dirname "$SCRIPT_DIR_SVC")"
 INSTALL_DIR="${1:?Usage: services.sh <install_dir>}"
 QDRANT_PORT="${2:-6333}"
 LLAMA_PORT="${4:-8081}"
@@ -9,6 +11,13 @@ start_qdrant() {
     if [ -f "$INSTALL_DIR/bin/qdrant" ]; then
         "$INSTALL_DIR/bin/qdrant" &
         echo "  ✓ Qdrant starting (port $QDRANT_PORT)"
+    elif [ -f "$REPO_DIR_SVC/servers/shared/qdrant/qdrant" ]; then
+        mkdir -p "$INSTALL_DIR/bin"
+        cp "$REPO_DIR_SVC/servers/shared/qdrant/qdrant" "$INSTALL_DIR/bin/"
+        cp "$REPO_DIR_SVC/servers/shared/qdrant/config.yaml" "$INSTALL_DIR/bin/" 2>/dev/null || true
+        chmod +x "$INSTALL_DIR/bin/qdrant"
+        "$INSTALL_DIR/bin/qdrant" &
+        echo "  ✓ Qdrant starting (from bundled binary, port $QDRANT_PORT)"
     elif command -v qdrant &>/dev/null; then
         qdrant &
         echo "  ✓ Qdrant starting (system)"

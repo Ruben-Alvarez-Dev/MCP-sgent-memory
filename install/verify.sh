@@ -25,7 +25,7 @@ check "$INSTALL_DIR/config/mcp.json" "config/mcp.json"
 # 2. Binaries (compiled from source in engine/bin)
 echo "  [Binaries]"
 check "$INSTALL_DIR/engine/bin/llama-server" "engine/bin/llama-server"
-check "$INSTALL_DIR/engine/bin/llama-embedding" "engine/bin/llama-embedding"
+check "$INSTALL_DIR/engine/bin/llama-server" "engine/bin/llama-server"
 
 # 3. Embedding model
 echo "  [Embedding Model]"

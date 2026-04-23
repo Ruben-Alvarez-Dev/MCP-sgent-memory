@@ -62,7 +62,13 @@ else
 fi
 
 source "$SCRIPT_DIR/.venv/bin/activate"
-"$SCRIPT_DIR/.venv/bin/python3" -m pip install --upgrade pip -q 2>/dev/null
+
+# Use uv if available (faster + more reliable), fallback to pip
+PIP="pip"
+if command -v uv &>/dev/null; then
+    PIP="uv pip"
+fi
+$PIP install --upgrade pip -q 2>/dev/null || true
 pass "pip upgraded"
 echo ""
 
@@ -74,12 +80,12 @@ DEPS=("pydantic>=2.0" "httpx>=0.27" "mcp>=1.27")
 DEVS=("pytest>=8.0" "pytest-asyncio>=0.23")
 
 for dep in "${DEPS[@]}"; do
-    pip install "$dep" -q 2>/dev/null
+    $PIP install "$dep" -q 2>/dev/null
     pkg=$(echo "$dep" | sed 's/[>=<].*//')
     if python3 -c "import $pkg" 2>/dev/null; then pass "$dep"; else fail "$dep"; fi
 done
 for dep in "${DEVS[@]}"; do
-    pip install "$dep" -q 2>/dev/null
+    $PIP install "$dep" -q 2>/dev/null
     pkg=$(echo "$dep" | sed 's/[>=<].*//')
     if python3 -c "import ${pkg//-/_}" 2>/dev/null; then pass "$dep (dev)"; else fail "$dep"; fi
 done
@@ -323,6 +329,8 @@ fi
 # Test 4: Embedding
 VERIFY_TOTAL=$((VERIFY_TOTAL+1))
 if [ "$EMB_OK" = true ]; then
+    # Load env vars from config/.env for the test
+    set -a; [ -f "$SCRIPT_DIR/config/.env" ] && source "$SCRIPT_DIR/config/.env"; set +a
     if "$SCRIPT_DIR/.venv/bin/python3" -c "
 import sys; sys.path.insert(0,'$SCRIPT_DIR/src')
 from shared.embedding import get_embedding

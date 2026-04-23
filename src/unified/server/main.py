@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("MCP-agent-memory")
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+_initialized = False
 
 # ── Register all module tools via public API ────────────────────
 
@@ -82,10 +83,12 @@ STATUS_REPORT = (
 )
 
 
-async def _initialize() -> None:
-    """Auto-initialize all collections and directories on startup."""
-    import asyncio
-    import logging
+async def _ensure_initialized() -> None:
+    """Lazy initialization — runs once inside the MCP event loop."""
+    global _initialized
+    if _initialized:
+        return
+    _initialized = True
     logger = logging.getLogger("mcp-agent-memory.init")
 
     # 1. Create all data directories
@@ -129,10 +132,13 @@ async def _initialize() -> None:
         if p:
             p.mkdir(parents=True, exist_ok=True)
 
+    logger.info("Initialization complete")
+
 
 @mcp.tool()
 async def health_check() -> dict:
     """Check health of all memory subsystems."""
+    await _ensure_initialized()
     import asyncio
     checks = {}
 
@@ -177,16 +183,10 @@ async def health_check() -> dict:
 
 
 def main() -> None:
-    import asyncio
     import logging
     from shared.logging_config import setup_logging
     setup_logging()
     logger = logging.getLogger("agent-memory")
-    try:
-        asyncio.run(_initialize())
-        logger.info("Initialization complete")
-    except Exception as e:
-        logger.warning(f"Initialization partial: %s", e)
     logger.info("Starting MCP server on stdio")
     mcp.run(transport="stdio")
 

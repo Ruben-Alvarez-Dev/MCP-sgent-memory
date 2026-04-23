@@ -179,7 +179,11 @@ echo "  ✅ com.agent-memory.qdrant.plist"
 
 # --- llama-server ---
 LLAMA_BIN="$DIR/bin/engine/bin/llama-server"
-LLAMA_MODEL="$DIR/bin/models/bge-m3-Q4_K_M.gguf"
+LLAMA_MODEL="$DIR/bin/models/bge-m3-q8_0.gguf"
+# Fallback to Q4 if Q8 not available
+if [ ! -f "$LLAMA_MODEL" ] && [ -f "$DIR/bin/models/bge-m3-Q4_K_M.gguf" ]; then
+    LLAMA_MODEL="$DIR/bin/models/bge-m3-Q4_K_M.gguf"
+fi
 LLAMA_LIB="$DIR/bin/engine/lib"
 
 if [ -f "$LLAMA_BIN" ] && [ -f "$LLAMA_MODEL" ]; then

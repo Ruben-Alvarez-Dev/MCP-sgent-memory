@@ -71,3 +71,5 @@ data/
 embedding_cache.db*
 data/
 storage/
+models/*.gguf
+!models/.gitkeep

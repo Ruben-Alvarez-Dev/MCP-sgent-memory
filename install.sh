@@ -128,17 +128,23 @@ if curl -s --max-time 3 http://127.0.0.1:8081/health 2>/dev/null | grep -q "ok";
     EMB_OK=true
 else
     mkdir -p "$SCRIPT_DIR/models"
-    MODEL="$SCRIPT_DIR/models/bge-m3-Q4_K_M.gguf"
+    # Determine model precision
+    PRECISION=${MODEL_PRECISION:-Q4_K_M}
+    case "$PRECISION" in
+        Q4|q4|Q4_K_M) MODEL="$SCRIPT_DIR/models/bge-m3-Q4_K_M.gguf"; MODEL_URL="https://huggingface.co/gpustack/bge-m3-GGUF/resolve/main/bge-m3-Q4_K_M.gguf" ;;
+        Q8|q8|Q8_0)    MODEL="$SCRIPT_DIR/models/bge-m3-q8_0.gguf"; MODEL_URL="https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/main/bge-m3-q8_0.gguf" ;;
+        *)              MODEL="$SCRIPT_DIR/models/bge-m3-Q4_K_M.gguf"; MODEL_URL="https://huggingface.co/gpustack/bge-m3-GGUF/resolve/main/bge-m3-Q4_K_M.gguf" ;;
+    esac
     LLAMA_BIN="$SCRIPT_DIR/engine/bin/llama-server"
     if [ ! -f "$MODEL" ]; then
-        info "Downloading BGE-M3 model (~417MB)..."
-        if curl -L --progress-bar -o "$MODEL" "https://huggingface.co/gpustack/bge-m3-GGUF/resolve/main/bge-m3-Q4_K_M.gguf" 2>/dev/null; then
+        info "Downloading BGE-M3 model ($PRECISION, ~$(case $PRECISION in Q8*) echo 605MB;; *) echo 417MB;; esac))..."
+        if curl -L --progress-bar -o "$MODEL" "$MODEL_URL" 2>/dev/null; then
             pass "Model downloaded ($(du -h "$MODEL" | awk '{print $1}'))"
         else
             fail "Model download failed"
         fi
     else
-        pass "Model exists ($(du -h "$MODEL" | awk '{print $1}'))"
+        pass "Model exists ($PRECISION, $(du -h "$MODEL" | awk '{print $1}'))"
     fi
     if [ -f "$LLAMA_BIN" ]; then
         nohup "$LLAMA_BIN" -m "$MODEL" --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$SCRIPT_DIR/embedding.log" 2>&1 &

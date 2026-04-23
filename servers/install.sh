@@ -7,7 +7,7 @@ LLAMA_PORT="${2:-8081}"
 
 # ── Auto-bootstrap: if run via "curl | bash", download repo automatically ──
 if [ ! -f "$SCRIPT_DIR/automem/server/main.py" ]; then
-    REPO_URL="https://github.com/Ruben-Alvarez-Dev/MCP-sgent-memory.git"
+    REPO_URL="https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory.git"
     BOOTSTRAP_DIR=$(mktemp -d -t mcp-memory.XXXXXX)
     echo "  Downloading MCP-agent-memory..."
     git clone --depth 1 --filter=blob:none --sparse "$REPO_URL" "$BOOTSTRAP_DIR/repo" 2>/dev/null

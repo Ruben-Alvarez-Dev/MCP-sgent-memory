@@ -39,16 +39,18 @@ A unified MCP (Model Context Protocol) memory server that provides persistent, m
 
 ## Installation
 
+### One-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Ruben-Alvarez-Dev/MCP-agent-memory/main/install.sh | bash
+```
+
+### Manual
+
 ```bash
 git clone https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory.git
 cd MCP-agent-memory
-
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install httpx pydantic mcp pytest
+bash install.sh
 ```
 
 ## Configuration

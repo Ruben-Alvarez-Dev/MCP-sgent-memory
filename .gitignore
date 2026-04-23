@@ -69,3 +69,5 @@ $HOME/
 # ── Data (auto-created, local) ──────────────────────────────────
 data/
 embedding_cache.db*
+data/
+storage/

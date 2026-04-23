@@ -521,6 +521,11 @@ def get_embedding(text: str) -> list[float]:
     global _cache_hits
     _get_default_backend()  # ensure initialized
 
+    # Smart truncate long texts to avoid slow tokenization
+    if len(text) > 2000:
+        from shared.text import smart_truncate
+        text = smart_truncate(text, 2000)
+
     # 1. Check in-memory LRU cache
     cache_key = text if len(text) <= 200 else text[:200]
     if _backend_cache_fn is not None:

@@ -60,7 +60,8 @@ async def _promote_l1_l2(state: dict) -> str | None:
     for m in working:
         key = f"{m.get('scope_type', '')}/{m.get('scope_id', '')}"
         groups.setdefault(key, []).append(m)
-    episodes = []
+    batch_points = []
+    episode_ids = []
     for scope_key, items in groups.items():
         if len(items) < 2:
             continue
@@ -68,10 +69,12 @@ async def _promote_l1_l2(state: dict) -> str | None:
         avg_imp = sum(m.get("importance", 0) for m in items) / len(items)
         ep = MemoryItem(layer=MemoryLayer.EPISODIC, scope_type=items[0].get("scope_type", MemoryScope.AGENT), scope_id=items[0].get("scope_id", "system"), type=MemoryType.EPISODE, content=f"Episode ({len(items)} events):\n{combined}", importance=avg_imp, confidence=0.7)
         vector = await safe_embed(ep.content)
-        await qdrant.upsert(ep.memory_id, vector, ep.model_dump(mode="json"))
-        episodes.append(ep.memory_id)
+        batch_points.append({"id": ep.memory_id, "vector": vector, "payload": ep.model_dump(mode="json")})
+        episode_ids.append(ep.memory_id)
+    if batch_points:
+        await qdrant.upsert_batch(batch_points)
     state["last_promote_l1_l2"] = state.get("turn_count", 0)
-    return f"Created {len(episodes)} episodes" if episodes else None
+    return f"Created {len(episode_ids)} episodes" if episode_ids else None
 
 async def _promote_l2_l3(state: dict, now: float) -> str | None:
     if now - state.get("last_promote_l2_l3", 0) < config.dream_promote_l2:

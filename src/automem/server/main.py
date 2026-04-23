@@ -57,14 +57,19 @@ def _append_raw_jsonl(event: RawEvent) -> None:
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
-async def memorize(content: str, mem_type: str = "fact", scope: str = "session", scope_id: str = "current", importance: float = 0.5, tags: str = "") -> MemorizeResult:
+async def memorize(content: str, mem_type: str = "fact", scope: str = "session", scope_id: str = "current", importance: float = 0.5, tags: str = "") -> dict:
     """Store a memory. AutoMem ingests it immediately."""
+    from shared.timing import Timer, DEBUG
+    t = Timer()
     clean = validate_memorize(content, mem_type, scope, tags)
     scope_map = {"session": MemoryScope.SESSION, "agent": MemoryScope.AGENT, "domain": MemoryScope.DOMAIN, "personal": MemoryScope.PERSONAL, "global-core": MemoryScope.GLOBAL_CORE}
     item = MemoryItem(layer=MemoryLayer.WORKING, scope_type=scope_map.get(clean["scope"], MemoryScope.AGENT), scope_id=scope_id, type=MemoryType(clean["mem_type"]), content=clean["content"], importance=importance, topic_ids=clean["tags"])
-    await _store_memory(item)
+    t.start("store"); await _store_memory(item); t.stop()
     _append_raw_jsonl(RawEvent(type=RawEventType.AGENT_ACTION, source="automem", actor_id=scope_id, attributes={"memory_id": item.memory_id, "type": clean["mem_type"]}))
-    return MemorizeResult(status="stored", memory_id=item.memory_id, layer="L1_WORKING", scope=item.full_scope)
+    result = MemorizeResult(status="stored", memory_id=item.memory_id, layer="L1_WORKING", scope=item.full_scope).model_dump()
+    if DEBUG:
+        result.update(t.to_dict())
+    return result
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))

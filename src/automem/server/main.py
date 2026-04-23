@@ -95,8 +95,20 @@ async def ingest_event(event_type: str, source: str, content: str, actor_id: str
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0) -> HeartbeatResult:
-    """Update agent heartbeat. Call every turn to signal the agent is alive."""
+async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, prefetch_queries: list[str] = []) -> HeartbeatResult:
+    """Update agent heartbeat. Call every turn to signal the agent is alive.
+    
+    Optional: pass prefetch_queries to pre-compute embeddings for upcoming searches.
+    """
+    # Prefetch embeddings in background (non-blocking)
+    if prefetch_queries:
+        try:
+            from shared.embedding import async_embed_batch
+            import asyncio
+            asyncio.create_task(async_embed_batch(prefetch_queries))
+        except Exception:
+            pass  # Prefetch is best-effort
+    
     status = HeartbeatStatus(agent_id=agent_id, session_id=session_id, turn_count=turn_count, status="active")
     hb_dir = Path(config.heartbeats_path)
     hb_dir.mkdir(parents=True, exist_ok=True)

@@ -212,11 +212,42 @@ async def status() -> AutoDreamStatusResult:
     return AutoDreamStatusResult(daemon="AutoDream", status="RUNNING", state=state)
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def force_promote(from_layer: int = 1, count: int = 10) -> dict:
+    """Force promotion of memories between layers for testing."""
+    await qdrant.ensure_collection(sparse=False)
+    if from_layer not in (1, 2, 3):
+        return {"status": "error", "error": "from_layer must be 1, 2, or 3"}
+
+    mems = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": from_layer}}]}, limit=count)
+    if not mems:
+        return {"status": "no_memories", "from_layer": from_layer, "message": f"No L{from_layer} memories found"}
+
+    to_layer = from_layer + 1
+    layer_map = {2: MemoryLayer.EPISODIC, 3: MemoryLayer.SEMANTIC, 4: MemoryLayer.CONSOLIDATED}
+    promoted = 0
+    for m in mems:
+        new_item = MemoryItem(
+            layer=layer_map[to_layer],
+            scope_type=MemoryScope(m.get("scope_type", "agent")),
+            scope_id=m.get("scope_id", "system"),
+            type=MemoryType(m.get("type", "fact")),
+            content=m.get("content", ""),
+            importance=m.get("importance", 0.5),
+            confidence=min(m.get("confidence", 0.5) + 0.1, 1.0),
+        )
+        vector = await safe_embed(new_item.content)
+        await qdrant.upsert(new_item.memory_id, vector, new_item.model_dump(mode="json"))
+        promoted += 1
+
+    return {"status": "promoted", "from_layer": f"L{from_layer}", "to_layer": f"L{to_layer}", "count": promoted}
+
+
 def register_tools(target_mcp: FastMCP, target_qdrant: QdrantClient, target_config: Config, prefix: str = "") -> None:
     global qdrant, config
     qdrant = target_qdrant
     config = target_config
-    for fn in [heartbeat, consolidate, dream, dream_status, get_consolidated, get_semantic, status]:
+    for fn in [heartbeat, consolidate, dream, dream_status, force_promote, get_consolidated, get_semantic, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")
 
 

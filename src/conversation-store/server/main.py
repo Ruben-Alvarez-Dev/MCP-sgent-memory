@@ -26,7 +26,7 @@ async def save_conversation(thread_id: str, messages_json: str, summary: str = "
     sparse = bm25_tokenize(text)
     await qdrant.ensure_collection(sparse=True)
     await qdrant.upsert(str(uuid.uuid4()), vector, {"thread_id":clean["thread_id"],"messages":clean["messages"],"summary":summary,"created_at":datetime.now(timezone.utc).isoformat()}, sparse=sparse)
-    return SaveConversationResult(status="saved", memory_id=clean["thread_id"], layer="conversations", scope="thread")
+    return SaveConversationResult(status="stored", memory_id=clean["thread_id"], layer="conversations", scope="thread")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_conversation(thread_id: str) -> dict:

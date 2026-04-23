@@ -1,0 +1,11 @@
+{
+  "dependencies": [
+    {"name": "mcp", "import": "mcp", "critical": true},
+    {"name": "pydantic", "import": "pydantic", "critical": true},
+    {"name": "httpx", "import": "httpx", "critical": true},
+    {"name": "pyyaml", "import": "yaml", "critical": false},
+    {"name": "qdrant-client", "import": "qdrant_client", "critical": false},
+    {"name": "pygments", "import": "pygments", "critical": false}
+  ],
+  "python_min_version": "3.10"
+}

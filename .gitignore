@@ -1,16 +1,70 @@
+# ── Secrets (LAST LINE OF DEFENSE) ────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secrets.env
+
+# ── Production Artifacts ──────────────────────────────────────────
+# These are built/downloaded at install time, NOT versioned.
 .venv/
+engine/
+bin/
+lib/
+models/*.gguf
+vault/
+tools.db
+*.dmg
+*.pid
+*.log
+
+# ── Qdrant data (production database) ────────────────────────────
+MCP-servers/shared/qdrant/data/
+
+# ── Build Dependencies (cloned at install time) ──────────────────
+llama.cpp/
+
+# ── Build output ─────────────────────────────────────────────────
+dist/
+
+# ── Staging / Production Copies ──────────────────────────────────
+staging/
+
+# ── Python ────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
-.DS_Store
-.qdrant-initialized
-storage/
-snapshots/
-data/
-embedding_cache.db*
-engine/bin/
-bin/qdrant
-config/.env
+*.pyo
 *.egg-info/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── Agent Tools (per-user, not project code) ─────────────────────
+.a0proj/
+.harness/
+.ralph/
+
+# ── IDE / OS ─────────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Engram Local Mirror (copies of ~/.memory/) ──────────────────
+$HOME/
+
+# ── 1mcp-agent (vendored — installed separately) ────────────────
+1mcp-agent/
+
+# ── Dev / temp folders ───────────────────────────────────────────
+.atl/
+.ralph/
+
+# ── Data (auto-created, local) ──────────────────────────────────
+data/

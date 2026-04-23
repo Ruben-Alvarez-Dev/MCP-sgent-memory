@@ -53,9 +53,12 @@ async def sequential_thinking(problem: str, context: str = "", max_steps: int = 
         f"Knowledge capture: What decision was made and why? Record for future reference: {problem[:80]}"
     ]
     n = min(max_steps, len(phases))
+    saved_thoughts = []
     for i in range(n):
-        _save(sid, i+1, {"step":i+1,"problem":problem,"thought":phases[i],"style":thinking_style,"entities":entities,"timestamp":datetime.now(timezone.utc).isoformat()})
-    return ThinkingResult(session_id=sid, steps=n, summary=f"Completed {n} thinking steps analyzing: {entities_str}. See session '{sid}' for details.")
+        thought_data = {"step":i+1,"problem":problem,"thought":phases[i],"style":thinking_style,"entities":entities,"timestamp":datetime.now(timezone.utc).isoformat()}
+        _save(sid, i+1, thought_data)
+        saved_thoughts.append({"step_number": i+1, "thought": phases[i], "next_needed": i < n-1})
+    return ThinkingResult(session_id=sid, steps=n, summary=f"Completed {n} thinking steps analyzing: {entities_str}. See session '{sid}' for details.", thoughts=saved_thoughts)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def record_thought(session_id: str, thought: str, step: int = 0, confidence: float = 0.5) -> ThinkingResult:

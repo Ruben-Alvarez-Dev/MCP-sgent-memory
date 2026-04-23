@@ -39,7 +39,7 @@ async def search_memory(query: str, user_id: str = DEFAULT_USER, limit: int = 5)
         return SearchResult(count=0, results=[])
     vector = await safe_embed(query)
     results = await qdrant.search(vector, limit=limit)
-    filtered = [r.get("payload",{}) for r in results if r.get("payload",{}).get("user_id") == user_id]
+    filtered = [{**r.get("payload",{}), "score": round(r.get("score", 0), 4)} for r in results if r.get("payload",{}).get("user_id") == user_id]
     return SearchResult(count=len(filtered), results=filtered)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

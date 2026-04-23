@@ -39,7 +39,7 @@ async def search_conversations(query: str, limit: int = 5) -> SearchResult:
     """Search conversations by semantic similarity."""
     vector = await safe_embed(query)
     results = await qdrant.search(vector, limit=limit)
-    return SearchResult(count=len(results), results=[r.get("payload",{}) for r in results])
+    return SearchResult(count=len(results), results=[{**r.get("payload",{}), "score": round(r.get("score", 0), 4)} for r in results])
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def list_threads(limit: int = 20) -> ThreadListResult:

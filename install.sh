@@ -161,11 +161,39 @@ elif [ -f "$SCRIPT_DIR/bin/qdrant" ]; then
         fail "Qdrant binary exists but failed to start (check qdrant.log)"
     fi
 else
-    warn "Qdrant not found."
-    info "Download binary to $SCRIPT_DIR/bin/qdrant"
-    info "  curl -L https://github.com/qdrant/qdrant/releases/latest/download/qdrant-x86_64-unknown-linux-musl.tar.gz | tar xz"
-    info "  mv qdrant $SCRIPT_DIR/bin/qdrant"
-    WARNINGS=$((WARNINGS+1))
+    info "Downloading Qdrant binary..."
+    mkdir -p "$SCRIPT_DIR/bin"
+    OS=$(uname -s); ARCH=$(uname -m)
+    case "$OS" in
+        Darwin)
+            case "$ARCH" in
+                arm64) QDRANT_URL="https://github.com/qdrant/qdrant/releases/latest/download/qdrant-aarch64-apple-darwin.tar.gz" ;;
+                *)     QDRANT_URL="https://github.com/qdrant/qdrant/releases/latest/download/qdrant-x86_64-apple-darwin.tar.gz" ;;
+            esac ;;
+        Linux)
+            case "$ARCH" in
+                aarch64) QDRANT_URL="https://github.com/qdrant/qdrant/releases/latest/download/qdrant-aarch64-unknown-linux-musl.tar.gz" ;;
+                *)       QDRANT_URL="https://github.com/qdrant/qdrant/releases/latest/download/qdrant-x86_64-unknown-linux-musl.tar.gz" ;;
+            esac ;;
+        *) fail "Unsupported platform: $OS" ;;
+    esac
+    if [ -n "${QDRANT_URL:-}" ]; then
+        if curl -fsSL "$QDRANT_URL" | tar xz -C "$SCRIPT_DIR/bin/" qdrant 2>/dev/null; then
+            chmod +x "$SCRIPT_DIR/bin/qdrant"
+            pass "Qdrant downloaded ($(du -h "$SCRIPT_DIR/bin/qdrant" | awk '{print $1}'))"
+            mkdir -p "$SCRIPT_DIR/bin/storage" "$SCRIPT_DIR/bin/snapshots"
+            nohup "$SCRIPT_DIR/bin/qdrant" --config-path "$SCRIPT_DIR/bin/config.yaml" >> "$SCRIPT_DIR/qdrant.log" 2>&1 &
+            sleep 2
+            if curl -s --max-time 3 http://127.0.0.1:6333/healthz 2>/dev/null | grep -q "passed"; then
+                pass "Qdrant started (PID $(pgrep -f 'bin/qdrant' | head -1))"
+                QDRANT_OK=true
+            else
+                fail "Qdrant downloaded but failed to start (check qdrant.log)"
+            fi
+        else
+            fail "Qdrant download failed"
+        fi
+    fi
 fi
 echo ""
 
@@ -197,14 +225,46 @@ else
         pass "Model exists ($PRECISION, $(du -h "$MODEL" | awk '{print $1}'))"
     fi
     if [ -f "$LLAMA_BIN" ]; then
-        warn "llama-server binary found but not running. Start it:"
-        info "  $LLAMA_BIN -m $MODEL --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable"
-        WARNINGS=$((WARNINGS+1))
+        info "Starting llama-server..."
+        nohup "$LLAMA_BIN" -m "$MODEL" --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$SCRIPT_DIR/embedding.log" 2>&1 &
+        sleep 3
+        if curl -s --max-time 5 http://127.0.0.1:8081/health 2>/dev/null | grep -q "ok"; then
+            pass "Embedding server started (PID $(pgrep -f llama-server | head -1))"
+            EMB_OK=true
+        else
+            fail "llama-server failed to start (check embedding.log)"
+        fi
+    elif command -v cmake &>/dev/null; then
+        info "Compiling llama.cpp with Metal support (this takes 2-5 min)..."
+        LLAMA_SRC="$SCRIPT_DIR/engine/llama.cpp"
+        mkdir -p "$SCRIPT_DIR/engine/bin"
+        if [ ! -d "$LLAMA_SRC" ]; then
+            git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_SRC" -q
+        fi
+        cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$SCRIPT_DIR/build.log" && \
+        cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$SCRIPT_DIR/build.log"
+        if [ -f "$LLAMA_SRC/build/bin/llama-server" ]; then
+            cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_BIN"
+            chmod +x "$LLAMA_BIN"
+            pass "llama-server compiled ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
+            info "Starting embedding server..."
+            nohup "$LLAMA_BIN" -m "$MODEL" --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$SCRIPT_DIR/embedding.log" 2>&1 &
+            sleep 3
+            if curl -s --max-time 5 http://127.0.0.1:8081/health 2>/dev/null | grep -q "ok"; then
+                pass "Embedding server started (PID $(pgrep -f llama-server | head -1))"
+                EMB_OK=true
+            else
+                fail "Embedding server compiled but failed to start"
+            fi
+        else
+            fail "llama-server compilation failed (check build.log)"
+        fi
     else
-        warn "llama-server not found. Compile llama.cpp with Metal support:"
+        warn "cmake not found. Install cmake, then compile llama.cpp:"
         info "  git clone https://github.com/ggerganov/llama.cpp $SCRIPT_DIR/engine/llama.cpp"
-        info "  cd $SCRIPT_DIR/engine/llama.cpp && cmake -B build -DLLAMA_METAL=ON && cmake --build build --config Release -j"
-        info "  cp build/bin/llama-server $LLAMA_BIN"
+        info "  cmake -B $SCRIPT_DIR/engine/llama.cpp/build -S $SCRIPT_DIR/engine/llama.cpp -DLLAMA_METAL=ON"
+        info "  cmake --build $SCRIPT_DIR/engine/llama.cpp/build --config Release -j"
+        info "  cp $SCRIPT_DIR/engine/llama.cpp/build/bin/llama-server $LLAMA_BIN"
         WARNINGS=$((WARNINGS+1))
     fi
 fi

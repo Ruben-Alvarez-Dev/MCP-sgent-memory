@@ -34,6 +34,8 @@ if [ ! -f "$SCRIPT_DIR/src/unified/server/main.py" ]; then
 
     # Copy only what the installer needs (skip servers/ with 61MB qdrant binary, docs, bench, etc.)
     mkdir -p "$INSTALL_DIR"
+    # Clean stale dirs from previous installs
+    rm -rf "$INSTALL_DIR/engine/llama.cpp"
     for item in src config deps install.sh bin tests README.md .python-version .gitignore; do
         [ -e "$TMPDIR/repo/$item" ] && cp -a "$TMPDIR/repo/$item" "$INSTALL_DIR/"
     done
@@ -249,12 +251,13 @@ else
             pass "llama-server compiled ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
             info "Starting embedding server..."
             nohup "$LLAMA_BIN" -m "$MODEL" --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$SCRIPT_DIR/embedding.log" 2>&1 &
-            sleep 3
+            sleep 10
             if curl -s --max-time 5 http://127.0.0.1:8081/health 2>/dev/null | grep -q "ok"; then
                 pass "Embedding server started (PID $(pgrep -f llama-server | head -1))"
                 EMB_OK=true
             else
-                fail "Embedding server compiled but failed to start"
+                fail "llama-server compiled but failed to start (check $SCRIPT_DIR/embedding.log)"
+                tail -5 "$SCRIPT_DIR/embedding.log" 2>/dev/null | sed 's/^/    /' || true
             fi
         else
             fail "llama-server compilation failed (check build.log)"

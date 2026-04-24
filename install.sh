@@ -32,10 +32,12 @@ if [ ! -f "$SCRIPT_DIR/src/unified/server/main.py" ]; then
     rm -rf "$TMPDIR/repo/.git"
     echo "  ✓ Source downloaded ($(du -sh "$TMPDIR/repo" | awk '{print $1}'))"
 
-    # Copy source to install dir and run installer from there
+    # Copy only what the installer needs (skip servers/ with 61MB qdrant binary, docs, bench, etc.)
     mkdir -p "$INSTALL_DIR"
-    cp -a "$TMPDIR/repo/." "$INSTALL_DIR/"
-    echo "  ✓ Source installed at $INSTALL_DIR"
+    for item in src config deps install.sh bin tests README.md .python-version .gitignore; do
+        [ -e "$TMPDIR/repo/$item" ] && cp -a "$TMPDIR/repo/$item" "$INSTALL_DIR/"
+    done
+    echo "  ✓ Source installed at $INSTALL_DIR ($(du -sh "$INSTALL_DIR" | awk '{print $1}'))"
 
     exec bash "$INSTALL_DIR/install.sh" "$INSTALL_DIR"
 fi

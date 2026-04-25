@@ -4,43 +4,59 @@
 
 ---
 
-## Where We Are: v1.2 — The Backpack
+## Where We Are: v1.3 — Smart Context Injection
 
 **Status**: ✅ Shipped
 
-The core loop works: plugin auto-triggers capture events, heartbeat tracks turns, consolidation runs on thresholds, conversations survive compaction. The agent no longer needs to remember to use 8 of its 53 tools — they fire automatically.
+v1.2 proved the sidecar pattern. v1.3 closes the loop: Capture → Store → Consolidate → **Retrieve → Inject**. On every user prompt, the plugin fetches relevant context from vk-cache and injects it into the system prompt. The agent starts every conversation aware of relevant past work.
+
+Plus: **code-based enforcement** instead of text rules. The plugin blocks `write`/`edit` tools until memory context has been fetched for the session. No more "please remember to check memory" — it's enforced by code.
 
 **What's proven**:
-- HTTP sidecar pattern (plugin → localhost:8890 → Python functions → Qdrant)
-- Auto-capturing every user prompt, tool call, and file edit
-- Conventional commits enforcement (blocking hook)
-- Anti-rationalization table reduces LLM skipping of memory saves
-- Compaction flow preserves conversations automatically
+- `/api/request-context` endpoint proxies vk_cache.request_context via HTTP
+- Context injection via `system.transform` hook (two-hook pattern with `chat.message`)
+- 30-second cooldown on context fetches, 2000 token budget
+- Enforcement gate: `write`/`edit` blocked without context verification
+- Graceful degradation: if context fetch fails, agent proceeds after first attempt
+
+**Research foundation**: See `docs/research/verificacion-continua-conocimiento.md` for the scientific basis.
 
 ---
 
-## Next: v1.3 — Smart Context Injection
+## Next: v1.4 — Continuous Knowledge Verification
 
-**Problem**: The agent captures events but doesn't get reminded of relevant past work proactively. When you start working on auth, it doesn't know you already solved an auth problem 3 sessions ago.
+**Problem**: The agent retrieves memories and injects context, but never verifies that those memories are still accurate. A memory saying "CLI-agent-memory is in `/tmp/`" from 3 months ago gets injected with the same confidence as one verified 5 minutes ago. The agent operates with **confidence in stale data**.
 
-**Solution**: Activate `vk_cache_request_context` automatically on every user prompt. The plugin calls it via HTTP, gets a ContextPack, and injects it into the messages.
+This is the same problem the human brain solves with **reconsolidation** (Nader, 2000): every time you recall a memory, your brain verifies and potentially updates it before re-storing.
+
+**Solution**: Extend the memory model with freshness tracking + background verification. Every memory gets a `verified_at` timestamp and a `change_speed` classification. Stale memories get flagged in the context injection. Background verification runs during `session.idle`.
 
 **Deliverables**:
-- [ ] New HTTP endpoint: `POST /api/request-context` → `vk_cache_request_context`
-- [ ] Plugin `chat.message` hook: fetch context for the user's query
-- [ ] Plugin `experimental.chat.messages.transform`: inject ContextPack as a system message
-- [ ] Rate limiting: max 1 context request per 30 seconds per session
-- [ ] Token budget: max 2000 tokens of injected context
+- [ ] Extend `MemoryItem` with `verified_at`, `verification_status`, `change_speed`, `verification_source`
+- [ ] Freshness scoring: `confidence × decay(change_speed, age)` in smart_retrieve ranking
+- [ ] Context injection shows freshness tags: `✅ VERIFIED 2h ago`, `⚠️ STALE 5d ago`, `❓ NEVER VERIFIED`
+- [ ] New endpoint: `POST /api/verify-memories` — verify specific memories against source of truth
+- [ ] Background verification: `session.idle` hook triggers verification of stale memories
+- [ ] Dream cycle integration: autodream verifies stale memories during consolidation
 
-**Why this matters**: This closes the loop. Capture → Store → Consolidate → **Retrieve → Inject**. The agent starts every conversation with awareness of relevant past work.
+**Scientific basis**:
+- Reconsolidation (Nader 2000): every recall is a verification opportunity
+- Predictive Coding (Friston 2010): verify when prediction error is likely
+- FreshQA (Vu 2023): classify facts by change speed — never/slow/fast/realtime
+- CRAG (Yan 2024): evaluate retrieval quality, trigger corrective actions
+- Metamemoria (Nelson & Narens 1990): dynamic confidence scores updated by verification
+
+**Why this matters**: Without freshness tracking, the context injection from v1.3 can be counterproductive — injecting confident but wrong data. v1.4 ensures the agent knows **which memories to trust** and which need verification.
+
+**Full research**: `docs/research/verificacion-continua-conocimiento.md`
 
 ---
 
-## Then: v1.4 — Advisory Warnings
+## Then: v1.5 — Expanded Enforcement
 
-**Problem**: OpenCode doesn't support `additionalContext` like Claude Code. GSD uses 10/11 hooks as advisory warnings — we can't do that. But we can use `tool.execute.before` to BLOCK patterns.
+**Problem**: OpenCode doesn't support `additionalContext` like Claude Code. We have 2 enforcement gates (context verification + conventional commits). More patterns need blocking.
 
-**Solution**: Expand the enforcement gate beyond just commit messages. Add blocking rules for common agent mistakes.
+**Solution**: Expand the enforcement gate beyond context and commits. Add blocking rules for common agent mistakes.
 
 **Deliverables**:
 - [ ] Block: edits to `.env` files (throw error with explanation)
@@ -53,7 +69,7 @@ The core loop works: plugin auto-triggers capture events, heartbeat tracks turns
 
 ---
 
-## Future: v1.5 — Context Monitor
+## Future: v1.6 — Context Monitor
 
 **Problem**: The agent doesn't know when it's running low on context. GSD has `gsd-context-monitor.js` that warns at 35% remaining and does emergency saves at 25%. We can't read context window size from OpenCode plugins (no API for it).
 
@@ -99,28 +115,36 @@ The core loop works: plugin auto-triggers capture events, heartbeat tracks turns
 
 ```
 CLI-agent-memory  ← active orchestration layer (the tractor head)
-       │
-       ├── MCP-agent-memory  ← passive memory services (53 tools)
-       │     ├── automem (events + working memory)
-       │     ├── autodream (consolidation + dreams)
-       │     ├── vk-cache (smart retrieval)
-       │     ├── conversation-store (threads)
-       │     ├── mem0 (semantic CRUD)
-       │     ├── engram (decisions + vault)
-       │     └── sequential-thinking (reasoning)
-       │
-       ├── agent-search  ← codebase indexing + semantic search
-       │
-       └── backpack-orchestrator  ← auto-trigger enforcement layer
-             ├── Auto-capture every event
-             ├── Auto-heartbeat every turn
-             ├── Auto-save on compaction
-             ├── Auto-consolidate on thresholds
-             ├── Block bad commits
-             └── Inject context proactively (v1.3)
+        │
+        ├── MCP-agent-memory  ← passive memory services (53 tools)
+        │     ├── automem (events + working memory)
+        │     ├── autodream (consolidation + dreams)
+        │     ├── vk-cache (smart retrieval + freshness scoring)
+        │     ├── conversation-store (threads)
+        │     ├── mem0 (semantic CRUD)
+        │     ├── engram (decisions + vault)
+        │     └── sequential-thinking (reasoning)
+        │
+        ├── agent-search  ← codebase indexing + semantic search
+        │
+        └── adapters/  ← CLI-specific integration layers
+              ├── opencode/ (TypeScript plugins — backpack-orchestrator + engram)
+              ├── claude-code/ (future)
+              ├── aider/ (future)
+              └── cursor/ (future)
+                    │
+                    └── backpack-orchestrator
+                          ├── Auto-capture every event
+                          ├── Auto-heartbeat every turn
+                          ├── Auto-save on compaction
+                          ├── Auto-consolidate on thresholds
+                          ├── Auto-context injection (v1.3)
+                          ├── Block writes without context (v1.3)
+                          ├── Block bad commits
+                          └── Background freshness verification (v1.4)
 ```
 
-The backpack hyperpowers the agent. The agent does the real work (writing code). The backpack makes sure the agent never forgets, never repeats mistakes, and always has context.
+The backpack hyperpowers the agent. The agent does the real work (writing code). The backpack makes sure the agent never forgets, never repeats mistakes, always has context, and **knows which context to trust**.
 
 ---
 
@@ -138,11 +162,17 @@ The backpack hyperpowers the agent. The agent does the real work (writing code).
 
 ## References That Inform Our Direction
 
-| System | What We Learned |
-|--------|----------------|
+| System / Paper | What We Learned |
+|----------------|----------------|
 | **GSD** (57K stars) | Hook-based enforcement, wave execution, context monitor |
 | **agent-skills** (22.8K stars) | Anti-rationalization tables, verification checklists, red flags |
 | **Gentle AI** (not-that-gente-ai) | SDD DAG, blocking rules, self-check protocol, judgment day |
 | **Supermemory** (22K stars) | MCP server with built-in memory/recall/context tools |
 | **Cognee** (17K stars) | Graph+vector hybrid, lifecycle hooks, 4 APIs |
 | **Mem0** (54K stars) | Dominant memory system, mem0-cli for CLI agents |
+| **CRAG** (Yan et al. 2024) | Evaluate retrieval quality, trigger corrective actions |
+| **Self-RAG** (Asai et al. 2023) | Model learns when to retrieve, critique, generate |
+| **FreshQA** (Vu et al. 2023) | Classify facts by change speed, verify accordingly |
+| **Reconsolidation** (Nader 2000) | Every recall is a verification opportunity |
+| **Predictive Coding** (Friston 2010) | Verify when prediction error is likely |
+| **Metamemoria** (Nelson & Narens 1990) | Dynamic confidence scores, know what you know |

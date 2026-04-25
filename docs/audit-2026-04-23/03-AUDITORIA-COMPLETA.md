@@ -104,7 +104,7 @@ Auditoría a 10 dimensiones siguiendo estándares de la industria (OWASP, ISO 25
 |---|---|---|---|
 | PER-H1 | Latencia embedding | 1191ms | <100ms |
 | PER-H2 | Sin connection pooling | 8 httpx clients creados/destruidos por op | 1 pool persistente |
-| PER-H3 | Ollama qwen2.5:7b inferencia | 5s por call | Aceptable para background |
+| PER-H3 | llama.cpp qwen2.5:7b inferencia | 5s por call | Aceptable para background |
 
 ### Métricas
 
@@ -121,7 +121,7 @@ Auditoría a 10 dimensiones siguiendo estándares de la industria (OWASP, ISO 25
 1. Embedding: 1191ms → debería usar batch embedding o connection persistente
 2. Embedding cache se pierde al reiniciar → debería persistir a disco
 3. httpx client sin pool → overhead TCP por cada operación
-4. Ollama 5s/inference → consolidación de 50 items = ~4 min
+4. llama.cpp 5s/inference → consolidación de 50 items = ~4 min
 
 ---
 

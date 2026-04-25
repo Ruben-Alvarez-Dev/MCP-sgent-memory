@@ -49,7 +49,7 @@ find_free_port() {
 QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:$(find_free_port 6333)}"
 LLAMA_SERVER_URL="${LLAMA_SERVER_URL:-http://127.0.0.1:$(find_free_port 8081)}"
 GATEWAY_PORT="${GATEWAY_PORT:-$(find_free_port 3050)}"
-LLM_BACKEND="${LLM_BACKEND:-ollama}"
+LLM_BACKEND="${LLM_BACKEND:-llama_cpp}"
 LLM_MODEL="${LLM_MODEL:-qwen2.5:7b}"
 
 MCP_CONFIG="${ONE_MCP_CONFIG:-$HOME/.config/1mcp/mcp.json}"

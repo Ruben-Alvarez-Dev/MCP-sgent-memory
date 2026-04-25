@@ -1,10 +1,8 @@
-"""LLM Backend — provider-agnostic interface for the memory server.
+"""LLM Backend — llama.cpp interface for the memory server.
 
 All LLM-consuming code imports ONLY from this module:
 
     from shared.llm import get_llm, get_small_llm, classify_intent
-
-The backend (llama.cpp, Ollama, LM Studio) is fully transparent.
 
 Usage:
     llm = get_llm()                          # auto-select configured backend
@@ -17,11 +15,9 @@ Usage:
         print(chunk.delta, end="")
 
 Environment variables:
-    LLM_BACKEND   — llama_cpp | ollama | lmstudio (default: ollama)
+    LLM_BACKEND   — llama_cpp (default: llama_cpp)
     LLM_MODEL     — Model identifier
     SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
-    OLLAMA_URL    — Ollama endpoint
-    LMSTUDIO_URL  — LM Studio endpoint
 """
 
 from .base import LLMBackend, ChatMessage, ChatResponse, ChatChunk, ModelInfo

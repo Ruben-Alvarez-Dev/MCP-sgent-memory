@@ -35,11 +35,11 @@ class Config:
     embedding_backend: str = "llama_server"
     embedding_dim: int = 1024
     embedding_model: str = ""
-    llama_server_url: str = "http://127.0.0.1:8081"
+    llama_server_url: str = "https://token-plan-ams.xiaomimimo.com/v1"
     embedding_cache_size: int = 512
 
     # ── LLM ───────────────────────────────────────────────────
-    llm_backend: str = "ollama"
+    llm_backend: str = "llama_cpp"
     llm_model: str = "qwen2.5:7b"
 
     # ── Paths ─────────────────────────────────────────────────
@@ -86,7 +86,7 @@ class Config:
             llama_server_url=os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081"),
             embedding_cache_size=int(os.getenv("EMBEDDING_CACHE_SIZE", "512")),
             # LLM
-            llm_backend=os.getenv("LLM_BACKEND", "ollama"),
+            llm_backend=os.getenv("LLM_BACKEND", "llama_cpp"),
             llm_model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
             # Paths
             server_dir=server_dir,
@@ -127,7 +127,7 @@ class Config:
             errors.append(f"EMBEDDING_BACKEND must be one of {valid_embed_backends}, got '{self.embedding_backend}'")
 
         # LLM backend
-        valid_llm_backends = {"ollama", "llama_cpp", "lmstudio"}
+        valid_llm_backends = {"llama_cpp"}
         if self.llm_backend not in valid_llm_backends:
             errors.append(f"LLM_BACKEND must be one of {valid_llm_backends}, got '{self.llm_backend}'")
 

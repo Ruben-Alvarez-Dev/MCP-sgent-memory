@@ -35,7 +35,7 @@ A unified MCP (Model Context Protocol) memory server that provides persistent, m
 - Python 3.12+
 - [Qdrant](https://qdrant.tech/) (vector database)
 - [llama.cpp](https://github.com/ggerganov/llama.cpp) with BGE-M3 model (embedding server)
-- [Ollama](https://ollama.ai/) or LM Studio (LLM backend)
+- [llama.cpp](https://llama_cpp.ai/) or llama.cpp (LLM backend)
 
 ## Installation
 
@@ -54,7 +54,7 @@ The installer performs 8 steps with a visual checklist:
 - Dependency installation (pydantic, httpx, mcp)
 - Qdrant vector database startup
 - BGE-M3 embedding model download + llama-server startup
-- Ollama LLM backend detection
+- llama.cpp LLM backend detection
 - Config generation (.env + directory structure)
 - MCP client configuration (auto-detects Pi, Claude Desktop)
 - Full verification (imports, config, connectivity, unit tests)
@@ -71,7 +71,7 @@ EMBEDDING_BACKEND=llama_server
 LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
-LLM_BACKEND=ollama
+LLM_BACKEND=llama_cpp
 LLM_MODEL=qwen2.5:7b
 ```
 

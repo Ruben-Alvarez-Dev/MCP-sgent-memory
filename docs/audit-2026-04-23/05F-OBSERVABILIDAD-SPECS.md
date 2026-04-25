@@ -100,7 +100,7 @@ async def health_check() -> dict:
 
 **Criterio de aceptación**:
 - [ ] `GET http://localhost:8081/health` retorna JSON con estado de todos los servicios
-- [ ] Incluye: Qdrant, llama-server, Ollama, disk space, collection sizes
+- [ ] Incluye: Qdrant, llama-server, llama.cpp, disk space, collection sizes
 - [ ] Return code 200 si todo OK, 503 si algo falla
 
 ---

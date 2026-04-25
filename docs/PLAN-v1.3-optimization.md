@@ -114,7 +114,7 @@ Archivo: ~/.pi/agent/extensions/mcp-memory/index.ts
 ```
 - E2E: dream() responde en <50ms
 - E2E: dream_status() muestra "running" luego "completed"
-- E2E: Si Ollama cae, dream_status muestra "failed" (no crash)
+- E2E: Si llama.cpp cae, dream_status muestra "failed" (no crash)
 ```
 
 **Criterio de despliegue**: dream() nunca bloquea >100ms, dream_status() funcional

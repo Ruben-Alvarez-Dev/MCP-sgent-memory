@@ -14,7 +14,7 @@ class TestConfigDefaults:
         assert c.qdrant_url == "http://127.0.0.1:6333"
         assert c.embedding_dim == 1024
         assert c.embedding_backend == "llama_server"
-        assert c.llm_backend == "ollama"
+        assert c.llm_backend == "llama_cpp"
 
     def test_validate_ok(self):
         c = Config()
@@ -35,8 +35,8 @@ class TestConfigFromEnv:
     def test_from_env_reads_vars(self, monkeypatch):
         monkeypatch.setenv("QDRANT_URL", "http://test:6333")
         monkeypatch.setenv("EMBEDDING_DIM", "512")
-        monkeypatch.setenv("LLM_BACKEND", "lmstudio")
+        monkeypatch.setenv("LLM_BACKEND", "llama_cpp")
         c = Config.from_env()
         assert c.qdrant_url == "http://test:6333"
         assert c.embedding_dim == 512
-        assert c.llm_backend == "lmstudio"
+        assert c.llm_backend == "llama_cpp"

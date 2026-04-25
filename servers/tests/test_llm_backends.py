@@ -46,12 +46,12 @@ def record_result(name: str, passed: bool, detail: str = ""):
 
 def test_consolidator():
     """Simulate the consolidator extracting memories from a session."""
-    section("TEST 1: Post-Session Consolidator (qwen2.5:7b via Ollama)")
+    section("TEST 1: Post-Session Consolidator (via llama.cpp)")
 
     try:
-        llm = get_llm("ollama", model="qwen2.5:7b")
+        llm = get_llm("llama_cpp")
     except Exception as e:
-        return record_result("Consolidator", False, f"Ollama unavailable: {e}")
+        return record_result("Consolidator", False, f"llama.cpp unavailable: {e}")
 
     # Simulated conversation (from a real coding session)
     SYSTEM_PROMPT = """You are a memory consolidation assistant. Analyze the conversation below and extract
@@ -119,13 +119,13 @@ User: Yes. After 50 turns the LLM ignores 15% of instructions. After 200, more t
 
 def test_compliance_verifier():
     """Simulate the compliance verifier checking LLM output."""
-    section("TEST 2: Compliance Verifier (LM Studio)")
+    section("TEST 2: Compliance Verifier (llama.cpp)")
 
     try:
-        llm = get_llm("lmstudio")
+        llm = get_llm("llama_cpp")
     except Exception as e:
         return record_result(
-            "Compliance Verifier", False, f"LM Studio unavailable: {e}"
+            "Compliance Verifier", False, f"llama.cpp unavailable: {e}"
         )
 
     # Simulated LLM output that VIOLATES a rule
@@ -199,9 +199,9 @@ def test_ai_ranking():
     section("TEST 3: AI Memory Ranking (qwen2.5:7b)")
 
     try:
-        llm = get_llm("ollama", model="qwen2.5:7b")
+        llm = get_llm("llama_cpp")
     except Exception as e:
-        return record_result("AI Memory Ranking", False, f"Ollama unavailable: {e}")
+        return record_result("AI Memory Ranking", False, f"llama.cpp unavailable: {e}")
 
     MEMORIES = [
         "user: I'm a senior engineer with 10 years of Python experience",
@@ -262,7 +262,7 @@ def test_multi_model():
 
     # Task 1: Consolidation with qwen2.5:7b
     try:
-        consolidator = get_llm("ollama", model="qwen2.5:7b")
+        consolidator = get_llm("llama_cpp")
         resp = consolidator.ask(
             "Summarize in 5 words: The LLM should never manage its own context window.",
             max_tokens=30,
@@ -274,9 +274,9 @@ def test_multi_model():
     except Exception as e:
         results.append(record_result("Consolidation (qwen2.5:7b)", False, str(e)))
 
-    # Task 2: Verification with LM Studio
+    # Task 2: Verification with llama.cpp
     try:
-        verifier = get_llm("lmstudio")
+        verifier = get_llm("llama_cpp")
         resp = verifier.ask(
             "Is this code compliant with rule 'no class Config in Pydantic'? Answer YES or NO only.",
             max_tokens=20,

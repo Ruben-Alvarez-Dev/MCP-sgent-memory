@@ -26,7 +26,7 @@
 
 | ID | Task | Archivo | Estado | Prioridad | Tiempo est. |
 |----|------|---------|--------|-----------|-------------|
-| TASK-3.1 | Verificar LLM Ollama consolidación | — | ⬜ Pendiente | P1 | 15min |
+| TASK-3.1 | Verificar LLM llama.cpp consolidación | — | ⬜ Pendiente | P1 | 15min |
 | TASK-3.2 | Ajustar umbrales via env vars | `servers/autodream/server/main.py` | ⬜ Pendiente | P1 | 15min |
 | TASK-3.3 | Test ciclo completo consolidación | `tests/` | ⬜ Pendiente | P1 | 30min |
 

@@ -9,7 +9,7 @@
 |----------|--------|--------|----------|
 | Qdrant | 🟢 Online | 6333 | ~136ms |
 | 1MCP Gateway | 🟢 Online | 3050 | ~149ms |
-| Ollama | 🟢 Online | 11434 | — |
+| llama.cpp | 🟢 Online | 11434 | — |
 | AutoMem | 🟢 Running | via 1mcp | — |
 | AutoDream | 🟢 Running | via 1mcp | — |
 | vk-cache | 🟢 Running | via 1mcp | — |
@@ -35,9 +35,9 @@
 |--------|------|--------|-----|--------|
 | bge-m3-Q4_K_M.gguf | Embedding | 417MB | Embedding 1024 dims | ✅ Funcional |
 | all-minilm-l6-v2_q8_0.gguf | Embedding | 24MB | Alternativa 384 dims | Disponible |
-| qwen2.5:7b (Ollama) | LLM | 4.4GB | Consolidación AutoDream | ✅ Disponible |
-| qwen3.5:2b (Ollama) | LLM | 2.6GB | Ranking/verificación | ✅ Disponible |
-| nomic-embed-text (Ollama) | Embedding | 0.3GB | Alternativa 768 dims | ✅ Disponible |
+| qwen2.5:7b (llama.cpp) | LLM | 4.4GB | Consolidación AutoDream | ✅ Disponible |
+| qwen3.5:2b (llama.cpp) | LLM | 2.6GB | Ranking/verificación | ✅ Disponible |
+| nomic-embed-text (llama.cpp) | Embedding | 0.3GB | Alternativa 768 dims | ✅ Disponible |
 
 ## 4. Bugs Críticos Encontrados
 
@@ -114,8 +114,8 @@ if not intent.entities:
 |---------|----------|------|
 | llama.cpp subprocess (actual) | 1,087ms | Spawn de proceso por llamada |
 | llama.cpp server mode (HTTP) | **15ms** | Daemon permanente |
-| Ollama nomic-embed-text (warm) | 27ms | Pero calidad pobre (768d) |
-| Ollama nomic-embed-text (cold) | 1,459ms | Cold start |
+| llama.cpp nomic-embed-text (warm) | 27ms | Pero calidad pobre (768d) |
+| llama.cpp nomic-embed-text (cold) | 1,459ms | Cold start |
 
 ### Speedup disponible: **72x** con server mode (bge-m3, 1024 dims)
 

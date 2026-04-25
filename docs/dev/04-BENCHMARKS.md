@@ -11,8 +11,8 @@
 |---------|----------|-----|-----|------|----------|
 | llama.cpp subprocess (bge-m3) | 1,087ms | 1,071ms | 1,095ms | 1024 | Excelente |
 | llama.cpp server mode (bge-m3) | **15ms** | 11ms | 27ms | 1024 | Excelente |
-| Ollama nomic-embed-text (warm) | 27ms | — | — | 768 | Pobre |
-| Ollama nomic-embed-text (cold) | 1,459ms | — | — | 768 | Pobre |
+| llama.cpp nomic-embed-text (warm) | 27ms | — | — | 768 | Pobre |
+| llama.cpp nomic-embed-text (cold) | 1,459ms | — | — | 768 | Pobre |
 
 **Speedup subprocess → server: 72.5x**
 

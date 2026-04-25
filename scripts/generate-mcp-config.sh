@@ -32,7 +32,7 @@ cat > "$OUTPUT" << EOF
         "EMBEDDING_DIM": "${EMBEDDING_DIM:-1024}",
         "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-}",
         "LLAMA_SERVER_URL": "${LLAMA_SERVER_URL:-http://127.0.0.1:8081}",
-        "LLM_BACKEND": "${LLM_BACKEND:-ollama}",
+        "LLM_BACKEND": "${LLM_BACKEND:-llama_cpp}",
         "LLM_MODEL": "${LLM_MODEL:-qwen2.5:7b}",
         "SERVER_DIR": "${INSTALL_DIR}",
         "DATA_DIR": "${INSTALL_DIR}/data",

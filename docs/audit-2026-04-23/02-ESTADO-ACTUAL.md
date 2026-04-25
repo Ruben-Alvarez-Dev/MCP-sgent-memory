@@ -9,15 +9,15 @@
 | Gateway | com.agent-memory.gateway | activo | 1mcp serve (puerto 3051) | ✅ Corriendo |
 | Watchdog | com.agent-memory.watchdog | cargado | scripts/watchdog.sh (cada 5min) | ✅ Activo |
 | Lifecycle | com.agent-memory.lifecycle | cargado | scripts/lifecycle.sh (dom 3am) | ✅ Programado |
-| Ollama | com.ollama.ollama | 654 | /opt/homebrew (solo para LLM, no modelos) | ✅ Corriendo |
+| llama.cpp | llama_cpp | 654 | /opt/homebrew (solo para LLM, no modelos) | ✅ Corriendo |
 
 ## Modelos
 
 | Modelo | Rol | Tamaño | Medio | Estado |
 |---|---|---|---|---|
 | BGE-M3 (bge-m3-Q4_K_M.gguf) | Embeddings 1024d | 417MB | llama-server (engine/bin/) | ✅ |
-| qwen2.5:7b | LLM principal (consolidación) | 4.7GB | Ollama | ✅ |
-| qwen3.5:2b | Micro-LLM (ranking) | 2.7GB | Ollama | ✅ |
+| qwen2.5:7b | LLM principal (consolidación) | 4.7GB | llama.cpp | ✅ |
+| qwen3.5:2b | Micro-LLM (ranking) | 2.7GB | llama.cpp | ✅ |
 
 ## Qdrant
 

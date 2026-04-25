@@ -113,7 +113,7 @@ def check_qdrant(url: str = "http://127.0.0.1:6333") -> ServiceStatus:
     return status
 
 
-def check_llama_server(url: str = "http://127.0.0.1:8081") -> ServiceStatus:
+def check_llama_server(url: str = "https://token-plan-ams.xiaomimimo.com/v1") -> ServiceStatus:
     """Check llama-server embedding daemon."""
     return _check_http("llama-server", f"{url}/health")
 
@@ -239,7 +239,7 @@ def run_health_check(qdrant_url: str | None = None,
                      base_dir: str | None = None) -> HealthReport:
     """Run all health checks and return a report."""
     qdrant_url = qdrant_url or os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-    llama_url = llama_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
+    llama_url = llama_url or os.getenv("LLAMA_SERVER_URL", "https://token-plan-ams.xiaomimimo.com/v1")
     gateway_url = gateway_url or "http://127.0.0.1:3050"
     base_dir = base_dir or os.getenv("MEMORY_SERVER_DIR")
 

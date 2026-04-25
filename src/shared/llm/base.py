@@ -1,7 +1,7 @@
 """LLM Backend abstraction — provider-agnostic interface.
 
 All LLM-consuming code in the memory server uses ONLY this interface.
-The backend (llama.cpp, Ollama, LM Studio) is fully hidden.
+The backend (llama.cpp) is fully hidden.
 
 Usage:
     from shared.llm import get_llm

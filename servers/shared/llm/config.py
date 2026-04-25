@@ -10,12 +10,9 @@ Usage:
     intent = classify_intent(query)    # clasificador determinista (<5ms)
 
 Environment variables:
-    LLM_BACKEND   — Backend type: llama_cpp | ollama | lmstudio (default: llama_cpp)
+    LLM_BACKEND   — Backend type: llama_cpp (default: llama_cpp)
     LLM_MODEL     — Model name/identifier (backend-specific meaning)
     SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
-    OLLAMA_URL    — Ollama endpoint (default: http://localhost:11434)
-    OLLAMA_MODEL  — Ollama model name (default: qwen2.5:7b)
-    LMSTUDIO_URL  — LM Studio endpoint (default: http://localhost:1234)
     LLAMA_SERVER_PORT — llama.cpp server port (default: 8080)
     LLAMA_MODEL   — llama.cpp model filename
 """
@@ -167,26 +164,22 @@ def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
 
     Args:
-        backend: Force a specific backend ("llama_cpp", "ollama", "lmstudio").
+        backend: Force a specific backend ("llama_cpp").
                  If None, auto-detects from LLM_BACKEND env var.
         **kwargs: Additional arguments passed to the backend constructor.
 
     Returns:
         An initialized LLMBackend instance.
     """
-    backend_name = backend or os.getenv("LLM_BACKEND", "ollama")
+    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
     backend_name = backend_name.lower().strip()
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
-    elif backend_name == "ollama":
-        return _get_ollama(**kwargs)
-    elif backend_name == "lmstudio":
-        return _get_lmstudio(**kwargs)
     else:
         raise ValueError(
             f"Unknown LLM backend: {backend_name!r}. "
-            f"Available: llama_cpp, ollama, lmstudio"
+            f"Only supported: llama_cpp"
         )
 
 
@@ -202,7 +195,7 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     Returns:
         An initialized LLMBackend instance for lightweight tasks.
     """
-    backend_name = backend or os.getenv("LLM_BACKEND", "ollama")
+    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
     backend_name = backend_name.lower().strip()
 
     # Default micro-LLM model
@@ -212,14 +205,10 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
-    elif backend_name == "ollama":
-        return _get_ollama(**kwargs)
-    elif backend_name == "lmstudio":
-        return _get_lmstudio(**kwargs)
     else:
         raise ValueError(
             f"Unknown LLM backend: {backend_name!r}. "
-            f"Available: llama_cpp, ollama, lmstudio"
+            f"Only supported: llama_cpp"
         )
 
 
@@ -246,20 +235,6 @@ def _get_llama_cpp(**kwargs) -> LLMBackend:
     return backend
 
 
-def _get_ollama(**kwargs) -> LLMBackend:
-    """Create Ollama backend."""
-    from .ollama import OllamaBackend
-
-    return OllamaBackend(**kwargs)
-
-
-def _get_lmstudio(**kwargs) -> LLMBackend:
-    """Create LM Studio backend."""
-    from .lmstudio import LMStudioBackend
-
-    return LMStudioBackend(**kwargs)
-
-
 def list_available_backends() -> dict[str, bool]:
     """Check which backends are available.
 
@@ -270,21 +245,9 @@ def list_available_backends() -> dict[str, bool]:
 
     try:
         llama = _get_llama_cpp()
-        results["llama_cpp"] = llama.is_available()
+         results["llama_cpp"] = llama.is_available()
     except Exception:
         results["llama_cpp"] = False
-
-    try:
-        ollama = _get_ollama()
-        results["ollama"] = ollama.is_available()
-    except Exception:
-        results["ollama"] = False
-
-    try:
-        lmstudio = _get_lmstudio()
-        results["lmstudio"] = lmstudio.is_available()
-    except Exception:
-        results["lmstudio"] = False
 
     return results
 

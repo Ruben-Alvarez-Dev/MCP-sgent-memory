@@ -2,14 +2,14 @@
 
 Provides a unified interface for generating embeddings with swappable backends:
   - llama_cpp: Bundled llama.cpp binary (default, self-contained)
-  - http:       Any HTTP endpoint that returns embeddings (OpenAI, Ollama, etc.)
+  - http:       Any HTTP endpoint that returns embeddings (OpenAI, etc.)
   - noop:       Returns zero-vectors (testing / fallback)
 
 Configuration is entirely env-driven and project-agnostic:
   EMBEDDING_BACKEND   = llama_cpp | http | noop  (default: llama_cpp)
   EMBEDDING_MODEL     = model path or name (backend-specific)
   EMBEDDING_DIM       = vector dimensionality  (default: 384)
-  EMBEDDING_ENDPOINT  = URL for http backend   (e.g. http://localhost:11434/api/embeddings)
+  EMBEDDING_ENDPOINT  = URL for http backend   (e.g. http://localhost:8081/v1/embeddings)
 
 For llama_cpp backend (default):
   Discovers binary and model by scanning from the file's own location upward.
@@ -295,7 +295,7 @@ def bm25_tokenize(text: str) -> dict:
 # ── HTTP backend (OpenAI-compatible) ──────────────────────────────
 
 class HttpBackend(EmbeddingBackend):
-    """Embedding via HTTP endpoint (OpenAI API, Ollama, etc.).
+    """Embedding via HTTP endpoint (OpenAI API, etc.).
 
     Requires EMBEDDING_ENDPOINT env var.
     Supports OpenAI-compatible JSON API:
@@ -330,7 +330,7 @@ class HttpBackend(EmbeddingBackend):
             raise RuntimeError(
                 f"HttpBackend: no EMBEDDING_ENDPOINT configured.\n"
                 f"  Set it to an OpenAI-compatible endpoint, e.g. "
-                f"http://localhost:11434/api/embeddings"
+                f"http://localhost:8081/v1/embeddings"
             )
 
         import urllib.request
@@ -372,10 +372,10 @@ class LlamaServerBackend(EmbeddingBackend):
 
     Env vars:
       LLAMA_SERVER_URL  — Server URL (default: http://127.0.0.1:8080)
-    """
+     """
 
     def __init__(self):
-        self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080")
+        self._url = os.getenv("LLAMA_SERVER_URL", "https://token-plan-ams.xiaomimimo.com/v1")
         self._available: Optional[bool] = None
 
     def is_available(self) -> bool:

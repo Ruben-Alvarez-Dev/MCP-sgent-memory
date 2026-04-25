@@ -340,7 +340,7 @@ print(f'Resultado: {result}')
 "
 ```
 
-**Si falla:** Verificar Ollama corriendo y modelo qwen2.5:7b disponible.
+**Si falla:** Verificar llama.cpp corriendo y modelo qwen2.5:7b disponible.
 
 ### TASK-3.2: Ajustar umbrales para testing
 

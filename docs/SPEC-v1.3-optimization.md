@@ -18,7 +18,7 @@ Reducir latencias p95, mejorar calidad de búsqueda semántica, estabilidad del 
 | mem0 search | 18ms | 41ms | Embed+Qdrant |
 | automem memorize | 46ms | 178ms | Embed+Write |
 | content 5K | 155ms | 200ms | Tokenization |
-| dream cycle | 11.5s | 15s | Ollama LLM |
+| dream cycle | 11.5s | 15s | llama.cpp LLM |
 | embedding quality gap | +0.03 | — | Relevant vs irrelevant |
 | concurrent speedup | 2.77x | — | 5 tools parallel |
 
@@ -79,7 +79,7 @@ Reducir latencias p95, mejorar calidad de búsqueda semántica, estabilidad del 
 
 ### OPT-03: Dream async (non-blocking)
 
-**Problema**: `autodream_dream()` bloquea 11.5s llamando a Ollama sincrónicamente. El cliente MCP (Pi extension) timeout a 15s.
+**Problema**: `autodream_dream()` bloquea 11.5s llamando a llama.cpp sincrónicamente. El cliente MCP (Pi extension) timeout a 15s.
 
 **Solución**: Dream se ejecuta en background. La tool devuelve inmediatamente con `{status: "dream_scheduled", task_id: "..."}`. Nueva tool `autodream_dream_status(task_id)` para consultar resultado.
 
@@ -91,7 +91,7 @@ Reducir latencias p95, mejorar calidad de búsqueda semántica, estabilidad del 
 - [ ] `autodream_dream()` responde en <50ms siempre
 - [ ] `autodream_dream_status(task_id)` devuelve progreso/resultado
 - [ ] Dream real se ejecuta en background correctamente
-- [ ] Si Ollama cae, dream falla gracefully (no crash)
+- [ ] Si llama.cpp cae, dream falla gracefully (no crash)
 - [ ] Timeout del 30s en Pi extension nunca se dispara
 
 ---

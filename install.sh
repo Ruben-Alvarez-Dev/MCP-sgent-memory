@@ -273,19 +273,17 @@ else
 fi
 echo ""
 
-# ── Step 5: Ollama ──────────────────────────────────────────────
-echo -e "${BOLD}[5/8] Ollama (LLM backend)${NC}"
+# ── Step 5: LLM Backend ──────────────────────────────────────────
+echo -e "${BOLD}[5/8] LLM Backend (llama.cpp server)${NC}"
 echo "────────────────────────────────────────────────────────────"
 
-if curl -s --max-time 3 http://localhost:11434/api/tags 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('models') else 1)" 2>/dev/null; then
-    MODEL_COUNT=$(curl -s http://localhost:11434/api/tags 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('models',[])))")
-    pass "Ollama running ($MODEL_COUNT models)"
-elif command -v ollama &>/dev/null; then
-    warn "Ollama installed but not running. Start with: ollama serve"
-    WARNINGS=$((WARNINGS+1))
+if curl -s --max-time 3 http://localhost:8081/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
+    pass "llama.cpp server running on :8081"
+elif curl -s --max-time 3 http://localhost:8080/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
+    pass "llama.cpp server running on :8080"
 else
-    warn "Ollama not found. Install from https://ollama.ai"
-    info "Then run: ollama pull qwen2.5:7b"
+    warn "llama.cpp server not detected on :8080 or :8081"
+    info "Compile llama.cpp and start: llama-server -m model.gguf --port 8081"
     WARNINGS=$((WARNINGS+1))
 fi
 echo ""
@@ -301,7 +299,7 @@ EMBEDDING_BACKEND=llama_server
 LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
-LLM_BACKEND=ollama
+LLM_BACKEND=llama_cpp
 LLM_MODEL=qwen2.5:7b
 MEMORY_SERVER_DIR=$SCRIPT_DIR
 VAULT_PATH=$SCRIPT_DIR/data/vault

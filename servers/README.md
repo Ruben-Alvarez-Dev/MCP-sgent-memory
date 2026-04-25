@@ -19,7 +19,7 @@ servers/
 │   ├── embedding.py       ← Embedding backends (llama_server, llama_cpp, noop)
 │   ├── env_loader.py      ← Environment configuration
 │   ├── models/            ← Pydantic data models
-│   ├── llm/               ← LLM backends (ollama, lmstudio, llama_cpp)
+│   ├── llm/               ← LLM backends (llama_cpp)
 │   ├── retrieval/         ← Code maps, repo indexing
 │   ├── compliance/        ← Policy enforcement
 │   ├── vault_manager/     ← Obsidian vault operations

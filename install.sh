@@ -277,14 +277,42 @@ echo ""
 echo -e "${BOLD}[5/8] LLM Backend (llama.cpp server)${NC}"
 echo "────────────────────────────────────────────────────────────"
 
-if curl -s --max-time 3 http://localhost:8081/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
-    pass "llama.cpp server running on :8081"
-elif curl -s --max-time 3 http://localhost:8080/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
-    pass "llama.cpp server running on :8080"
+LLM_MODEL_FILE="$SCRIPT_DIR/models/qwen2.5-7b-instruct-Q4_K_M.gguf"
+LLM_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf"
+LLM_PORT=8080
+
+if curl -s --max-time 3 http://localhost:8080/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
+    pass "LLM server running on :8080"
+elif curl -s --max-time 3 http://localhost:8081/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
+    pass "LLM server running on :8081"
+    LLM_PORT=8081
+elif [ -f "$LLM_MODEL_FILE" ]; then
+    pass "LLM model found ($LLM_MODEL_FILE)"
 else
-    warn "llama.cpp server not detected on :8080 or :8081"
-    info "Compile llama.cpp and start: llama-server -m model.gguf --port 8081"
-    WARNINGS=$((WARNINGS+1))
+    info "Downloading qwen2.5:7b-instruct Q4_K_M (~4.4GB)..."
+    if curl -L --progress-bar -o "$LLM_MODEL_FILE" "$LLM_MODEL_URL" 2>&1; then
+        pass "LLM model downloaded ($(du -h "$LLM_MODEL_FILE" | awk '{print $1}'))"
+    else
+        rm -f "$LLM_MODEL_FILE"
+        fail "LLM model download failed"
+    fi
+fi
+
+# Start LLM server if model exists but server not running
+if [ -f "$LLM_MODEL_FILE" ] && ! curl -s --max-time 2 http://localhost:$LLM_PORT/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
+    LLAMA_BIN="$SCRIPT_DIR/engine/bin/llama-server"
+    if [ -x "$LLAMA_BIN" ]; then
+        info "Starting LLM server on :$LLM_PORT..."
+        nohup "$LLAMA_BIN" -m "$LLM_MODEL_FILE" --port $LLM_PORT --host 127.0.0.1 -ngl 99 --log-disable >> "$SCRIPT_DIR/llm.log" 2>&1 &
+        if curl -s --max-time 10 http://localhost:$LLM_PORT/health 2>/dev/null | grep -q "ok"; then
+            pass "LLM server started (PID $(pgrep -f "llama-server.*$LLM_PORT" | head -1))"
+        else
+            warn "LLM server started but not responding yet (check llm.log)"
+        fi
+    else
+        warn "llama-server binary not found in engine/bin/"
+        info "Compile llama.cpp or install: brew install llama.cpp"
+    fi
 fi
 echo ""
 
@@ -300,7 +328,7 @@ LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
 LLM_BACKEND=llama_cpp
-LLM_MODEL=qwen2.5:7b
+LLM_MODEL=qwen2.5-7b-instruct-Q4_K_M.gguf
 MEMORY_SERVER_DIR=$SCRIPT_DIR
 VAULT_PATH=$SCRIPT_DIR/data/vault
 ENGRAM_PATH=$SCRIPT_DIR/data/memory/engram

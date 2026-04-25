@@ -213,26 +213,32 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
 
 
 def _get_llama_cpp(**kwargs) -> LLMBackend:
-    """Create llama.cpp backend."""
+    """Create llama.cpp backend.
+    
+    If a local .gguf model is found, manages its own llama-server subprocess.
+    If not, connects to an already-running external llama-server.
+    """
     from .llama_cpp import LlamaCppBackend
 
     backend = LlamaCppBackend(**kwargs)
 
-    if not backend._server_bin:
-        raise RuntimeError(
-            "llama-server binary not found.\n"
-            f"  Searched in: {backend._project_root()}/engine/bin/\n"
-            "  Place llama-server in engine/bin/ or install it in PATH."
-        )
+    # Case 1: Local .gguf found — use bundled binary
+    if backend._server_bin and backend._model_path and backend._model_path.exists():
+        return backend
 
-    if not backend._model_path or not backend._model_path.exists():
-        raise RuntimeError(
-            f"Model not found for llama.cpp.\n"
-            f"  Searched in: {backend._models_dir()}/\n"
-            "  Place a .gguf model file in models/ or set LLAMA_MODEL env var."
-        )
+    # Case 2: No local model — check if external server is already running
+    if backend.is_available():
+        return backend
 
-    return backend
+    # Case 3: Nothing available
+    raise RuntimeError(
+        "No LLM available.\n"
+        "  Either:\n"
+        "    1. Place a .gguf model in models/ and llama-server in engine/bin/\n"
+        "    2. Start an external llama-server on port 8080 (or set LLAMA_SERVER_PORT)\n"
+        f"  Searched models in: {backend._models_dir()}/\n"
+        f"  Server bin: {backend._server_bin or 'not found'}"
+    )
 
 
 def list_available_backends() -> dict[str, bool]:

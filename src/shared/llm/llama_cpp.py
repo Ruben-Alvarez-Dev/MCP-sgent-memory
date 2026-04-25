@@ -109,8 +109,8 @@ class LlamaCppBackend(LLMBackend):
         return self._project_root() / "models"
 
     def _project_root(self) -> Path:
-        """Find project root (parent of shared/)."""
-        return Path(__file__).resolve().parent.parent.parent
+        """Find project root (parent of src/)."""
+        return Path(__file__).resolve().parent.parent.parent.parent
 
     def _find_model(self) -> Path | None:
         """Auto-detect a suitable model file."""

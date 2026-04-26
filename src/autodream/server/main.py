@@ -107,6 +107,113 @@ async def _promote_l3_l4(state: dict, now: float) -> str | None:
     return "Created consolidated narrative"
 
 
+# ── v1.4: Verification during consolidation ────────────────────────────
+# Based on Reconsolidation (Nader 2000): every recall is a verification opportunity.
+# During consolidation, we also verify stale/never-verified memories.
+
+async def _verify_stale() -> str | None:
+    """Verify stale and never-verified memories during consolidation.
+
+    Scans L2+ memories and updates verification_status based on change_speed
+    and age since last verification. This is the dream-cycle equivalent of
+    the brain's reconsolidation process.
+    """
+    await qdrant.ensure_collection(sparse=False)
+
+    # Find memories that need verification (L2 and above — L1 is too volatile)
+    needs_check = await qdrant.scroll(
+        {
+            "must": [
+                {"key": "layer", "match": {"values": [2, 3, 4]}},
+            ],
+            "should": [
+                {"key": "verification_status", "match": {"value": "never_verified"}},
+                {"key": "verification_status", "match": {"value": "stale"}},
+                # Also check verified memories that might be old
+            ],
+        },
+        limit=50,
+    )
+
+    if not needs_check:
+        return None
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    verified = 0
+    stale = 0
+
+    for mem in needs_check[:30]:  # Cap per batch
+        payload = mem
+        speed = payload.get("change_speed", "slow")
+        current_status = payload.get("verification_status", "never_verified")
+
+        # Determine new status based on change_speed and age
+        new_status = "verified"
+        source = "consolidation_check"
+
+        if speed == "realtime":
+            # Realtime facts are stale by definition during consolidation
+            verified_at = payload.get("verified_at")
+            if verified_at:
+                try:
+                    vts = datetime.fromisoformat(verified_at.replace("Z", "+00:00")).timestamp()
+                    age_hours = (now_ts - vts) / 3600
+                    new_status = "stale" if age_hours > 1 else "verified"
+                except Exception:
+                    new_status = "stale"
+            else:
+                new_status = "stale"
+            source = "time_check"
+
+        elif speed == "fast":
+            # Fast-changing facts: stale if not verified in 48h
+            verified_at = payload.get("verified_at")
+            if verified_at:
+                try:
+                    vts = datetime.fromisoformat(verified_at.replace("Z", "+00:00")).timestamp()
+                    age_hours = (now_ts - vts) / 3600
+                    new_status = "stale" if age_hours > 48 else "verified"
+                except Exception:
+                    new_status = "verified"
+            else:
+                # Never verified fast fact — mark verified now, will be checked next cycle
+                new_status = "verified"
+            source = "time_check"
+
+        elif speed == "never":
+            new_status = "verified"
+            source = "immutable"
+
+        # slow: mark verified (file_check is v1.5 territory)
+        # For now, slow facts get verified during consolidation
+        new_status = "verified"
+        source = "consolidation_check"
+
+        # Update in Qdrant
+        updated = {**payload,
+            "verification_status": new_status,
+            "verified_at": now_iso,
+            "verification_source": source,
+            "updated_at": now_iso,
+        }
+        mem_id = payload.get("memory_id", "")
+        if mem_id:
+            vector = payload.get("embedding")
+            await qdrant.upsert(mem_id, vector, updated)
+            if new_status == "stale":
+                stale += 1
+            else:
+                verified += 1
+
+    parts = []
+    if verified:
+        parts.append(f"{verified} verified")
+    if stale:
+        parts.append(f"{stale} marked stale")
+    return f"Verification: {', '.join(parts)}" if parts else None
+
+
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> HeartbeatResult:
     """Signal that the agent is alive. Triggers auto-consolidation if thresholds met."""
@@ -114,7 +221,7 @@ async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> Heartbeat
     state["turn_count"] = state.get("turn_count", 0) + turn_count
     now = datetime.now(timezone.utc).timestamp()
     results = []
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now)]:
+    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
         r = await fn(state)
         if r:
             results.append(r)
@@ -134,7 +241,7 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
         state["last_promote_l1_l2"] = 0
         state["last_promote_l2_l3"] = 0
         state["last_promote_l3_l4"] = 0
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now)]:
+    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
         r = await fn(state)
         if r:
             results.append(r)

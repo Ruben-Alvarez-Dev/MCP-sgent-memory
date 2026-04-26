@@ -124,6 +124,19 @@ class MemoryItem(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    # ── v1.4: Continuous Knowledge Verification ──────────────────────
+    verified_at: Optional[str] = None  # ISO timestamp of last verification
+    verification_status: str = Field(
+        default="never_verified",
+        description="verified | stale | never_verified | unverifiable",
+    )
+    change_speed: str = Field(
+        default="slow",
+        description="How fast this fact changes: never | slow | fast | realtime",
+    )
+    verification_source: Optional[str] = None  # file_check | api_call | manual | llm_judge
+    access_count: int = Field(default=0, description="Times injected into context")
+
     @property
     def full_scope(self) -> str:
         if self.scope_type == MemoryScope.GLOBAL_CORE:

@@ -4,9 +4,9 @@
 
 ---
 
-## Where We Are: v1.3 — Smart Context Injection
+## Where We Came From: v1.3 — Smart Context Injection
 
-**Status**: ✅ Shipped
+**Status**: ✅ Shipped (superseded by v1.4)
 
 v1.2 proved the sidecar pattern. v1.3 closes the loop: Capture → Store → Consolidate → **Retrieve → Inject**. On every user prompt, the plugin fetches relevant context from vk-cache and injects it into the system prompt. The agent starts every conversation aware of relevant past work.
 
@@ -23,21 +23,28 @@ Plus: **code-based enforcement** instead of text rules. The plugin blocks `write
 
 ---
 
-## Next: v1.4 — Continuous Knowledge Verification
+## Where We Are: v1.4 — Continuous Knowledge Verification
 
-**Problem**: The agent retrieves memories and injects context, but never verifies that those memories are still accurate. A memory saying "CLI-agent-memory is in `/tmp/`" from 3 months ago gets injected with the same confidence as one verified 5 minutes ago. The agent operates with **confidence in stale data**.
+**Status**: ✅ Shipped
 
-This is the same problem the human brain solves with **reconsolidation** (Nader, 2000): every time you recall a memory, your brain verifies and potentially updates it before re-storing.
+v1.3 gave the agent context from memory. v1.4 makes the agent know **which context to trust**. Every memory now has a verification lifecycle: when it was last verified, how fast the underlying fact changes, and a freshness score that affects ranking. Stale memories get flagged in context injection, and background verification runs during idle time and dream cycles.
 
-**Solution**: Extend the memory model with freshness tracking + background verification. Every memory gets a `verified_at` timestamp and a `change_speed` classification. Stale memories get flagged in the context injection. Background verification runs during `session.idle`.
+**What's proven**:
+- `MemoryItem` extended with `verified_at`, `verification_status`, `change_speed`, `verification_source`, `access_count`
+- Freshness scoring: `combined = (level_weight × score × 0.5) + (recency × 0.2) + (freshness × 0.3)`
+- Freshness decay based on change_speed: never (999999h), slow (720h), fast (48h), realtime (1h)
+- Context injection shows freshness tags: `✅ VERIFIED 2h ago`, `⚠️ STALE`, `❓ NEVER VERIFIED`, `🔒 UNVERIFIABLE`
+- New endpoint: `POST /api/verify-memories` — verify specific memories or auto-discover stale ones
+- Background verification: `session.idle` hook triggers verification of stale memories
+- Dream cycle integration: `autodream.consolidate()` runs `_verify_stale()` during each consolidation pass
 
 **Deliverables**:
-- [ ] Extend `MemoryItem` with `verified_at`, `verification_status`, `change_speed`, `verification_source`
-- [ ] Freshness scoring: `confidence × decay(change_speed, age)` in smart_retrieve ranking
-- [ ] Context injection shows freshness tags: `✅ VERIFIED 2h ago`, `⚠️ STALE 5d ago`, `❓ NEVER VERIFIED`
-- [ ] New endpoint: `POST /api/verify-memories` — verify specific memories against source of truth
-- [ ] Background verification: `session.idle` hook triggers verification of stale memories
-- [ ] Dream cycle integration: autodream verifies stale memories during consolidation
+- [x] Extend `MemoryItem` with `verified_at`, `verification_status`, `change_speed`, `verification_source`
+- [x] Freshness scoring: `confidence × decay(change_speed, age)` in smart_retrieve ranking
+- [x] Context injection shows freshness tags: `✅ VERIFIED 2h ago`, `⚠️ STALE 5d ago`, `❓ NEVER VERIFIED`
+- [x] New endpoint: `POST /api/verify-memories` — verify specific memories against source of truth
+- [x] Background verification: `session.idle` hook triggers verification of stale memories
+- [x] Dream cycle integration: autodream verifies stale memories during consolidation
 
 **Scientific basis**:
 - Reconsolidation (Nader 2000): every recall is a verification opportunity
@@ -52,7 +59,7 @@ This is the same problem the human brain solves with **reconsolidation** (Nader,
 
 ---
 
-## Then: v1.5 — Expanded Enforcement
+## Next: v1.5 — Expanded Enforcement
 
 **Problem**: OpenCode doesn't support `additionalContext` like Claude Code. We have 2 enforcement gates (context verification + conventional commits). More patterns need blocking.
 

@@ -314,7 +314,15 @@ def _rank_and_fuse(
         level_weight = profile.level_weights.get(level_num, 0.5)
         for item in items:
             recency = _recency_score(item.timestamp, intent.time_window)
-            item.combined_score = (level_weight * item.score * 0.7) + (recency * 0.3)
+            freshness = _freshness_score(item)
+            # v1.4: freshness joins the ranking (30% weight)
+            # Before: combined = (level_weight * score * 0.7) + (recency * 0.3)
+            # After:  combined = (level_weight * score * 0.5) + (recency * 0.2) + (freshness * 0.3)
+            item.combined_score = (
+                (level_weight * item.score * 0.5)
+                + (recency * 0.2)
+                + (freshness * 0.3)
+            )
             all_items.append(item)
     all_items.sort(key=lambda x: x.combined_score, reverse=True)
 
@@ -340,6 +348,72 @@ def _recency_score(timestamp: datetime | None, time_window: str) -> float:
     now = datetime.now(timezone.utc) if timestamp.tzinfo else datetime.now()
     age_hours = (now - timestamp).total_seconds() / 3600
     return max(0, 1.0 - age_hours / 720.0)
+
+
+# ── v1.4: Freshness Scoring ──────────────────────────────────────────
+# Based on FreshQA (Vu 2023): classify facts by change_speed, decay accordingly.
+# Based on Reconsolidation (Nader 2000): every recall is a verification opportunity.
+
+CHANGE_SPEED_HALF_LIFE: dict[str, float] = {
+    "never": 999_999.0,    # immutable facts — effectively never decay
+    "slow": 720.0,         # architecture, stack — half-life ~30 days
+    "fast": 48.0,          # bugs, task progress — half-life ~2 days
+    "realtime": 1.0,       # git status, open files — half-life ~1 hour
+}
+
+
+def _freshness_score(item: ContextItem) -> float:
+    """Score how fresh/verified a memory is. Range: [0.0, 1.0].
+
+    - verified recently → 0.8–1.0 (trustworthy)
+    - never verified     → 0.3     (suspicious)
+    - stale              → 0.15    (dangerous)
+    - unverifiable       → 0.5     (neutral — can't check, don't penalize)
+    """
+    status = item.metadata.get("verification_status", "never_verified")
+    if status == "unverifiable":
+        return 0.5
+    if status == "stale":
+        return 0.15
+    if status == "verified":
+        verified_at_str = item.metadata.get("verified_at")
+        if not verified_at_str:
+            return 0.7  # verified but no timestamp — trust moderately
+        verified_ts = _parse_ts(verified_at_str)
+        if not verified_ts:
+            return 0.7
+        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
+        speed = item.metadata.get("change_speed", "slow")
+        half_life = CHANGE_SPEED_HALF_LIFE.get(speed, 720.0)
+        # Exponential decay: score = 0.5 * (1 - age/half_life), floored at 0.3
+        return max(0.3, 0.5 * (1.0 - age_hours / half_life) + 0.5)
+    # never_verified
+    return 0.3
+
+
+def _freshness_tag(item: ContextItem) -> str:
+    """Human-readable freshness indicator for context injection."""
+    status = item.metadata.get("verification_status", "never_verified")
+    if status == "unverifiable":
+        return "🔒 UNVERIFIABLE"
+    if status == "stale":
+        return "⚠️ STALE"
+    if status == "verified":
+        verified_at_str = item.metadata.get("verified_at")
+        if not verified_at_str:
+            return "✅ VERIFIED"
+        verified_ts = _parse_ts(verified_at_str)
+        if not verified_ts:
+            return "✅ VERIFIED"
+        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
+        if age_hours < 1:
+            return "✅ VERIFIED just now"
+        if age_hours < 24:
+            return f"✅ VERIFIED {int(age_hours)}h ago"
+        return f"✅ VERIFIED {int(age_hours / 24)}d ago"
+    return "❓ NEVER VERIFIED"
 
 
 def _pack_context(
@@ -368,15 +442,18 @@ def _pack_context(
         tokens = len(content) // 4
         if total_tokens + tokens > profile.token_budget:
             return False
-        sections.append(
-            {
-                "level": item.source_level,
-                "source": item.source_name,
-                "content": content,
-                "confidence": round(item.combined_score, 2),
-                "type": item.metadata.get("type", "unknown"),
-            }
-        )
+        section = {
+            "level": item.source_level,
+            "source": item.source_name,
+            "content": content,
+            "confidence": round(item.combined_score, 2),
+            "type": item.metadata.get("type", "unknown"),
+        }
+        # v1.4: add freshness tag if verification data exists
+        freshness = _freshness_tag(item)
+        if freshness != "❓ NEVER VERIFIED" or item.metadata.get("verification_status"):
+            section["freshness"] = freshness
+        sections.append(section)
         total_tokens += tokens
         sources_used.add(item.source_name)
         return True
@@ -409,4 +486,13 @@ def _parse_ts(ts_str: Any) -> datetime | None:
         return None
 
 
-__all__ = ["ContextItem", "ContextPack", "PROFILES", "RetrievalProfile", "retrieve"]
+__all__ = [
+    "ContextItem",
+    "ContextPack",
+    "PROFILES",
+    "RetrievalProfile",
+    "retrieve",
+    "CHANGE_SPEED_HALF_LIFE",
+    "_freshness_score",
+    "_freshness_tag",
+]

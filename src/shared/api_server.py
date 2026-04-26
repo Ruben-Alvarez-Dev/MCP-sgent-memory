@@ -159,12 +159,18 @@ async def _verify_memories(body: dict) -> dict:
                     "updated_at": now_iso,
                 }
 
-                resp = await client.put(
-                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points",
+                # Use set_payload to update only the changed fields (no need to re-send vector)
+                resp = await client.post(
+                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/payload",
                     json={
-                        "points": [
-                            {"id": mid, "vector": payload.get("embedding", []), "payload": updated_payload}
-                        ]
+                        "points": [mid],
+                        "payload": {
+                            "verification_status": new_status,
+                            "verified_at": now_iso,
+                            "verification_source": verification_source,
+                            "access_count": current_access + 1,
+                            "updated_at": now_iso,
+                        },
                     },
                     timeout=3.0,
                 )

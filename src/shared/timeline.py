@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,6 @@ class SQLiteTimeline(TimelineBackend):
                 conn.close()
 
     def search(self, query: str, limit: int = 20) -> list[dict]:
-        import re
         cleaned = re.sub(r'[^\w\s]', ' ', query)
         words = [w for w in cleaned.split() if len(w) >= 2]
         if not words:
@@ -205,12 +204,14 @@ class HybridTimeline(TimelineBackend):
         self._qdrant_url = qdrant_url
         self._embedding_dim = embedding_dim
         self._collection = "timeline"
+        self._qdrant_client = None
 
     async def _get_qdrant(self):
-        from shared.qdrant_client import QdrantClient
-        client = QdrantClient(self._qdrant_url, self._collection, self._embedding_dim)
-        await client.ensure_collection(sparse=False)
-        return client
+        if self._qdrant_client is None:
+            from shared.qdrant_client import QdrantClient
+            self._qdrant_client = QdrantClient(self._qdrant_url, self._collection, self._embedding_dim)
+            await self._qdrant_client.ensure_collection(sparse=False)
+        return self._qdrant_client
 
     async def _embed(self, text: str) -> list[float]:
         from shared.embedding import safe_embed
@@ -330,8 +331,8 @@ class JSONLTimeline(TimelineBackend):
                     if line:
                         try:
                             events.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning("JSONL parse error (skipped line): %s", e)
             return events
 
 

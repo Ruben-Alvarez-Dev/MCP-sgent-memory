@@ -11,14 +11,13 @@ Schema:
 """
 from __future__ import annotations
 
-import json
 import os
+import re
 import sqlite3
 import threading
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -102,12 +101,6 @@ def _init_db(db_path: str) -> None:
             INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
         END;
     """)
-    # Migration: add agent_scope column if missing (existing DBs)
-    try:
-        conn.execute("SELECT agent_scope FROM threads LIMIT 1")
-    except sqlite3.OperationalError:
-        conn.execute("ALTER TABLE threads ADD COLUMN agent_scope TEXT DEFAULT 'shared'")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_scope ON threads(agent_scope)")
     conn.commit()
     conn.close()
 
@@ -249,7 +242,6 @@ def _fts_escape(query: str) -> str:
     We convert to OR for broader recall: "sqlite fts5" → "sqlite OR fts5".
     Special chars are stripped to avoid FTS5 syntax errors.
     """
-    import re
     # Strip FTS5 special operators
     cleaned = re.sub(r'[^\w\s]', ' ', query)
     words = [w for w in cleaned.split() if len(w) >= 2]

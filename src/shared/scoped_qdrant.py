@@ -130,24 +130,26 @@ class ScopedQdrantClient:
                 own_client = self._get_client(agent_scope)
                 own_results = await own_client.scroll(limit=limit)
                 results.extend(own_results)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Scroll in %s collection failed: %s", agent_scope, e)
 
         # 2. Shared collection
         try:
             shared_client = self._get_client("shared")
             shared_results = await shared_client.scroll(limit=limit)
             results.extend(shared_results)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Scroll in shared collection failed: %s", e)
 
         return results[:limit]
 
     async def health(self) -> bool:
         """Check if Qdrant is reachable."""
         try:
-            client = QdrantClient(self.url, "dummy", self.embedding_dim)
-            return await client.health()
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self.url}/healthz")
+                return resp.status_code == 200
         except Exception:
             return False
 

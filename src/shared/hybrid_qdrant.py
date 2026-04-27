@@ -102,10 +102,10 @@ class HybridQdrantClient:
     ) -> None:
         """Upsert a point into the level's collection with agent_scope in payload."""
         suffix = self._get_collection_suffix(agent_scope)
-        # Add agent_scope to payload for filtering
-        payload["agent_scope"] = agent_scope
+        # Copy payload to avoid mutating caller's dict
+        enriched = {**payload, "agent_scope": agent_scope}
         client = self._get_client(suffix)
-        await client.upsert(point_id, vector, payload, sparse=sparse)
+        await client.upsert(point_id, vector, enriched, sparse=sparse)
 
     async def search(
         self,
@@ -182,24 +182,26 @@ class HybridQdrantClient:
                     if r.get("agent_scope") in (full_scope, "shared")
                 ]
                 results.extend(filtered)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Scroll in %s collection failed: %s", level, e)
 
         # 2. Shared collection
         try:
             shared_client = self._get_client("shared")
             shared_results = await shared_client.scroll(limit=limit)
             results.extend(shared_results)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Scroll in shared collection failed: %s", e)
 
         return results[:limit]
 
     async def health(self) -> bool:
         """Check if Qdrant is reachable."""
         try:
-            client = QdrantClient(self.url, "dummy", self.embedding_dim)
-            return await client.health()
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self.url}/healthz")
+                return resp.status_code == 200
         except Exception:
             return False
 

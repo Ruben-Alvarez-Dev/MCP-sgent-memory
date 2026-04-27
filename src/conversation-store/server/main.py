@@ -12,11 +12,9 @@ Multi-agent isolation:
     Search: scope own + shared
 """
 from __future__ import annotations
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()

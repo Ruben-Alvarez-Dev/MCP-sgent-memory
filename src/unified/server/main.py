@@ -1,7 +1,7 @@
 """Unified MCP Memory Server — Single entry point for all memory services.
 
-Consolidates automem, autodream, vk-cache, conversation-store, mem0, engram,
-and sequential-thinking into ONE MCP server with prefixed tool names.
+Consolidates L0-capture, L0-to-L4-consolidation, L5-routing, L2-conversations, L3-facts, L3-decisions,
+and Lx-reasoning into ONE MCP server with prefixed tool names.
 
 Uses public API only — no private _tool_manager access.
 Each module's register_tools() function handles tool registration.
@@ -25,7 +25,7 @@ from shared.config import Config
 from shared.qdrant_client import QdrantClient
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("MCP-agent-memory")
+mcp = FastMCP("agent-memory")
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
 _initialized = False
@@ -36,13 +36,13 @@ _loaded = []
 _failed = []
 
 _MODULES = [
-    ("automem",             "automem/"),
-    ("autodream",           "autodream/"),
-    ("vk_cache",            "vk-cache/"),
-    ("conversation_store",  "conversation-store/"),
-    ("mem0",                "mem0/"),
-    ("engram",              "engram/"),
-    ("sequential_thinking", "sequential-thinking/"),
+    ("L0_capture",                  "L0_capture/"),
+    ("L0_to_L4_consolidation",      "L0_to_L4_consolidation/"),
+    ("L5_routing",                  "L5_routing/"),
+    ("L2_conversations",            "L2_conversations/"),
+    ("L3_facts",                    "L3_facts/"),
+    ("L3_decisions",                "L3_decisions/"),
+    ("Lx_reasoning",                "Lx_reasoning/"),
 ]
 
 for import_name, dir_name, prefix in [(n, d, f"{n}_") for n, d in _MODULES]:
@@ -108,9 +108,9 @@ async def _ensure_initialized() -> None:
 
     # 2. Ensure all Qdrant collections exist
     collections = {
-        "automem": (config.qdrant_url, config.embedding_dim),
-        "conversations": (config.qdrant_url, config.embedding_dim),
-        "mem0_memories": (config.qdrant_url, config.embedding_dim),
+        "L0_L4_memory": (config.qdrant_url, config.embedding_dim),
+        "L2_conversations": (config.qdrant_url, config.embedding_dim),
+        "L3_facts": (config.qdrant_url, config.embedding_dim),
     }
     for coll_name, (url, dim) in collections.items():
         try:
@@ -157,7 +157,7 @@ async def health_check() -> dict:
         checks["embedding"] = f"error: {e}"
 
     # Collection counts
-    for coll in ["automem", "conversations", "mem0_memories"]:
+    for coll in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
         try:
             c = QdrantClient(config.qdrant_url, coll, config.embedding_dim)
             checks[f"{coll}_count"] = await c.count()
@@ -198,19 +198,19 @@ def main() -> None:
 
         # Import the tool functions from loaded modules.
         # These modules were loaded above via importlib, so they exist in sys.modules.
-        automem_mod = sys.modules.get("automem")
-        autodream_mod = sys.modules.get("autodream")
-        conv_mod = sys.modules.get("conversation_store")
-        vk_cache_mod = sys.modules.get("vk_cache")
+        L0_capture_mod = sys.modules.get("L0_capture")
+        L0_to_L4_consolidation_mod = sys.modules.get("L0-to-L4-consolidation")
+        L2_conversations_mod = sys.modules.get("L2-conversations")
+        L5_routing_mod = sys.modules.get("L5_routing")
 
-        if automem_mod and autodream_mod and conv_mod:
+        if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
             start_api_server(
-                ingest_event_fn=getattr(automem_mod, "ingest_event", None),
-                automem_heartbeat_fn=getattr(automem_mod, "heartbeat", None),
-                autodream_heartbeat_fn=getattr(autodream_mod, "heartbeat", None),
-                save_conversation_fn=getattr(conv_mod, "save_conversation", None),
-                consolidate_fn=getattr(autodream_mod, "consolidate", None),
-                request_context_fn=getattr(vk_cache_mod, "request_context", None) if vk_cache_mod else None,
+                ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
+                automem_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
+                autodream_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
+                save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
+                consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
+                request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
                 port=int(os.environ.get("AUTOMEM_API_PORT", "8890")),
             )
             logger.info("Backpack API sidecar started")

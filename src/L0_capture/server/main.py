@@ -26,7 +26,7 @@ JSONL_PATH = config.raw_events_jsonl
 PROMOTION_INTERVAL = config.automem_promote_every
 STAGING_BUFFER = Path(config.staging_buffer_path) if config.staging_buffer_path else Path("")
 
-mcp = FastMCP("automem")
+mcp = FastMCP("L0_capture")
 
 
 async def _store_memory(item: MemoryItem) -> bool:

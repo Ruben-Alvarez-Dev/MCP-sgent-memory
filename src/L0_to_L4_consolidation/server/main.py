@@ -24,7 +24,7 @@ DREAM_PATH = Path(config.dream_path) if config.dream_path else Path("")
 _state_path = DREAM_PATH / "state.json"
 _state_path.parent.mkdir(parents=True, exist_ok=True)
 
-mcp = FastMCP("autodream")
+mcp = FastMCP("L0_to_L4_consolidation")
 
 
 def _load_state() -> dict:

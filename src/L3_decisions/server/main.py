@@ -14,7 +14,7 @@ from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWr
 config = Config.from_env()
 ENGRAM_PATH = Path(config.engram_path) if config.engram_path else Path("")
 VAULT_PATH = Path(config.vault_path) if config.vault_path else Path("")
-mcp = FastMCP("engram")
+mcp = FastMCP("L3_decisions")
 
 def _files():
     ENGRAM_PATH.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,7 @@ config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
 _reminders_path = Path(config.reminders_path) if config.reminders_path else Path("")
 _reminders_path.mkdir(parents=True, exist_ok=True)
-mcp = FastMCP("vk-cache")
+mcp = FastMCP("L5_routing")
 
 def _estimate_tokens(t): return len(t) // 4
 def _save_reminder(r): (_reminders_path / f"{r.reminder_id}.json").write_text(r.model_dump_json(indent=2))

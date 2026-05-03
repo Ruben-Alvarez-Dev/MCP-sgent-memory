@@ -14,7 +14,7 @@ from shared.sanitize import sanitize_text, sanitize_thread_id, validate_json_fie
 config = Config.from_env()
 THOUGHTS_PATH = Path(config.thoughts_path) if config.thoughts_path else Path("")
 STAGING = Path(config.staging_buffer_path) if config.staging_buffer_path else Path("")
-mcp = FastMCP("sequential-thinking")
+mcp = FastMCP("Lx_reasoning")
 
 def _save(sid, step, t):
     d = THOUGHTS_PATH / sid; d.mkdir(parents=True, exist_ok=True)

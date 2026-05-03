@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, "conversations", config.embedding_dim)
-mcp = FastMCP("conversation-store")
+mcp = FastMCP("L2_conversations")
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))

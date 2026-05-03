@@ -15,7 +15,7 @@ from shared.result_models import AddMemoryResult, SearchResult, LayerResult as M
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, "mem0_memories", config.embedding_dim)
 DEFAULT_USER = "default"
-mcp = FastMCP("mem0")
+mcp = FastMCP("L3_facts")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def add_memory(content: str, user_id: str = DEFAULT_USER, metadata: str = "") -> AddMemoryResult:

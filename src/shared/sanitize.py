@@ -571,7 +571,7 @@ def _json_depth(obj: Any, depth: int = 0) -> int:
 # ── Composite validators for tool handlers ────────────────────────
 
 def validate_memorize(content: str, mem_type: str, scope: str, tags: str) -> dict:
-    """Validate all inputs for automem.memorize."""
+    """Validate all inputs for L3_decisions.save_decision."""
     return {
         "content": sanitize_text(content, field="content"),
         "mem_type": validate_enum(mem_type, VALID_MEM_TYPES, "mem_type"),
@@ -581,7 +581,7 @@ def validate_memorize(content: str, mem_type: str, scope: str, tags: str) -> dic
 
 
 def validate_ingest_event(event_type: str, source: str, content: str) -> dict:
-    """Validate all inputs for automem.ingest_event."""
+    """Validate all inputs for L0_capture.ingest_event."""
     return {
         "event_type": validate_enum(event_type, VALID_EVENT_TYPES, "event_type"),
         "source": sanitize_text(source, max_length=200, field="source"),
@@ -619,7 +619,7 @@ def validate_add_memory(content: str, user_id: str) -> dict:
 
 
 def validate_request_context(query: str, intent: str) -> dict:
-    """Validate all inputs for vk-cache.request_context."""
+    """Validate all inputs for L5_routing.request_context."""
     valid_intents = frozenset({"answer", "plan", "review", "debug", "study"})
     return {
         "query": normalize_query(query),
@@ -628,7 +628,7 @@ def validate_request_context(query: str, intent: str) -> dict:
 
 
 def validate_push_reminder(query: str, agent_id: str) -> dict:
-    """Validate all inputs for vk-cache.push_reminder."""
+    """Validate all inputs for L5_routing.push_reminder."""
     return {
         "query": sanitize_text(query, max_length=2000, field="query"),
         "agent_id": sanitize_user_id(agent_id),
@@ -636,7 +636,7 @@ def validate_push_reminder(query: str, agent_id: str) -> dict:
 
 
 def validate_save_conversation(thread_id: str, messages_json: str) -> dict:
-    """Validate all inputs for conversation-store.save_conversation."""
+    """Validate all inputs for L2_conversations.save_conversation."""
     return {
         "thread_id": sanitize_thread_id(thread_id),
         "messages": validate_json_field(messages_json, "messages_json"),
@@ -644,7 +644,7 @@ def validate_save_conversation(thread_id: str, messages_json: str) -> dict:
 
 
 def validate_propose_change(session_id: str, title: str, changes_json: str) -> dict:
-    """Validate all inputs for sequential-thinking.propose_change_set."""
+    """Validate all inputs for Lx_reasoning.propose_change_set."""
     changes = validate_json_field(changes_json, "changes_json")
     return {
         "session_id": sanitize_thread_id(session_id),

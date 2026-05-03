@@ -6,7 +6,7 @@ import this instead of making raw httpx calls.
 Usage:
     from shared.qdrant_client import QdrantClient
 
-    qdrant = QdrantClient("http://127.0.0.1:6333", "automem", 1024)
+    qdrant = QdrantClient("http://127.0.0.1:6333", "L0_L4_memory", 1024)
     await qdrant.ensure_collection()
     await qdrant.upsert("id-123", vector, payload)
     results = await qdrant.search(vector, limit=10)
@@ -34,7 +34,7 @@ class QdrantClient:
     def __init__(
         self,
         url: str | None = None,
-        collection: str = "automem",
+        collection: str = "L0_L4_memory",
         embedding_dim: int = 1024,
         timeout: float = 30.0,
     ):

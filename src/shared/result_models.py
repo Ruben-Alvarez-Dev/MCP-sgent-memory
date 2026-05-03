@@ -88,7 +88,7 @@ class ContextShiftResult(BaseModel):
     new_context: str = ""
 
 class VkCacheStatusResult(BaseModel):
-    daemon: str = "vk-cache"
+    daemon: str = "L5_routing"
     status: str = "RUNNING"
     qdrant: str = "OK"
     active_reminders: int = 0
@@ -109,7 +109,7 @@ class ThreadListResult(BaseModel):
     threads: list[dict[str, Any]] = Field(default_factory=list)
 
 class ConversationStatusResult(BaseModel):
-    daemon: str = "conversation-store"
+    daemon: str = "L2_conversations"
     status: str = "RUNNING"
     threads: int = 0
 
@@ -203,7 +203,7 @@ class ChangeSetResult(BaseModel):
     changes: int = 0
 
 class SequentialThinkingStatusResult(BaseModel):
-    daemon: str = "sequential-thinking"
+    daemon: str = "Lx_reasoning"
     status: str = "RUNNING"
     sessions: int = 0
     plans: int = 0

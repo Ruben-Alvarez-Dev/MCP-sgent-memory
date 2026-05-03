@@ -13,7 +13,7 @@ from shared.sanitize import validate_add_memory
 from shared.result_models import AddMemoryResult, SearchResult, LayerResult as Mem0ListResult, DismissResult as DeleteResult, Mem0StatusResult
 
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, "mem0_memories", config.embedding_dim)
+qdrant = QdrantClient(config.qdrant_url, "L3_facts", config.embedding_dim)
 DEFAULT_USER = "default"
 mcp = FastMCP("L3_facts")
 
@@ -68,7 +68,7 @@ async def status() -> Mem0StatusResult:
 
 def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
     global qdrant, config
-    qdrant = QdrantClient(target_config.qdrant_url, "mem0_memories", target_config.embedding_dim)
+    qdrant = QdrantClient(target_config.qdrant_url, "L3_facts", target_config.embedding_dim)
     config = target_config
     for fn in [add_memory, search_memory, get_all_memories, delete_memory, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")

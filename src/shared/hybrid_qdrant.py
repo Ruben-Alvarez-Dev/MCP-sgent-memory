@@ -15,7 +15,7 @@ Agent levels (configurable):
     technician → conversations_technicians
 
 Usage:
-    client = HybridQdrantClient("http://127.0.0.1:6333", "conversations", 1024)
+    client = HybridQdrantClient("http://127.0.0.1:6333", "L2_conversations", 1024)
     await client.upsert("point-1", vector, payload, agent_scope="director-1")
     # Goes to conversations_directors with agent_scope="director-1" in payload
 

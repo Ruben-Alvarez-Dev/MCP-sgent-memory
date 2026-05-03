@@ -312,8 +312,8 @@ class _ApiHandler(BaseHTTPRequestHandler):
 
 def start_api_server(
     ingest_event_fn: Callable,
-    automem_heartbeat_fn: Callable,
-    autodream_heartbeat_fn: Callable,
+    L0_capture_heartbeat_fn: Callable,
+    L0_to_L4_consolidation_heartbeat_fn: Callable,
     save_conversation_fn: Callable,
     consolidate_fn: Callable,
     request_context_fn: Callable | None = None,
@@ -324,12 +324,12 @@ def start_api_server(
     Call BEFORE mcp.run(transport="stdio") which blocks the main thread.
 
     Args:
-        ingest_event_fn: automem.ingest_event function
-        automem_heartbeat_fn: automem.heartbeat function
-        autodream_heartbeat_fn: autodream.heartbeat function
+        ingest_event_fn: L0_capture.ingest_event function
+        L0_capture_heartbeat_fn: L0_capture.heartbeat function
+        L0_to_L4_consolidation_heartbeat_fn: L0_to_L4_consolidation.heartbeat function
         save_conversation_fn: conversation_store.save_conversation function
-        consolidate_fn: autodream.consolidate function
-        request_context_fn: vk_cache.request_context function (optional)
+        consolidate_fn: L0_to_L4_consolidation.consolidate function
+        request_context_fn: L5_routing.request_context function (optional)
         port: Port to listen on (default: AUTOMEM_API_PORT env var or 8890)
 
     Returns:

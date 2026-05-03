@@ -65,7 +65,7 @@ async def memorize(content: str, mem_type: str = "fact", scope: str = "session",
     scope_map = {"session": MemoryScope.SESSION, "agent": MemoryScope.AGENT, "domain": MemoryScope.DOMAIN, "personal": MemoryScope.PERSONAL, "global-core": MemoryScope.GLOBAL_CORE}
     item = MemoryItem(layer=MemoryLayer.WORKING, scope_type=scope_map.get(clean["scope"], MemoryScope.AGENT), scope_id=scope_id, type=MemoryType(clean["mem_type"]), content=clean["content"], importance=importance, topic_ids=clean["tags"])
     t.start("store"); await _store_memory(item); t.stop()
-    _append_raw_jsonl(RawEvent(type=RawEventType.AGENT_ACTION, source="automem", actor_id=scope_id, attributes={"memory_id": item.memory_id, "type": clean["mem_type"]}))
+    _append_raw_jsonl(RawEvent(type=RawEventType.AGENT_ACTION, source="L0_capture", actor_id=scope_id, attributes={"memory_id": item.memory_id, "type": clean["mem_type"]}))
     result = MemorizeResult(status="stored", memory_id=item.memory_id, layer="L1_WORKING", scope=item.full_scope).model_dump()
     if DEBUG:
         result.update(t.to_dict())

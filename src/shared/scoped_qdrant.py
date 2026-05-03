@@ -8,7 +8,7 @@ Collections:
     conversations_{agent_scope}   → visible only to that agent
 
 Usage:
-    client = ScopedQdrantClient("http://127.0.0.1:6333", "conversations", 1024)
+    client = ScopedQdrantClient("http://127.0.0.1:6333", "L2_conversations", 1024)
     await client.upsert("point-1", vector, payload, agent_scope="director-1")
     results = await client.search(vector, agent_scope="director-1")
     # Searches in conversations_director-1 + conversations_shared

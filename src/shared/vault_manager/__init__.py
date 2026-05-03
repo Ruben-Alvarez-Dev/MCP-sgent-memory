@@ -71,6 +71,13 @@ class VaultManager:
     }
     FOLDER_MAP_REVERSE = {v: k for k, v in FOLDER_MAP.items()}
 
+    # Vault naming scheme: L{layer}_{TYPE}_{sequence}.md
+    TYPE_CODES = {
+        "Inbox": "INBOX", "Decisiones": "DECISION", "Conocimiento": "KNOWLEDGE",
+        "Episodios": "EPISODE", "Entidades": "ENTITY", "Notas": "NOTE",
+        "Personas": "PERSON", "Plantillas": "TEMPLATE",
+    }
+
     def __init__(self, Lx_persistent_path: Path | None = None):
         self.Lx_persistent_path = Lx_persistent_path or VAULT_PATH
         self._ensure_structure()
@@ -609,6 +616,35 @@ class VaultManager:
             return "Conocimiento"
 
     # ── Internal Helpers ───────────────────────────────────────────
+
+
+    def _next_id(self, layer: str) -> int:
+        import json as _json
+        counter_path = self.Lx_persistent_path / ".system" / "counter.json"
+        if counter_path.exists():
+            counters = _json.loads(counter_path.read_text())
+        else:
+            counters = {"next": {}}
+        key = "Lx" if layer == "Lx" else "L" + str(layer)
+        current = counters.get("next", {}).get(key, 1)
+        counters.setdefault("next", {})[key] = current + 1
+        counter_path.parent.mkdir(parents=True, exist_ok=True)
+        counter_path.write_text(_json.dumps(counters, indent=2))
+        return current
+
+    def _generate_vault_filename(self, folder: str) -> str:
+        layer_map = {
+            "Inbox": "L0", "Decisiones": "L3", "Conocimiento": "L3",
+            "Episodios": "L2", "Entidades": "L3", "Notas": "Lx",
+            "Personas": "Lx", "Plantillas": "Lx",
+            "inbox": "L0", "decisions": "L3", "knowledge": "L3",
+            "episodes": "L2", "entities": "L3", "notes": "Lx",
+            "people": "Lx", "templates": "Lx",
+        }
+        layer = layer_map.get(folder, "Lx")
+        type_code = self.TYPE_CODES.get(folder, "NOTE")
+        seq = self._next_id(layer)
+        return "{}_{:04d}.md".format(layer + "_" + type_code, seq)
 
     def _render_note(self, data: dict, author: str) -> str:
         """Render a note with YAML frontmatter."""

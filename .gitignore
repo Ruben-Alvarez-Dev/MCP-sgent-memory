@@ -73,3 +73,27 @@ data/
 storage/
 models/*.gguf
 !models/.gitkeep
+
+# ── Vault daemon (versioned) ─────────────────────────────────────
+!bin/vault_watcher.sh
+!bin/vault_processor.py
+
+# ── Vault structure template (versioned) ─────────────────────────
+!data/Lx-persistent/
+!data/Lx-persistent/Inbox/
+!data/Lx-persistent/Decisiones/
+!data/Lx-persistent/Conocimiento/
+!data/Lx-persistent/Episodios/
+!data/Lx-persistent/Entidades/
+!data/Lx-persistent/Notas/
+!data/Lx-persistent/Personas/
+!data/Lx-persistent/Plantillas/
+!data/Lx-persistent/inbox/
+!data/Lx-persistent/decisions/
+!data/Lx-persistent/knowledge/
+!data/Lx-persistent/episodes/
+!data/Lx-persistent/entities/
+!data/Lx-persistent/notes/
+!data/Lx-persistent/people/
+!data/Lx-persistent/templates/
+!data/Lx-persistent/README.md

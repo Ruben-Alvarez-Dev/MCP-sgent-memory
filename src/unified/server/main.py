@@ -127,7 +127,7 @@ async def _ensure_initialized() -> None:
             p.mkdir(parents=True, exist_ok=True)
 
     # 4. Create vault folders
-    for folder in ["Inbox", "Decisiones", "Conocimiento", "Episodios", "Entidades", "Notes"]:
+    for folder in ["inbox", "decisions", "knowledge", "episodes", "entities", "Notes"]:
         p = Path(config.Lx_persistent_path) / folder if config.Lx_persistent_path else None
         if p:
             p.mkdir(parents=True, exist_ok=True)

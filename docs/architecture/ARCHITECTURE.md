@@ -26,12 +26,15 @@ MCP-agent-memory is a **passive memory service** — it exposes tools but doesn'
 │  │              MCP-agent-memory (Python, single process)           ││
 │  │                                                                  ││
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          ││
-│  │  │ L0_capture_*  │ │autodream │ │ vk-cache │ │conv-store│          ││
-│  │  │ (4 tools)│ │ (8 tools)│ │ (6 tools)│ │ (5 tools)│          ││
+│  │  │ L0_capture_* │ │L0_to_L4_│ │L5_routing│ │L2_conver-│          ││
+│  │  │ (4 tools)│ │consolida-│ │ (6 tools)│ │sations   │          ││
+│  │  │          │ │tion      │ │          │ │ (5 tools)│          ││
+│  │  │          │ │ (8 tools)│ │          │ │          │          ││
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘          ││
 │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          ││
-│  │  │  mem0    │ │ engram   │ │ seq-think│ │  health  │          ││
-│  │  │ (5 tools)│ │ (14 tools)│ │(10 tools)│ │ (1 tool) │          ││
+│  │  │ L3_facts │ │L3_decisi-│ │Lx_reason-│ │  health  │          ││
+│  │  │ (5 tools)│ │ons       │ │ing       │ │ (1 tool) │          ││
+│  │  │          │ │ (14 tools)│ │(10 tools)│ │          │          ││
 │  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘          ││
 │  │                                                                  ││
 │  │  ┌─────────────────────────────────────────────────────────────┐ ││
@@ -83,11 +86,11 @@ The plugin calls 6 endpoints via HTTP to trigger automatic operations without in
 
 **Flow**: `ingest_event()` → validate → append to JSONL (L0) → embed → store to Qdrant (L1)
 
-### autodream — Memory Consolidation
+### L0_to_L4_consolidation — Memory Consolidation
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| Server | `src/autodream/server/main.py` | Consolidation + dream tools |
+| Server | `src/L0_to_L4_consolidation/server/main.py` | Consolidation + dream tools |
 | State | `data/memory/dream/state.json` | Turn counts, last promotion timestamps |
 
 **Consolidation chain**: L1 (working) → L2 (episodic) → L3 (semantic) → L4 (consolidated)
@@ -98,37 +101,37 @@ The plugin calls 6 endpoints via HTTP to trigger automatic operations without in
 - L3→L4: every 86400 seconds
 - Dream: every 604800 seconds
 
-### vk-cache — Smart Context Retrieval
+### L5_routing — Smart Context Retrieval
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| Server | `src/vk-cache/server/main.py` | Context retrieval tools |
+| Server | `src/L5_routing/server/main.py` | Context retrieval tools |
 | Retriever | `src/shared/retrieval/` | Smart routing (dense + sparse) |
 
 **Flow**: `request_context(query)` → embed query → search Qdrant → rank results → return ContextPack
 
-### conversation-store — Thread Persistence
+### L2_conversations — Thread Persistence
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| Server | `src/conversation-store/server/main.py` | Save/search/get conversations |
-| Collection | Qdrant `conversations` | Vector-indexed thread storage |
+| Server | `src/L2_conversations/server/main.py` | Save/search/get conversations |
+| Collection | Qdrant `L2_conversations` | Vector-indexed thread storage |
 
-### engram — Decision Memory + Vault
+### L3_decisions — Decision Memory + Vault
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| Server | `src/engram/server/main.py` | Decision CRUD + vault management |
-| Decisions | `data/memory/engram/` | Markdown files with YAML frontmatter |
+| Server | `src/L3_decisions/server/main.py` | Decision CRUD + vault management |
+| Decisions | `data/memory/L3_decisions/` | Markdown files with YAML frontmatter |
 | Vault | `data/vault/` | Obsidian-compatible note structure |
 
 **NOTE**: This is separate from the Engram Go binary (`engram serve` on port 7437) which provides `mem_save`/`mem_search` tools.
 
-### sequential-thinking — Reasoning Chains
+### Lx_reasoning — Reasoning Chains
 
 | Component | File | Responsibility |
 |-----------|------|---------------|
-| Server | `src/sequential-thinking/server/main.py` | Thinking + plans + sandbox |
+| Server | `src/Lx_reasoning/server/main.py` | Thinking + plans + sandbox |
 | Sessions | `data/memory/thoughts/` | JSON step files |
 
 ---

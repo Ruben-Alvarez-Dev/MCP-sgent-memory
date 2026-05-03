@@ -1,37 +1,37 @@
-# La Mochila — CÓMO FUNCIONA POR DENTRO
+# The Backpack — HOW IT WORKS INSIDE
 
-  La mecánica. El plumbing. Lo que pasa cuando escribís un mensaje.
+  The mechanics. The plumbing. What happens when you write a message.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE A: EL CABLEADO — Qué se conecta con qué
+  PART A: THE WIRING — What connects to what
 
-  Cuando escribís "arreglá el bug de auth", pasa ESTO:
+  When you write "fix the auth bug", THIS happens:
 
   ┌─────────────────────────────────────────────────────┐
-  │  OpenCode (editor con IA)                            │
+  │  OpenCode (AI-enabled editor)                        │
   │                                                     │
-  │  1. Tú escribes → OpenCode recibe el texto          │
+  │  1. You type → OpenCode receives the text           │
   │                                                     │
-  │  2. OpenCode le pasa al AGENTE (gentleman, glm-5.1) │
-  │     El agente decide qué tools usar                  │
+  │  2. OpenCode passes it to the AGENT (gentleman, glm-5.1)│
+  │     The agent decides which tools to use            │
   │                                                     │
-  │  3. ANTES de ejecutar cualquier tool:                │
+  │  3. BEFORE executing any tool:                       │
   │     ┌─────────────────────────────┐                 │
   │     │ backpack-orchestrator.ts    │                 │
   │     │ Hook: tool.execute.before   │                 │
   │     │                             │                 │
-  │     │ ¿Es write/edit? → Gate 1    │                 │
-  │     │ ¿Es .env?        → Gate 3    │                 │
-  │     │ ¿Es archivo largo?→ Gate 4   │                 │
-  │     │ ¿6+ tools seguidas?→ Gate 5  │                 │
-  │     │ ¿Escribir sin leer?→ Gate 6  │                 │
+  │     │ Is write/edit? → Gate 1     │                 │
+  │     │ Is .env?        → Gate 3     │                 │
+  │     │ Is long file?   → Gate 4     │                 │
+  │     │ 6+ tools in a row? → Gate 5  │                 │
+  │     │ Writing without reading? → Gate 6│           │
   │     └─────────────────────────────┘                 │
-  │     Si un gate dice BLOCKED → el tool NO se ejecuta │
+  │     If a gate says BLOCKED → the tool is NOT executed│
   │                                                     │
-  │  4. El tool se ejecuta (bash, edit, read, MCP...)    │
+  │  4. The tool executes (bash, edit, read, MCP...)     │
   │                                                     │
-  │  5. DESPUÉS de ejecutar:                             │
+  │  5. AFTER executing:                                │
   │     ┌─────────────────────────────┐                 │
   │     │ backpack-orchestrator.ts    │                 │
   │     │ Hook: tool.execute.after    │                 │
@@ -41,285 +41,287 @@
   │     │ {type:"tool_call",          │                 │
   │     │  content:"bash: git log"}   │                 │
   │     └─────────────────────────────┘                 │
-  │     El evento va al sidecar → automem → raw_events  │
+  │     The event goes to sidecar → L0_capture → raw_events│
   │                                                     │
   └─────────────────────────────────────────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE B: EL MCP — Cómo OpenCode habla con La Mochila
+  PART B: THE MCP — How OpenCode talks to The Backpack
 
-  OpenCode no sabe nada de memoria. Habla MCP (Model Context Protocol).
+  OpenCode knows nothing about memory. It speaks MCP (Model Context Protocol).
 
-  MCP = un protocolo que dice:
-  - "Tengo estas herramientas disponibles"
-  - "Cada herramienta acepta estos parámetros"
-  - "El resultado viene en este formato"
+  MCP = a protocol that says:
+  - "I have these tools available"
+  - "Each tool accepts these parameters"
+  - "The result comes in this format"
 
-  Nuestro servidor MCP tiene 53 herramientas organizadas así:
+  Our MCP server has 53 tools organized like this:
 
   ┌───────────────────────────────────────────────────┐
-  │  MCP-agent-memory (un solo proceso Python)        │
+  │  MCP-agent-memory (single Python process)         │
   │                                                   │
-  │  ├── automem (8 tools)                            │
-  │  │   ├── memorize        → guardar algo           │
-  │  │   ├── ingest_event    → capturar evento        │
-  │  │   ├── heartbeat       → "estoy vivo, turno N"  │
+  │  ├── L0_capture (8 tools)                         │
+  │  │   ├── memorize        → save something         │
+  │  │   ├── ingest_event    → capture event          │
+  │  │   ├── heartbeat       → "I'm alive, turn N"    │
   │  │   └── ...                                       │
   │  │                                                │
-  │  ├── autodream (5 tools)                           │
-  │  │   ├── dream           → soñar (consolidar)     │
-  │  │   ├── consolidate     → forzar consolidación   │
-  │  │   ├── get_semantic    → leer L3                │
-  │  │   └── get_consolidated→ leer L4                │
+  │  ├── L0_to_L4_consolidation (5 tools)              │
+  │  │   ├── dream           → dream (consolidate)    │
+  │  │   ├── consolidate     → force consolidation    │
+  │  │   ├── get_semantic    → read L3                │
+  │  │   └── get_consolidated→ read L4                │
   │  │                                                │
-  │  ├── vk-cache (4 tools)                            │
-  │  │   ├── request_context → "dame contexto para X" │
-  │  │   ├── push_reminder   → recordar algo al agent │
-  │  │   ├── check_reminders → hay recordatorios?     │
-  │  │   └── detect_context_shift → cambió de tema?   │
+  │  ├── L5_routing (4 tools)                         │
+  │  │   ├── request_context → "give me context for X"│
+  │  │   ├── push_reminder   → remind the agent       │
+  │  │   ├── check_reminders → are there reminders?   │
+  │  │   └── detect_context_shift → did topic change? │
   │  │                                                │
-  │  ├── conversation-store (5 tools)                  │
+  │  ├── L2_conversations (5 tools)                   │
   │  │   ├── save_conversation                        │
   │  │   ├── get_conversation                         │
   │  │   ├── search_conversations                     │
   │  │   ├── list_threads                             │
   │  │   └── status                                   │
   │  │                                                │
-  │  ├── mem0 (4 tools)                                │
+  │  ├── L3_facts (4 tools)                           │
   │  │   ├── add_memory                               │
   │  │   ├── search_memory                            │
   │  │   ├── get_all_memories                         │
   │  │   └── delete_memory                            │
   │  │                                                │
-  │  ├── engram (7 tools)                              │
+  │  ├── L3_decisions (7 tools)                       │
   │  │   ├── save_decision                            │
   │  │   ├── search_decisions                         │
   │  │   ├── list_decisions                           │
   │  │   ├── vault_write / vault_read                 │
   │  │   └── ...                                      │
   │  │                                                │
-  │  └── sequential-thinking (7 tools)                 │
+  │  └── Lx_reasoning (7 tools)                        │
   │      ├── sequential_thinking                      │
   │      ├── create_plan / update_plan_step           │
   │      ├── propose_change_set                       │
   │      └── ...                                      │
   │                                                   │
-  │  Total: ~53 herramientas                           │
-  │  Transporte: stdio (entrada/salida estándar)       │
-  │  OpenCode lo lanza como proceso hijo               │
+  │  Total: ~53 tools                                 │
+  │  Transport: stdio (standard input/output)         │
+  │  OpenCode launches it as a child process          │
   └───────────────────────────────────────────────────┘
 
-  PERO TAMBIÉN hay un SIDECAR HTTP (puerto 8890):
+  BUT ALSO there's an HTTP SIDECAR (port 8890):
 
   ┌───────────────────────────────────────────────────┐
-  │  El sidecar corre DENTRO del mismo proceso MCP    │
+  │  The sidecar runs INSIDE the same MCP process     │
   │                                                   │
-  │  El backpack-orchestrator.ts (TypeScript)         │
-  │  NO puede llamar tools MCP directamente.          │
-  │  Llama al sidecar por HTTP.                       │
+  │  The backpack-orchestrator.ts (TypeScript)        │
+  │  CANNOT call MCP tools directly.                  │
+  │  It calls the sidecar via HTTP.                   │
   │                                                   │
   │  fetch("http://127.0.0.1:8890/api/ingest-event")  │
   │  fetch("http://127.0.0.1:8890/api/heartbeat")     │
   │  fetch("http://127.0.0.1:8890/api/request-context")│
   │  fetch("http://127.0.0.1:8890/api/save-conversation")│
   │                                                   │
-  │  El sidecar recibe el HTTP y llama la función     │
-  │  Python internamente. Sin pasar por MCP stdio.    │
+  │  The sidecar receives the HTTP and calls the      │
+  │  Python function internally. Without going through │
+  │  MCP stdio.                                       │
   │                                                   │
-  │  WHY: Los hooks de OpenCode son TypeScript.       │
-  │  La memoria es Python. El puente es HTTP.         │
+  │  WHY: OpenCode hooks are TypeScript.              │
+  │  Memory is Python. The bridge is HTTP.            │
   └───────────────────────────────────────────────────┘
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE C: STORAGE — Dónde vive cada cosa
+  PART C: STORAGE — Where each thing lives
 
-  HOY (problemático):
+  TODAY (problematic):
 
   ┌──────────────┐
-  │   Qdrant     │ ← VECTOR DB (búsqueda semántica)
+  │   Qdrant     │ ← VECTOR DB (semantic search)
   │              │
-  │  automem     │    L1 working memory
-  │  mem0        │    L3 semantic
-  │  conv-store  │    conversaciones (NO PERTENECE ACÁ)
+  │  L0_capture  │    L1 working memory
+  │  L3_facts    │    L3 semantic
+  │  L2_conversations│  conversations (DON'T BELONG HERE)
   └──────────────┘
   ┌──────────────┐
   │  JSONL file  │ ← raw_events.jsonl
-  │              │    L0 eventos crudos
+  │              │    L0 raw events
   └──────────────┘
   ┌──────────────┐
-  │  filesystem  │ ← engram Markdown files
-  │              │    decisiones + vault
+  │  filesystem  │ ← L3_decisions Markdown files
+  │              │    decisions + vault
   └──────────────┘
 
-  Problema: 3 capas en Qdrant. Si cae, cae todo.
-  Problema: Conversaciones son TEXTO, no VECTORES.
+  Problem: 3 layers in Qdrant. If it goes down, everything goes down.
+  Problem: Conversations are TEXT, not VECTORS.
 
-  MAÑANA (lo correcto):
+  TOMORROW (the right way):
 
   ┌──────────────┐
-  │  JSONL       │ ← L0 eventos crudos (append-only)
+  │  JSONL       │ ← L0 raw events (append-only)
   └──────────────┘
   ┌──────────────┐
   │  SQLite      │ ← L1/L2 working + episodic
-  │              │    Conversaciones COMPLETAS
+  │              │    COMPLETE conversations
   │              │    Entities, relationships, timeline
-  │              │    FTS5 para full-text search
-  │              │    ACID, transacciones, WAL mode
+  │              │    FTS5 for full-text search
+  │              │    ACID, transactions, WAL mode
   └──────────────┘
   ┌──────────────┐
-  │  Qdrant      │ ← SOLO L3/L4 semantic + consolidated
-  │              │    Solo vectores. Solo embeddings.
-  │              │    No payloads gigantes.
+  │  Qdrant      │ ← ONLY L3/L4 semantic + consolidated
+  │              │    Only vectors. Only embeddings.
+  │              │    No huge payloads.
   └──────────────┘
   ┌──────────────┐
-  │  filesystem  │ ← engram (Markdown, perdurable)
+  │  filesystem  │ ← L3_decisions (Markdown, durable)
   └──────────────┘
 
-  SQLite + Qdrant se enlazan por IDs.
-  El timeline vive en SQLite. Los embeddings en Qdrant.
+  SQLite + Qdrant are linked by IDs.
+  Timeline lives in SQLite. Embeddings in Qdrant.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE D: LOS GATES — Cómo te protegen
+  PART D: THE GATES — How they protect you
 
-  El backpack-orchestrator tiene 6 gates. Cada uno es
-  una función TypeScript que corre ANTES o DESPUÉS de
-  una tool call. Si lanza Error, la tool NO se ejecuta.
+  The backpack-orchestrator has 6 gates. Each one is
+  a TypeScript function that runs BEFORE or AFTER a
+  tool call. If it throws Error, the tool is NOT executed.
 
   Gate 1: CONTEXT VERIFICATION (v1.3)
   ────────────────────────────────────
-  ¿El agente verificó contexto antes de escribir?
-  Si no → BLOCKED. No podés modificar código sin
-  saber qué hay en memoria sobre ese proyecto.
+  Did the agent verify context before writing?
+  If not → BLOCKED. You can't modify code without
+  knowing what memory has about that project.
 
   Gate 2: CONVENTIONAL COMMITS (v1.2)
   ───────────────────────────────────
-  ¿El commit message sigue el formato tipo(scope): desc?
-  Si no → BLOCKED. "arreglé cositas" NO pasa.
+  Does the commit message follow type(scope): desc format?
+  If not → BLOCKED. "fixed some stuff" doesn't pass.
 
   Gate 3: .ENV PROTECTION (v1.5)
   ──────────────────────────────
-  ¿Estás editando .env, .pem, .key, credentials?
-  → BLOCKED. Nunca tocar secrets.
+  Are you editing .env, .pem, .key, credentials?
+  → BLOCKED. Never touch secrets.
 
   Gate 4: LONG FILE GUARD (v1.5)
   ──────────────────────────────
-  ¿Estás leyendo un archivo de +1000 líneas sin offset/limit?
-  → BLOCKED. Primero verificá el tamaño, luego leé por partes.
+  Are you reading a +1000 line file without offset/limit?
+  → BLOCKED. First check size, then read in parts.
 
   Gate 5: CONTEXT SPIRAL (v1.5)
   ─────────────────────────────
-  ¿Hiciste 6+ tool calls sin que el usuario hable?
-  → BLOCKED. Probablemente entraste en un loop.
+  Did you make 6+ tool calls without the user speaking?
+  → BLOCKED. You probably entered a loop.
 
   Gate 6: BLIND WRITE (v1.5)
   ──────────────────────────
-  ¿Estás escribiendo un archivo que no leíste primero?
-  → BLOCKED. Leé primero, escribd después.
+  Are you writing a file you didn't read first?
+  → BLOCKED. Read first, write after.
 
-  Todos DESACTIVADOS ahora (defaults invertidos).
-  Se activan con BACKPACK_GATE_*=true en el entorno.
+  All DISABLED now (defaults inverted).
+  Activate with BACKPACK_GATE_*=true in environment.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE E: LO QUE VIENE DEL ESTADO DEL ARTE
+  PART E: WHAT COMES FROM STATE OF THE ART
 
-  Investigamos 20+ sistemas y papers. Lo que aplica:
+  We researched 20+ systems and papers. What applies:
 
   ┌──────────────────────┬─────────────────────────────┐
-  │  PATRÓN              │  CÓMO LO APLICAMOS          │
+  │  PATTERN             │  HOW WE APPLY IT            │
   ├──────────────────────┼─────────────────────────────┤
   │                      │                             │
-  │  TMS (Truth          │  Cada memoria guarda POR    │
-  │  Maintenance System) │  QUÉ existe (justificación) │
-  │                      │  Si la base cambia, las     │
-  │                      │  dependientes se re-evalúan │
+  │  TMS (Truth          │  Each memory saves WHY      │
+  │  Maintenance System) │  it exists (justification)  │
+  │                      │  If base changes,           │
+  │                      │  dependents are re-evaluated│
   │                      │                             │
-  │  CRAG (Corrective    │  Scoring de relevancia →    │
-  │  RAG)                │  si es bajo, buscar más     │
-  │                      │  acción correctiva          │
+  │  CRAG (Corrective    │  Relevance scoring →        │
+  │  RAG)                │  if low, search more &      │
+  │                      │  take corrective action     │
   │                      │                             │
-  │  Chain-of-           │  Verificar INDEPENDIENTE    │
-  │  Verification        │  del draft original         │
-  │                      │  Sin sesgo de lo que crees  │
+  │  Chain-of-           │  Verify INDEPENDENTLY       │
+  │  Verification        │  from original draft        │
+  │                      │  Without bias of what you   │
+  │                      │  believe                   │
   │                      │                             │
-  │  Agent-as-Judge      │  Un agent con tools MCP     │
-  │  (2026)              │  VERIFICA memorias contra   │
-  │                      │  fuentes reales             │
+  │  Agent-as-Judge      │  An agent with MCP tools    │
+  │  (2026)              │  VERIFIES memories against  │
+  │                      │  real sources               │
   │                      │                             │
-  │  FreshQA             │  Clasificar memorias por    │
-  │                      │  velocidad de cambio:       │
+  │  FreshQA             │  Classify memories by       │
+  │                      │  change speed:              │
   │                      │  never/slow/fast/realtime   │
-  │                      │  Las fast se verifican más  │
+  │                      │  Fast ones verified more    │
   │                      │                             │
-  │  PROV-O (W3C)        │  Cada memoria lleva:        │
+  │  PROV-O (W3C)        │  Each memory carries:       │
   │                      │  wasGeneratedBy,            │
   │                      │  wasDerivedFrom,            │
   │                      │  wasRevisionOf              │
-  │                      │  Lineaje completo           │
+  │                      │  Complete lineage           │
   │                      │                             │
   └──────────────────────┴─────────────────────────────┘
 
-  Lo que NO existe en ningún lado:
-  → Enforcement por código a nivel de tool call MCP
-  → Verificación continua de memorias en un servidor de 53 tools
-  → Timeline + entities + lifecycle en un sistema de memoria para agents
-  → Lo que estamos construyendo es NUEVO.
+  What doesn't exist anywhere:
+  → Code-level enforcement at MCP tool call level
+  → Continuous memory verification in a 53-tool server
+  → Timeline + entities + lifecycle in a memory system for agents
+  → What we're building is NEW.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE F: LOS DOS ARCHIVOS QUE IMPORTAN
+  PART F: THE TWO FILES THAT MATTER
 
-  El sistema se configura en DOS lugares:
+  The system is configured in TWO places:
 
   1. opencode.json (~/config/opencode/opencode.json)
-     ├── agents (17, con temperatura 0.1)
+     ├── agents (17, with temperature 0.1)
      ├── providers (Z.AI, LMStudio, Mimo...)
-     ├── MCP servers (cuáles conectar)
-     └── permissions (qué está permitido)
+     ├── MCP servers (which to connect)
+     └── permissions (what's allowed)
 
   2. backpack-orchestrator.ts (~/config/opencode/plugins/)
      ├── hooks (chat.message, tool.execute.before/after, etc)
-     ├── gates (6 reglas de enforcement)
-     ├── BACKPACK_RULES (system prompt inyectado)
-     └── engram integration (Go binary para decisiones)
+     ├── gates (6 enforcement rules)
+     ├── BACKPACK_RULES (injected system prompt)
+     └── L3_decisions integration (Go binary for decisions)
 
-  PROBLEMA ENCONTRADO HOY:
-  → El archivo en el repo (adapters/opencode/) y el que corre
-    (plugins/) estaban DESINCRONIZADOS.
-    El repo tenía v1.2 (538 líneas). El running tenía v1.5 (690).
-  → Hay que sincronizar o va a pasar otra vez.
+  PROBLEM FOUND TODAY:
+  → The file in repo (adapters/opencode/) and the running one
+    (plugins/) were OUT OF SYNC.
+    The repo had v1.2 (538 lines). The running had v1.5 (690).
+  → Must synchronize or it will happen again.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  PARTE G: RESUMEN EN UNA PÁGINA
+  PART G: ONE-PAGE SUMMARY
 
   ┌───────────────────────────────────────────────────┐
-  │  LA MOCHILA = Memoria para agents de programación │
+  │  THE BACKPACK = Memory for programming agents     │
   │                                                   │
-  │  CÓMO: 53 MCP tools + sidecar HTTP + hooks TS    │
+  │  HOW: 53 MCP tools + HTTP sidecar + TS hooks     │
   │                                                   │
-  │  QUÉ CAPTURA: eventos, decisiones, conversaciones │
+  │  WHAT IT CAPTURES: events, decisions, conversations│
   │                                                   │
-  │  CÓMO ORDENA: L0→L1→L2→L3→L4 (consolidación)    │
+  │  HOW IT ORGANIZES: L0→L1→L2→L3→L4 (consolidation) │
   │                                                   │
-  │  CÓMO BUSCA: vk-cache (embeddings + ranking)     │
+  │  HOW IT SEARCHES: L5_routing (embeddings + ranking)│
   │                                                   │
-  │  CÓMO PROTEGE: 6 gates de código (bloquean)      │
+  │  HOW IT PROTECTS: 6 code gates (block actions)    │
   │                                                   │
-  │  QUÉ FALLA: Qdrant caído, conversations rotas,   │
-  │             entities dormidas, tests = mocks      │
+  │  WHAT FAILS: Qdrant down, conversations broken,   │
+  │              entities asleep, tests = mocks        │
   │                                                   │
-  │  PRÓXIMO: SQLite para storage + timeline +        │
-  │           VK cache para Qwen 1M + colmena agents  │
+  │  NEXT: SQLite for storage + timeline +           │
+  │        L5_routing for Qwen 1M + hive agents       │
   │                                                   │
-  │  ARCHIVOS:                                        │
-  │  ROADMAP.md → plan por versiones                  │
-  │  LA-MOCHILA-4-ANIOS.md → esta explicación        │
-  │  LA-MOCHILA-EXPLICADA.md → versión detallada     │
-  │  engram/issues/ → problemas abiertos              │
-  │  engram/architecture/ → decisiones de diseño      │
-  │  engram/golden-rules/ → temperatura 0.1 forever   │
+  │  FILES:                                           │
+  │  ROADMAP.md → plan by versions                    │
+  │  THE-BACKPACK-4-YEARS.md → this explanation       │
+  │  THE-BACKPACK-EXPLAINED.md → detailed version     │
+  │  L3_decisions/issues/ → open problems             │
+  │  L3_decisions/architecture/ → design decisions    │
+  │  L3_decisions/golden-rules/ → temperature 0.1 forever│
   └───────────────────────────────────────────────────┘

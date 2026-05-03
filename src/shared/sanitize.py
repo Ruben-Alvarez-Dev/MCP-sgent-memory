@@ -70,8 +70,8 @@ VALID_SCOPES = frozenset({
 
 # Valid vault folders (whitelist — only these directories)
 SAFE_VAULT_FOLDERS = frozenset({
-    "Inbox", "Decisiones", "Conocimiento", "Episodios",
-    "Entidades", "Personas", "Log_Global", "Templates", "Notes",
+    "inbox", "decisions", "knowledge", "episodes",
+    "entities", "people", "log_global", "templates", "notes",
     "Decisions", "Knowledge", "Episodes", "Entities", "People",
     "Patterns", "Learnings", "Projects", "Sandbox", "Archive",
     "Patrones", "Aprendizajes", "Proyectos", "Archivos",
@@ -406,7 +406,7 @@ def sanitize_folder(folder: str, *, allowed: frozenset[str] | None = None) -> st
     folder = folder.strip()
 
     if not folder:
-        return "Inbox"
+        return "inbox"
 
     # Reject any path component
     if '/' in folder or '\\' in folder or '..' in folder or '\x00' in folder:

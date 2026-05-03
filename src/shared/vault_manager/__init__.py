@@ -1,3 +1,6 @@
+from __future__ import annotations
+from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES, EN_TO_ES, ES_TO_EN, LAYER_MAP, TYPE_CODES, get_all_disk_folders, get_all_en_folders, get_layer, get_type_code)
+from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES, EN_TO_ES, ES_TO_EN, LAYER_MAP, TYPE_CODES, get_all_disk_folders, get_all_en_folders, get_layer, get_type_code)
 """Vault Manager — Obsidian vault with catastrophe-proof writes.
 
 Manages the human-readable vault that complements Qdrant.
@@ -7,7 +10,7 @@ Usage:
     from shared.vault_manager import vault
 
     # Write a note (atomic, backed up)
-    vault.write_note("Decisiones", "mi-decision.md", {
+    vault.write_note(FOLDER_DECISIONS, "mi-decision.md", {
         "type": "decision",
         "content": "...",
         "author": "system",
@@ -24,7 +27,6 @@ Usage:
     report = vault.integrity_check()
 """
 
-from __future__ import annotations
 
 import hashlib
 import json
@@ -65,17 +67,17 @@ class VaultManager:
     """Manages the Obsidian vault with atomic writes and integrity checks."""
 
     FOLDER_MAP = {
-        "Inbox": "inbox", "Decisiones": "decisions", "Conocimiento": "knowledge",
-        "Episodios": "episodes", "Entidades": "entities", "Notas": "notes",
-        "Personas": "people", "Plantillas": "templates",
+        FOLDER_INBOX: "inbox", FOLDER_DECISIONS: "decisions", FOLDER_KNOWLEDGE: "knowledge",
+        FOLDER_EPISODES: "episodes", FOLDER_ENTITIES: "entities", FOLDER_NOTES: "notes",
+        FOLDER_PEOPLE: "people", FOLDER_TEMPLATES: "templates",
     }
     FOLDER_MAP_REVERSE = {v: k for k, v in FOLDER_MAP.items()}
 
     # Vault naming scheme: L{layer}_{TYPE}_{sequence}.md
     TYPE_CODES = {
-        "Inbox": "INBOX", "Decisiones": "DECISION", "Conocimiento": "KNOWLEDGE",
-        "Episodios": "EPISODE", "Entidades": "ENTITY", "Notas": "NOTE",
-        "Personas": "PERSON", "Plantillas": "TEMPLATE",
+        FOLDER_INBOX: "INBOX", FOLDER_DECISIONS: "DECISION", FOLDER_KNOWLEDGE: "KNOWLEDGE",
+        FOLDER_EPISODES: "EPISODE", FOLDER_ENTITIES: "ENTITY", FOLDER_NOTES: "NOTE",
+        FOLDER_PEOPLE: "PERSON", FOLDER_TEMPLATES: "TEMPLATE",
     }
 
     def __init__(self, Lx_persistent_path: Path | None = None):
@@ -86,14 +88,14 @@ class VaultManager:
         """Create vault structure if not exists."""
         dirs = [
             self.Lx_persistent_path,
-            self.Lx_persistent_path / "Inbox",
-            self.Lx_persistent_path / "Decisiones",
-            self.Lx_persistent_path / "Conocimiento",
-            self.Lx_persistent_path / "Episodios",
-            self.Lx_persistent_path / "Entidades",
-            self.Lx_persistent_path / "Notas",
-            self.Lx_persistent_path / "Personas",
-            self.Lx_persistent_path / "Plantillas",
+            self.Lx_persistent_path / FOLDER_INBOX,
+            self.Lx_persistent_path / FOLDER_DECISIONS,
+            self.Lx_persistent_path / FOLDER_KNOWLEDGE,
+            self.Lx_persistent_path / FOLDER_EPISODES,
+            self.Lx_persistent_path / FOLDER_ENTITIES,
+            self.Lx_persistent_path / FOLDER_NOTES,
+            self.Lx_persistent_path / FOLDER_PEOPLE,
+            self.Lx_persistent_path / FOLDER_TEMPLATES,
             # EN (system copies)
             self.Lx_persistent_path / "inbox",
             self.Lx_persistent_path / "decisions",
@@ -124,7 +126,7 @@ class VaultManager:
         """Atomically write a note with frontmatter.
 
         Args:
-            folder: Vault subfolder (e.g., "Decisiones")
+            folder: Vault subfolder (e.g., FOLDER_DECISIONS)
             filename: Note filename (e.g., "mi-decision.md")
             data: {"content": "...", "type": "...", "tags": [...], ...}
             author: "system" or "human"
@@ -285,7 +287,7 @@ class VaultManager:
 
         Returns list of processed items.
         """
-        inbox = self.Lx_persistent_path / "Inbox"
+        inbox = self.Lx_persistent_path / FOLDER_INBOX
         processed = []
 
         for note_file in sorted(inbox.glob("*.md")):
@@ -315,7 +317,7 @@ class VaultManager:
                     data["related"] = wikilinks
 
                 # Move to proper folder
-                folder = classification.get("folder", "Conocimiento")
+                folder = classification.get("folder", FOLDER_KNOWLEDGE)
                 dest_name = classification.get("filename", note_file.name)
 
                 # Check if destination already exists
@@ -370,39 +372,39 @@ class VaultManager:
         if decision_score >= 2:
             return {
                 "type": "decision",
-                "folder": "Decisiones",
+                "folder": FOLDER_DECISIONS,
                 "layer": 3,
                 "confidence": 0.8,
                 "tags": tags,
-                "filename": self._generate_filename(body, "Decisiones"),
+                "filename": self._generate_filename(body, FOLDER_DECISIONS),
             }
         elif episode_score >= 2:
             return {
                 "type": "episode",
-                "folder": "Episodios",
+                "folder": FOLDER_EPISODES,
                 "layer": 2,
                 "confidence": 0.7,
                 "tags": tags,
-                "filename": self._generate_filename(body, "Episodios"),
+                "filename": self._generate_filename(body, FOLDER_EPISODES),
             }
         elif knowledge_score >= 2:
             return {
                 "type": "pattern",
-                "folder": "Conocimiento",
+                "folder": FOLDER_KNOWLEDGE,
                 "layer": 4,
                 "confidence": 0.75,
                 "tags": tags,
-                "filename": self._generate_filename(body, "Conocimiento"),
+                "filename": self._generate_filename(body, FOLDER_KNOWLEDGE),
             }
         else:
             # Default: knowledge
             return {
                 "type": "note",
-                "folder": "Conocimiento",
+                "folder": FOLDER_KNOWLEDGE,
                 "layer": 0,
                 "confidence": 0.5,
                 "tags": tags,
-                "filename": self._generate_filename(body, "Conocimiento"),
+                "filename": self._generate_filename(body, FOLDER_KNOWLEDGE),
             }
 
     def _generate_filename(self, body: str, folder: str) -> str:
@@ -442,8 +444,8 @@ class VaultManager:
 
         # Scan actual files
         actual_files = {}
-        for folder in ["Inbox", "Decisiones", "Conocimiento", "Episodios",
-                       "Entidades", "Notas", "Personas", "Plantillas",
+        for folder in [FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES,
+                       FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES,
                        "inbox", "decisions", "knowledge", "episodes",
                        "entities", "notes"]:
             folder_path = self.Lx_persistent_path / folder
@@ -603,19 +605,19 @@ class VaultManager:
     def _layer_to_folder(self, layer: int, mem_type: str) -> str:
         """Map memory layer/type to vault folder."""
         if mem_type == "decision":
-            return "Decisiones"
+            return FOLDER_DECISIONS
         elif layer == 0:
-            return "Inbox"
+            return FOLDER_INBOX
         elif layer == 2:
-            return "Episodios"
+            return FOLDER_EPISODES
         elif layer == 3:
-            return "Decisiones"
+            return FOLDER_DECISIONS
         elif layer == 4:
-            return "Conocimiento"
+            return FOLDER_KNOWLEDGE
         elif layer == 5:
-            return "Conocimiento"
+            return FOLDER_KNOWLEDGE
         else:
-            return "Conocimiento"
+            return FOLDER_KNOWLEDGE
 
     # ── Internal Helpers ───────────────────────────────────────────
 
@@ -636,9 +638,9 @@ class VaultManager:
 
     def _generate_vault_filename(self, folder: str, lang: str = 'ES') -> str:
         layer_map = {
-            "Inbox": "L0", "Decisiones": "L3", "Conocimiento": "L3",
-            "Episodios": "L2", "Entidades": "L3", "Notas": "L3",
-            "Personas": "L3", "Plantillas": "L3",
+            FOLDER_INBOX: "L0", FOLDER_DECISIONS: "L3", FOLDER_KNOWLEDGE: "L3",
+            FOLDER_EPISODES: "L2", FOLDER_ENTITIES: "L3", FOLDER_NOTES: "L3",
+            FOLDER_PEOPLE: "L3", FOLDER_TEMPLATES: "L3",
             "inbox": "L0", "decisions": "L3", "knowledge": "L3",
             "episodes": "L2", "entities": "L3", "notes": "L3",
             "people": "L3", "templates": "L3",

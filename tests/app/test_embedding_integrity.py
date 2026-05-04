@@ -225,7 +225,8 @@ class TestRankAndFuseContract:
     async def test_falls_back_gracefully_without_llm_fn(self):
         """When needs_ranking=True but no llm_fn provided, sort by score, don't crash."""
         from shared.retrieval import _rank_and_fuse
-        from shared.llm.config import ContextItem, QueryIntent
+        from shared.retrieval import ContextItem
+        from shared.llm.config import QueryIntent
 
         items = {
             "L1": [
@@ -246,7 +247,8 @@ class TestRankAndFuseContract:
     @pytest.mark.asyncio
     async def test_uses_real_llm_fn_when_provided(self):
         from shared.retrieval import _rank_and_fuse
-        from shared.llm.config import ContextItem, QueryIntent
+        from shared.retrieval import ContextItem
+        from shared.llm.config import QueryIntent
 
         items = {
             "L1": [

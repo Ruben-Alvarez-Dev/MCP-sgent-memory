@@ -8,7 +8,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from shared.llm.config import rank_by_relevance, ContextItem
+from shared.llm.config import rank_by_relevance
+from shared.retrieval import ContextItem
 
 # --- Unit Tests (SPEC-4.1: LLM Ranking Robust to JSON) ---
 

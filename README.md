@@ -200,6 +200,31 @@ MCP-servers/agent-memory/
 ├── models/                      # GGUF: embeddings/, reasoning/
 ├── logs/
 ├── src/
+│   ├── shared/                 # Core library (pip install -e .)
+│   │   ├── config.py           # Environment configuration
+│   │   ├── embedding.py        # BGE-M3 via llama.cpp
+│   │   ├── qdrant_client.py    # Qdrant vector operations
+│   │   ├── sanitize.py         # Input validation & XSS protection
+│   │   ├── retrieval/          # Hybrid retrieval + ranking
+│   │   ├── vault_manager/      # Obsidian vault atomic writes
+│   │   ├── conversation_db.py  # SQLite + FTS5 thread storage
+│   │   ├── timeline.py         # Event timeline
+│   │   ├── llm/                # LLM integration (llama.cpp)
+│   │   ├── diff_sandbox.py     # Code change sandbox
+│   │   ├── observe.py          # File system observer
+│   │   └── vault_constants.py  # Folder mappings
+│   ├── unified/server/main.py  # Unified MCP server entrypoint
+│   ├── L0_capture/             # Auto-capture: memorize, ingest, heartbeat
+│   ├── L0_to_L4_consolidation/ # Memory consolidation & dreaming
+│   ├── L2_conversations/       # Thread storage & search
+│   ├── L3_facts/               # Semantic memory CRUD
+│   ├── L3_decisions/           # Vault decisions + Obsidian notes
+│   ├── L5_routing/             # Context retrieval + reminders
+│   └── Lx_reasoning/           # Sequential thinking + plans
+├── install/                    # Bootstrap + app-install scripts
+├── tests/                      # 164 tests (core/ + app/)
+│   ├── core/                   # No external services needed
+│   └── app/                    # Requires Qdrant + embedding server
 ├── install/
 ├── backups/
 └── .venv/
@@ -275,18 +300,27 @@ make -j$(sysctl -n hw.ncpu)
 ## Installation
 
 ```bash
+# Full install (bootstrap + app configuration)
 curl -fsSL https://raw.githubusercontent.com/Ruben-Alvarez-Dev/MCP-agent-memory/main/install.sh | bash
+
+# Custom path
+curl -fsSL ... | bash -s -- ~/my-path
+
+# Skip LLM model download (~4.4GB)
+SKIP_LLM=1 bash install.sh
+
+# Reconfigure without re-bootstrap (e.g., new MCP client)
+bash install.sh --app-only
 ```
 
-The installer:
-1. Creates Python venv (3.12+)
-2. Installs dependencies (pydantic, httpx, mcp)
-3. Starts Qdrant vector database
-4. Downloads BGE-M3 embedding model + starts llama-server
-5. Generates config (`.env` + directory structure)
-6. Auto-detects and configures MCP client (OpenCode, Claude Desktop, Pi)
-7. Runs verification (imports, connectivity, unit tests)
-8. Compiles llama.cpp engine with Metal support
+The installer has two phases:
+1. **Bootstrap** (`install/bootstrap.sh`) — venv, Qdrant, BGE-M3 embedding, optional LLM model
+2. **App Install** (`install/app-install.sh`) — config, MCP client setup, verification
+
+Or install from source as a Python package:
+```bash
+pip install -e .   # installs agent-memory-core with all dependencies
+```
 
 ### Post-Install: Enable the Backpack Plugin
 

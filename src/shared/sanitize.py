@@ -224,39 +224,77 @@ def _normalize_whitespace(text: str) -> str:
 
 # ── Text sanitization ──────────────────────────────────────────────
 
+def _strip_html_tags(text: str) -> str:
+    """Remove HTML/XML tags to prevent XSS and markup injection.
+
+    Strips all <tag>...</tag> constructs including self-closing <tag/>.
+    Also strips HTML entities (&lt; &amp; etc.) back to literal characters
+    since memories store plain text, not rendered HTML.
+
+    Preserves: content between tags, angle brackets in code/math contexts
+    Strategy: remove anything that looks like an HTML tag, keep the rest.
+    """
+    # 1. Remove script/style blocks entirely (content + tags)
+    #    <script>...</script> — content is executable, never safe to keep
+    #    <style>...</style> — content is CSS, not user-visible text
+    cleaned = re.sub(r'<\s*script[^>]*>.*?<\s*/\s*script\s*>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r'<\s*style[^>]*>.*?<\s*/\s*style\s*>', '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+
+    # 2. Remove all remaining HTML/XML tags (including self-closing)
+    cleaned = re.sub(r'<\s*/?\s*[a-zA-Z][a-zA-Z0-9]*(?:\s[^>]*)?/?>', '', cleaned)
+
+    # 3. Decode common HTML entities to plain text
+    #    (&lt; → <, &amp; → &, &quot; → ", etc.)
+    html_entities = {
+        '&lt;': '<', '&gt;': '>', '&amp;': '&', '&quot;': '"',
+        '&#39;': "'", '&apos;': "'", '&nbsp;': ' ',
+    }
+    for entity, char in html_entities.items():
+        cleaned = cleaned.replace(entity, char)
+
+    # 4. Decode numeric entities (&#60; → <, &#x3C; → <)
+    cleaned = re.sub(r'&#(\d+);', lambda m: chr(int(m.group(1))) if int(m.group(1)) < 0x110000 else '', cleaned)
+    cleaned = re.sub(r'&#x([0-9a-fA-F]+);', lambda m: chr(int(m.group(1), 16)) if int(m.group(1), 16) < 0x110000 else '', cleaned)
+
+    return cleaned
+
+
 def sanitize_text(text: str, *, max_length: int = MAX_TEXT_LENGTH, field: str = "content") -> str:
     """Sanitize free-form text content (memories, decisions, events).
 
-    Pipeline: type check → control chars → invisible chars → bidi →
-              unicode normalize → whitespace → length check
+    Pipeline: type check → HTML strip → control chars → invisible chars →
+              bidi → unicode normalize → whitespace → length check
 
     Preserves: newlines (logical structure), tabs (code), unicode letters/emoji
-    Removes: null bytes, control chars, zero-width chars, BOM, bidi overrides
+    Removes: HTML tags, null bytes, control chars, zero-width chars, BOM, bidi overrides
     Normalizes: unicode NFC, whitespace variants → regular space
     """
     if not isinstance(text, str):
         raise SanitizeError(f"{field} must be a string, got {type(text).__name__}")
 
-    # 1. Strip control characters (keep \n and \t)
-    cleaned = _strip_control_chars(text)
+    # 1. Strip HTML/XML tags (prevent XSS)
+    cleaned = _strip_html_tags(text)
 
-    # 2. Strip invisible/formatting Unicode
+    # 2. Strip control characters (keep \n and \t)
+    cleaned = _strip_control_chars(cleaned)
+
+    # 3. Strip invisible/formatting Unicode
     cleaned = _strip_invisible_chars(cleaned)
 
-    # 3. Strip bi-directional overrides
+    # 4. Strip bi-directional overrides
     cleaned = _strip_bidi_overrides(cleaned)
 
-    # 4. Normalize unicode to composed form
+    # 5. Normalize unicode to composed form
     #    NFC: preferred for text storage (é → single codepoint)
     cleaned = unicodedata.normalize('NFC', cleaned)
 
-    # 5. Normalize whitespace variants to standard space
+    # 6. Normalize whitespace variants to standard space
     cleaned = _normalize_whitespace(cleaned)
 
-    # 6. Strip leading/trailing whitespace
+    # 7. Strip leading/trailing whitespace
     cleaned = cleaned.strip()
 
-    # 7. Collapse 3+ consecutive newlines to 2
+    # 8. Collapse 3+ consecutive newlines to 2
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
 
     if not cleaned:
@@ -275,6 +313,7 @@ def sanitize_code(text: str, *, max_length: int = MAX_TEXT_LENGTH, field: str = 
 
     Same as sanitize_text but preserves tabs (significant in Python/Makefile)
     and does NOT normalize whitespace (indentation matters).
+    Does NOT strip HTML — code may contain HTML/XML templates.
     """
     if not isinstance(text, str):
         raise SanitizeError(f"{field} must be a string, got {type(text).__name__}")
@@ -288,6 +327,7 @@ def sanitize_code(text: str, *, max_length: int = MAX_TEXT_LENGTH, field: str = 
     # NFC normalize
     cleaned = unicodedata.normalize('NFC', cleaned)
     # DO NOT normalize whitespace — indentation matters
+    # DO NOT strip HTML — code may contain HTML/XML templates
     # Strip leading/trailing
     cleaned = cleaned.strip()
 
@@ -304,6 +344,7 @@ def normalize_query(query: str) -> str:
     """Normalize a search query for consistent embedding/search.
 
     Same pipeline as sanitize_text plus:
+    - HTML strip (queries may come from web content)
     - Newlines → spaces (queries are single-line)
     - Shorter max length
     - NFKC normalization (fullwidth digits → ASCII, ligatures → parts)
@@ -311,7 +352,8 @@ def normalize_query(query: str) -> str:
     if not isinstance(query, str):
         raise SanitizeError("query must be a string")
 
-    cleaned = _strip_control_chars(query)
+    cleaned = _strip_html_tags(query)
+    cleaned = _strip_control_chars(cleaned)
     cleaned = _strip_invisible_chars(cleaned)
     cleaned = _strip_bidi_overrides(cleaned)
 

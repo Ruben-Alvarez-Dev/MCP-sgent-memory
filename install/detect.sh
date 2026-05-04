@@ -27,7 +27,7 @@ detect_install_mode() {
         echo "install"
         return 0
     fi
-    if [ ! -f "$INSTALL_DIR/etc/.env" ]; then
+    if [ ! -f "$INSTALL_DIR/config/.env" ] && [ ! -f "$INSTALL_DIR/etc/.env" ]; then
         echo "install"
         return 0
     fi

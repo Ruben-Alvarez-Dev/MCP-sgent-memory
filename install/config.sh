@@ -9,6 +9,7 @@ mkdir -p "$INSTALL_DIR/config" "$INSTALL_DIR/data"/{memory/{engram,dream,thought
 
 cat > "$INSTALL_DIR/config/.env" << EOF
 QDRANT_URL=http://127.0.0.1:$QDRANT_PORT
+QDRANT_COLLECTION=L0_L4_memory
 EMBEDDING_BACKEND=llama_server
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024

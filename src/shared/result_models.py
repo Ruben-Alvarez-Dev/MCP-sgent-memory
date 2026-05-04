@@ -10,7 +10,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
-# ── automem ────────────────────────────────────────────────────────
+# ── L0_capture ───────────────────────────────────────────────────────
 
 class MemorizeResult(BaseModel):
     status: str = "stored"
@@ -30,8 +30,8 @@ class HeartbeatResult(BaseModel):
     promotion_due: bool = False
     message: str = ""
 
-class AutoMemStatusResult(BaseModel):
-    daemon: str = "AutoMem"
+class L0CaptureStatusResult(BaseModel):
+    daemon: str = "L0_capture"
     status: str = "RUNNING"
     qdrant: str = "OK"
     llama_cpp: str = "OK"
@@ -114,19 +114,19 @@ class ConversationStatusResult(BaseModel):
     threads: int = 0
 
 
-# ── mem0 ───────────────────────────────────────────────────────────
+# ── L3_facts ───────────────────────────────────────────────────────
 
 class AddMemoryResult(BaseModel):
     status: str = "added"
     memory_id: str
 
-class Mem0StatusResult(BaseModel):
-    daemon: str = "mem0"
+class L3FactsStatusResult(BaseModel):
+    daemon: str = "L3_facts"
     status: str = "RUNNING"
     memories: int = 0
 
 
-# ── engram ─────────────────────────────────────────────────────────
+# ── L3_decisions ───────────────────────────────────────────────────
 
 class SaveDecisionResult(BaseModel):
     status: str = "saved"
@@ -157,10 +157,10 @@ class ModelPackResult(BaseModel):
 class ModelPackListResult(BaseModel):
     packs: list[str] = Field(default_factory=list)
 
-class EngramStatusResult(BaseModel):
-    daemon: str = "engram"
+class L3DecisionsStatusResult(BaseModel):
+    daemon: str = "L3_decisions"
     status: str = "RUNNING"
-    engram_files: int = 0
+    decision_files: int = 0
     vault_notes: int = 0
 
 

@@ -199,8 +199,8 @@ def main() -> None:
         # Import the tool functions from loaded modules.
         # These modules were loaded above via importlib, so they exist in sys.modules.
         L0_capture_mod = sys.modules.get("L0_capture")
-        L0_to_L4_consolidation_mod = sys.modules.get("L0-to-L4-consolidation")
-        L2_conversations_mod = sys.modules.get("L2-conversations")
+        L0_to_L4_consolidation_mod = sys.modules.get("L0_to_L4_consolidation")
+        L2_conversations_mod = sys.modules.get("L2_conversations")
         L5_routing_mod = sys.modules.get("L5_routing")
 
         if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:

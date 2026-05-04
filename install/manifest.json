@@ -1,11 +1,43 @@
 {
+  "version": "2.1.0",
+  "version_source": "manual",
+  "repo": "Ruben-Alvarez-Dev/MCP-agent-memory",
+  "python_min_version": "3.10",
+  "payload": [
+    "src/**",
+    "tests/**",
+    "install/**",
+    "config/.env.example",
+    "install.sh",
+    "run-daemon.sh",
+    ".gitignore",
+    "README.md"
+  ],
+  "preserve": [
+    "data/**",
+    "config/.env",
+    "config/mcp.json",
+    "engine/**",
+    "models/**",
+    "backups/**",
+    ".venv/**",
+    "vault/**",
+    "qdrant/storage/**",
+    "data/qdrant/**"
+  ],
+  "collections": [
+    {"name": "L0_L4_memory", "dimension": 1024, "sparse": true},
+    {"name": "L2_conversations", "dimension": 1024, "sparse": false},
+    {"name": "L3_facts", "dimension": 1024, "sparse": false}
+  ],
   "dependencies": [
     {"name": "mcp", "import": "mcp", "critical": true},
     {"name": "pydantic", "import": "pydantic", "critical": true},
     {"name": "httpx", "import": "httpx", "critical": true},
+    {"name": "pydantic-settings", "import": "pydantic_settings", "critical": true},
+    {"name": "python-dotenv", "import": "dotenv", "critical": false},
     {"name": "pyyaml", "import": "yaml", "critical": false},
     {"name": "qdrant-client", "import": "qdrant_client", "critical": false},
     {"name": "pygments", "import": "pygments", "critical": false}
-  ],
-  "python_min_version": "3.10"
+  ]
 }

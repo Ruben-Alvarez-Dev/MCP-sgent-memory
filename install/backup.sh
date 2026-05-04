@@ -19,14 +19,14 @@ if [ -d "$INSTALL_DIR/data" ]; then
 fi
 if [ -d "$INSTALL_DIR/config" ]; then
   mkdir -p "$BACKUP_DIR/config"
-  cp -a "$INSTALL_DIR/etc/." "$BACKUP_DIR/etc/" 2>/dev/null || true
+  cp -a "$INSTALL_DIR/config/." "$BACKUP_DIR/config/" 2>/dev/null || true
   SIZE=$(du -sk "$BACKUP_DIR/config" 2>/dev/null | cut -f1) || SIZE=0
   BACKUP_SIZE=$((BACKUP_SIZE + SIZE))
   echo OK-config
 fi
-if [ -d "$INSTALL_DIR/vault" ]; then
+if [ -d "$INSTALL_DIR/vault" ] || [ -d "$INSTALL_DIR/data/Lx-persistent" ]; then
   mkdir -p "$BACKUP_DIR/vault"
-  cp -a "$INSTALL_DIR/Lx-persistent/." "$BACKUP_DIR/Lx-persistent/" 2>/dev/null || true
+  cp -a "$INSTALL_DIR/data/Lx-persistent/." "$BACKUP_DIR/vault/" 2>/dev/null || true
   SIZE=$(du -sk "$BACKUP_DIR/vault" 2>/dev/null | cut -f1) || SIZE=0
   BACKUP_SIZE=$((BACKUP_SIZE + SIZE))
   COUNT=$(find "$BACKUP_DIR/vault" -type f 2>/dev/null | wc -l | tr -d ' ')

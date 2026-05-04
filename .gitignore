@@ -12,16 +12,22 @@ secrets.env
 .venv/
 engine/
 bin/
+!bin/vault_watcher.sh
+!bin/vault_processor.py
 lib/
 models/*.gguf
+!models/.gitkeep
 vault/
 tools.db
 *.dmg
 *.pid
 *.log
+embedding_cache.db*
 
 # ── Qdrant data (production database) ────────────────────────────
 MCP-servers/shared/qdrant/data/
+data/qdrant/
+qdrant/storage/
 
 # ── Build Dependencies (cloned at install time) ──────────────────
 llama.cpp/
@@ -68,17 +74,7 @@ $HOME/
 
 # ── Data (auto-created, local) ──────────────────────────────────
 data/
-embedding_cache.db*
-data/
 storage/
-models/*.gguf
-!models/.gitkeep
-
-# ── Vault daemon (versioned) ─────────────────────────────────────
-!bin/vault_watcher.sh
-!bin/vault_processor.py
-
-# ── Vault structure template (versioned) ─────────────────────────
 !data/Lx-persistent/
 !data/Lx-persistent/Inbox/
 !data/Lx-persistent/Decisiones/

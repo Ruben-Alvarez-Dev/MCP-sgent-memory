@@ -36,7 +36,7 @@ if [ ! -f "$SCRIPT_DIR/src/unified/server/main.py" ]; then
     mkdir -p "$INSTALL_DIR"
     # Clean stale dirs from previous installs
     rm -rf "$INSTALL_DIR/engine/llama.cpp"
-    for item in src config deps install.sh bin tests README.md .python-version .gitignore; do
+    for item in src install config deps install.sh run-daemon.sh bin tests README.md .python-version .gitignore; do
         [ -e "$TMPDIR/repo/$item" ] && cp -a "$TMPDIR/repo/$item" "$INSTALL_DIR/"
     done
     echo "  ✓ Source installed at $INSTALL_DIR ($(du -sh "$INSTALL_DIR" | awk '{print $1}'))"
@@ -130,7 +130,7 @@ for dep in "${DEPS[@]}"; do
     $PIP install "$dep" -q 2>/dev/null
     pkg=$(echo "$dep" | sed 's/[>=<].*//')
     imp=$(import_name "$pkg")
-    if python3 -c "import $imp" 2>/dev/null; then
+    if "$SCRIPT_DIR/.venv/bin/python3" -c "import $imp" 2>/dev/null; then
         pass "$dep"
     else
         fail "$dep"
@@ -140,7 +140,7 @@ for dep in "${DEVS[@]}"; do
     $PIP install "$dep" -q 2>/dev/null
     pkg=$(echo "$dep" | sed 's/[>=<].*//')
     imp=$(import_name "$pkg")
-    if python3 -c "import $imp" 2>/dev/null; then pass "$dep (dev)"; else fail "$dep"; fi
+    if "$SCRIPT_DIR/.venv/bin/python3" -c "import $imp" 2>/dev/null; then pass "$dep (dev)"; else fail "$dep"; fi
 done
 echo ""
 
@@ -283,9 +283,6 @@ LLM_PORT=8080
 
 if curl -s --max-time 3 http://localhost:8080/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
     pass "LLM server running on :8080"
-elif curl -s --max-time 3 http://localhost:8081/v1/models 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('data') else 1)" 2>/dev/null; then
-    pass "LLM server running on :8081"
-    LLM_PORT=8081
 elif [ -f "$LLM_MODEL_FILE" ]; then
     pass "LLM model found ($LLM_MODEL_FILE)"
 else
@@ -321,8 +318,13 @@ echo -e "${BOLD}[6/8] Configuration${NC}"
 echo "────────────────────────────────────────────────────────────"
 
 mkdir -p "$SCRIPT_DIR/config"
+if [ -f "$SCRIPT_DIR/config/.env" ]; then
+    chmod 600 "$SCRIPT_DIR/config/.env" 2>/dev/null || true
+    pass "config/.env preserved (existing)"
+else
 cat > "$SCRIPT_DIR/config/.env" << EOF
 QDRANT_URL=http://127.0.0.1:6333
+QDRANT_COLLECTION=L0_L4_memory
 EMBEDDING_BACKEND=llama_server
 LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
@@ -341,9 +343,11 @@ AUTOMEM_JSONL=$SCRIPT_DIR/data/raw_events.jsonl
 EOF
 chmod 600 "$SCRIPT_DIR/config/.env"
 pass "config/.env created"
+fi
 
 mkdir -p "$SCRIPT_DIR/data/memory"/{engram,dream,thoughts,heartbeats,reminders}
-mkdir -p "$SCRIPT_DIR/data"/{staging_buffer,vault}/{Inbox,Decisiones,Conocimiento,Episodios,Entidades,Notes}
+mkdir -p "$SCRIPT_DIR/data/staging_buffer"
+mkdir -p "$SCRIPT_DIR/data/vault"/{Inbox,Decisiones,Conocimiento,Episodios,Entidades,Notes}
 pass "Directory structure created"
 echo ""
 
@@ -538,4 +542,4 @@ if [ "$NEED_SERVICES" = true ]; then
 else
     echo "All services running. Restart your MCP client to use MCP-agent-memory."
 fi
-echo """
+echo ""

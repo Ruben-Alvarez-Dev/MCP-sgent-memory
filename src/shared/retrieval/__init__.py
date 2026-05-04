@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import httpx
 import os
 import sys
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("agent-memory.retrieval")
 
 from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
 from ..embedding import get_embedding, bm25_tokenize
@@ -217,7 +220,8 @@ async def _retrieve_parallel(
     for name, task in tasks.items():
         try:
             raw_results[name] = await task
-        except Exception:
+        except Exception as e:
+            logger.warning("Parallel retrieval failed for %s: %s", name, e)
             raw_results[name] = []
     return raw_results
 
@@ -268,12 +272,10 @@ async def _retrieve_hybrid(
                     timestamp=_parse_ts(payload.get("created_at")),
                 )
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Retrieval failed for collection=%s level=%s: %s", target_coll, level, e)
 
     return results
-
-
 
 
 async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:
@@ -298,8 +300,8 @@ async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:
                         metadata={"type": "decision"},
                     )
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Error reading engram file %s: %s", md_file, e)
     results.sort(key=lambda x: x.score, reverse=True)
     return results[:k]
 
@@ -337,8 +339,8 @@ def _rank_and_fuse(
                 top_k=profile.token_budget // 500,
             )
             all_items = [r["item"] for r in ranked]
-        except Exception:
-            pass  # Ranking failed, use score-based order
+        except Exception as e:
+            logger.debug("LLM ranking failed, using score-based order: %s", e)
 
     return all_items
 

@@ -68,12 +68,23 @@ class ScopedQdrantClient:
         client = self._get_client(agent_scope)
         await client.upsert(point_id, vector, payload, sparse=sparse)
 
+    async def get(self, point_id: str, agent_scope: str = "shared") -> Optional[dict]:
+        """Get a point by ID from the scope's collection."""
+        client = self._get_client(agent_scope)
+        return await client.get(point_id)
+
+    async def delete(self, point_id: str, agent_scope: str = "shared", wait: bool = True) -> bool:
+        """Delete a point by ID from the scope's collection."""
+        client = self._get_client(agent_scope)
+        return await client.delete(point_id, wait=wait)
+
     async def search(
         self,
         vector: list[float],
         agent_scope: str = "shared",
         limit: int = 10,
         score_threshold: float = 0.3,
+        filter: Optional[dict] = None,
     ) -> list[dict]:
         """Search in agent's collection + shared collection.
 
@@ -86,7 +97,7 @@ class ScopedQdrantClient:
             try:
                 own_client = self._get_client(agent_scope)
                 own_results = await own_client.search(
-                    vector, limit=limit, score_threshold=score_threshold
+                    vector, limit=limit, score_threshold=score_threshold, filter=filter
                 )
                 results.extend(own_results)
             except Exception as e:
@@ -96,7 +107,7 @@ class ScopedQdrantClient:
         try:
             shared_client = self._get_client("shared")
             shared_results = await shared_client.search(
-                vector, limit=limit, score_threshold=score_threshold
+                vector, limit=limit, score_threshold=score_threshold, filter=filter
             )
             results.extend(shared_results)
         except Exception as e:
@@ -120,6 +131,7 @@ class ScopedQdrantClient:
         self,
         agent_scope: str = "shared",
         limit: int = 50,
+        filter: Optional[dict] = None,
     ) -> list[dict]:
         """Scroll points from agent's collection + shared collection."""
         results = []
@@ -128,7 +140,7 @@ class ScopedQdrantClient:
         if agent_scope != "shared":
             try:
                 own_client = self._get_client(agent_scope)
-                own_results = await own_client.scroll(limit=limit)
+                own_results = await own_client.scroll(limit=limit, filter=filter)
                 results.extend(own_results)
             except Exception as e:
                 logger.warning("Scroll in %s collection failed: %s", agent_scope, e)
@@ -136,7 +148,7 @@ class ScopedQdrantClient:
         # 2. Shared collection
         try:
             shared_client = self._get_client("shared")
-            shared_results = await shared_client.scroll(limit=limit)
+            shared_results = await shared_client.scroll(limit=limit, filter=filter)
             results.extend(shared_results)
         except Exception as e:
             logger.warning("Scroll in shared collection failed: %s", e)

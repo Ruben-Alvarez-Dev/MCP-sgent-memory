@@ -25,7 +25,6 @@ check "$INSTALL_DIR/config/mcp.json" "config/mcp.json"
 # 2. Binaries (compiled from source in engine/bin)
 echo "  [Binaries]"
 check "$INSTALL_DIR/engine/bin/llama-server" "engine/bin/llama-server"
-check "$INSTALL_DIR/engine/bin/llama-server" "engine/bin/llama-server"
 
 # 3. Embedding model
 echo "  [Embedding Model]"
@@ -46,7 +45,7 @@ check_url "http://127.0.0.1:$LLAMA_PORT/health" "llama-server (port $LLAMA_PORT)
 
 # 5. Qdrant collections
 echo "  [Qdrant Collections]"
-for col in L0_capture conversations L3_facts_memories; do
+for col in L0_L4_memory L2_conversations L3_facts; do
     if curl -sf "http://127.0.0.1:$QDRANT_PORT/collections/$col" >/dev/null 2>&1; then
         echo "  ✓ Collection $col"; PASS=$((PASS+1))
     else
@@ -54,17 +53,22 @@ for col in L0_capture conversations L3_facts_memories; do
     fi
 done
 
-# 6. Embeddings working (uses venv python, not system python3)
+# 4. Embeddings working (uses venv python, not system python3)
 echo "  [Embeddings]"
-EMB_RESULT=$(curl -sf -X POST "http://127.0.0.1:$LLAMA_PORT/embedding" \
+EMB_RESULT=$(curl -sf -X POST "http://127.0.0.1:$LLAMA_PORT/v1/embeddings" \
     -H "Content-Type: application/json" \
-    -d '{"content":"test"}' 2>/dev/null) && EMB_OK=true || EMB_OK=false
+    -d '{"input":"test","model":"bge-m3"}' 2>/dev/null) && EMB_OK=true || EMB_OK=false
 
 if [ "$EMB_OK" = "true" ]; then
     EMB_DIMS=$(echo "$EMB_RESULT" | "$PYTHON" -c "
 import sys, json
 data = json.load(sys.stdin)
-emb = data[0]['embedding'] if isinstance(data, list) else data.get('embedding', [])
+if isinstance(data, list):
+    emb = data[0].get('embedding', [])
+elif isinstance(data, dict):
+    emb = data.get('data', [{}])[0].get('embedding', [])
+else:
+    emb = []
 print(len(emb))
 " 2>/dev/null) || EMB_DIMS=0
     if [ "$EMB_DIMS" -ge 384 ]; then

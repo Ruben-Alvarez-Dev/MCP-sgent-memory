@@ -56,7 +56,12 @@ install_from_pip() {
 install_via_download() {
     log "Strategy 3: download wheels..."
     local tmpdir=$(mktemp -d)
-    if pip3 download --only-binary=:all: --python-version 3.12 --platform macosx_11_0_arm64 \
+    local pyver=$("$VENV_PY" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    local platform=$("$VENV_PY" -c "import platform; print(platform.system().lower())")
+    local arch=$("$VENV_PY" -c "import platform; m=platform.machine(); print('x86_64' if m=='x86_64' or m=='AMD64' else 'aarch64')")
+    local plat_tag="${platform}_${arch}"
+    log "  Downloading for Python $pyver ($plat_tag)..."
+    if pip3 download --only-binary=:all: --python-version "$pyver" --platform "$plat_tag" \
         -d "$tmpdir" mcp pydantic httpx pyyaml 2>/dev/null; then
         if "$VENV_PIP" install --no-index --find-links "$tmpdir" "$tmpdir"/*.whl 2>/dev/null; then
             rm -rf "$tmpdir"

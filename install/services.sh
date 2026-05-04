@@ -3,8 +3,9 @@
 set -euo pipefail
 SCRIPT_DIR_SVC="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR_SVC="$(dirname "$SCRIPT_DIR_SVC")"
-INSTALL_DIR="${1:?Usage: services.sh <install_dir>}"
+INSTALL_DIR="${1:?Usage: services.sh <install_dir> [qdrant_port] [start|stop|status] [llama_port]}"
 QDRANT_PORT="${2:-6333}"
+ACTION="${3:-start}"
 LLAMA_PORT="${4:-8081}"
 
 start_qdrant() {
@@ -39,12 +40,21 @@ status_qdrant() {
 }
 
 create_collections() {
-    for col in L0_L4_memory L2_conversations L3_facts; do
-        curl -s -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/$col" \
-            -H "Content-Type: application/json" \
-            -d '{"vectors":{"size":1024,"distance":"Cosine"},"sparse_vectors":{"text":{"index":{"type":"bm25"}}}}' \
-            >/dev/null 2>&1 && echo "  ✓ Collection $col"
-    done
+    # L0_L4_memory: dense + sparse (BM25 hybrid search)
+    curl -s -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/L0_L4_memory" \
+        -H "Content-Type: application/json" \
+        -d '{"vectors":{"size":1024,"distance":"Cosine"},"sparse_vectors":{"text":{"index":{"type":"bm25"}}}}' \
+        >/dev/null 2>&1 && echo "  ✓ Collection L0_L4_memory (dense+sparse)"
+    # L2_conversations: dense only
+    curl -s -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/L2_conversations" \
+        -H "Content-Type: application/json" \
+        -d '{"vectors":{"size":1024,"distance":"Cosine"}}' \
+        >/dev/null 2>&1 && echo "  ✓ Collection L2_conversations (dense)"
+    # L3_facts: dense only
+    curl -s -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/L3_facts" \
+        -H "Content-Type: application/json" \
+        -d '{"vectors":{"size":1024,"distance":"Cosine"}}' \
+        >/dev/null 2>&1 && echo "  ✓ Collection L3_facts (dense)"
 }
 
 start_llama_server() {
@@ -79,7 +89,7 @@ status_llama_server() {
     fi
 }
 
-case "${3:-start}" in
+case "$ACTION" in
     start)
         start_qdrant; sleep 2; create_collections
         start_llama_server; echo "  ⏳ Waiting for llama-server to load model..."; sleep 15

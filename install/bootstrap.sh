@@ -210,9 +210,9 @@ if [ "$QDRANT_OK" = true ]; then
     # Create collections if they don't exist
     bash "$INSTALL_DIR/install/services.sh" "$INSTALL_DIR" "$QDRANT_PORT" status 2>/dev/null || true
     for col in L0_L4_memory L2_conversations L3_facts; do
-        curl -sf -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/$col" \
+        curl -sf --max-time 5 -X PUT "http://127.0.0.1:$QDRANT_PORT/collections/$col" \
             -H "Content-Type: application/json" \
-            -d '{}' >/dev/null 2>&1
+            -d '{}' >/dev/null 2>&1 || true
     done
     pass "Qdrant collections verified"
 fi

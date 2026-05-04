@@ -375,7 +375,7 @@ class LlamaServerBackend(EmbeddingBackend):
      """
 
     def __init__(self):
-        self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8080")
+        self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
         self._available: Optional[bool] = None
 
     def is_available(self) -> bool:
@@ -394,9 +394,9 @@ class LlamaServerBackend(EmbeddingBackend):
         import urllib.request
         import json as _json
 
-        body = _json.dumps({"content": text}).encode()
+        body = _json.dumps({"input": text, "model": "BGE-M3"}).encode()
         req = urllib.request.Request(
-            f"{self._url}/embedding",
+            f"{self._url}/v1/embeddings",
             data=body,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -404,16 +404,10 @@ class LlamaServerBackend(EmbeddingBackend):
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = _json.loads(resp.read())
-            if isinstance(data, list) and data:
-                emb = data[0].get("embedding", [])
-                if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                    return emb[0]
-                return emb
-            if isinstance(data, dict):
-                emb = data.get("embedding", [])
-                if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                    return emb[0]
-                return emb
+            if isinstance(data, dict) and "data" in data:
+                items = data["data"]
+                if items and isinstance(items, list):
+                    return items[0].get("embedding", [])
             raise ValueError(f"Unexpected embedding response format: {type(data)}")
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:

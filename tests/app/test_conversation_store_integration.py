@@ -47,10 +47,20 @@ requires_qdrant = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def setup(tmp_path):
-    """Fresh SQLite DB per test. Qdrant cleanup done in test body."""
+    """Fresh SQLite DB per test. Cleanup Qdrant test collection after each test."""
     db_path = str(tmp_path / "integration_test.db")
     set_db_path(db_path)
     yield
+    # Post-test cleanup: remove test Qdrant collection
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_clean_qdrant())
+        else:
+            loop.run_until_complete(_clean_qdrant())
+    except Exception:
+        pass
 
 
 async def _clean_qdrant():

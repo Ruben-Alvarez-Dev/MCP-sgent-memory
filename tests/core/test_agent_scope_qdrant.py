@@ -43,6 +43,7 @@ requires_qdrant = pytest.mark.skipif(
 @pytest.mark.asyncio
 async def test_scoped_creates_separate_collections():
     """Each agent scope should get its own collection."""
+    import httpx
     client = ScopedQdrantClient(QDRANT_URL, "test_scoped", 1024)
     await client.ensure_collection("director-1")
     await client.ensure_collection("engineer-1")
@@ -52,6 +53,11 @@ async def test_scoped_creates_separate_collections():
     assert await client.count("director-1") == 0
     assert await client.count("engineer-1") == 0
     assert await client.count("shared") == 0
+
+    # Cleanup
+    async with httpx.AsyncClient(timeout=10) as hc:
+        for suffix in ["director-1", "engineer-1", "shared"]:
+            await hc.delete(f"{QDRANT_URL}/collections/test_scoped_{suffix}")
 
 
 @requires_qdrant
@@ -111,6 +117,7 @@ def test_level_map():
 @pytest.mark.asyncio
 async def test_hybrid_creates_level_collections():
     """Each level should get its own collection."""
+    import httpx
     client = HybridQdrantClient(QDRANT_URL, "test_hybrid", 1024)
     await client.ensure_collection("director-1")
     await client.ensure_collection("engineer-1")
@@ -121,6 +128,11 @@ async def test_hybrid_creates_level_collections():
     assert await client.count("catedratico-1") == 0  # Same collection as directors
     assert await client.count("engineer-1") == 0
     assert await client.count("shared") == 0
+
+    # Cleanup
+    async with httpx.AsyncClient(timeout=10) as hc:
+        for suffix in ["directors", "engineers", "shared"]:
+            await hc.delete(f"{QDRANT_URL}/collections/test_hybrid_{suffix}")
 
 
 @requires_qdrant

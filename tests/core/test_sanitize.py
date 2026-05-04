@@ -171,3 +171,30 @@ class TestVaultPathTraversal:
         import os
         assert os.path.basename("../../../etc/passwd.md") == "passwd.md"
         assert os.path.basename("/tmp/evil.md") == "evil.md"
+
+
+class TestConfigPortValidation:
+    """Verify config rejects invalid port numbers."""
+
+    def test_validates_port_range(self):
+        """Port out of 1-65535 range should produce an error."""
+        import os
+        import importlib
+        old = os.environ.pop("QDRANT_URL", None)
+        try:
+            os.environ["QDRANT_URL"] = "http://127.0.0.1:99999"
+            # Force re-import to pick up new env var
+            import shared.config as cfg_mod
+            importlib.reload(cfg_mod)
+            errors = cfg_mod.Config.from_env().validate()
+            assert any("port" in e.lower() for e in errors), (
+                f"Expected port error, got: {errors}"
+            )
+        finally:
+            if old is not None:
+                os.environ["QDRANT_URL"] = old
+            elif "QDRANT_URL" in os.environ:
+                del os.environ["QDRANT_URL"]
+            # Restore original config module
+            import shared.config as cfg_mod
+            importlib.reload(cfg_mod)

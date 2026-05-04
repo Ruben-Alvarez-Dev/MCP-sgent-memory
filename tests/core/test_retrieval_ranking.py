@@ -70,3 +70,35 @@ def test_rank_and_fuse_respects_level_weights():
     assert len(fused) == 2
     # L1 item should come first (same score but higher level_weight)
     assert fused[0].content == "high_weight"
+
+
+def test_rank_and_fuse_clamps_negative_scores():
+    """Negative scores from sparse vectors should be clamped to [0, 1]."""
+    results = {
+        "L1": [ContextItem(content="negative", score=-0.5, source_name="L1", source_level=1)],
+        "L2": [ContextItem(content="positive", score=0.3, source_name="L2", source_level=2)],
+    }
+    profile = _default_profile()
+    intent = _default_intent()
+
+    fused = _rank_and_fuse(results, profile, intent)
+
+    assert len(fused) == 2
+    for item in fused:
+        assert 0.0 <= item.combined_score <= 1.0, (
+            f"combined_score {item.combined_score} not in [0, 1] for '{item.content}'"
+        )
+
+
+def test_rank_and_fuse_clamps_oversized_scores():
+    """Scores > 1.0 should be clamped (shouldn't happen, but defense in depth)."""
+    results = {
+        "L1": [ContextItem(content="huge", score=5.0, source_name="L1", source_level=1)],
+    }
+    profile = _default_profile()
+    intent = _default_intent()
+
+    fused = _rank_and_fuse(results, profile, intent)
+
+    assert len(fused) == 1
+    assert fused[0].combined_score <= 1.0

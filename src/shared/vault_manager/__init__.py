@@ -1,6 +1,5 @@
 from __future__ import annotations
 from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES, EN_TO_ES, ES_TO_EN, LAYER_MAP, TYPE_CODES, get_all_disk_folders, get_all_en_folders, get_layer, get_type_code)
-from ..sanitize import sanitize_filename
 from ..sanitize import SanitizeError
 """Vault Manager — Obsidian vault with catastrophe-proof writes.
 

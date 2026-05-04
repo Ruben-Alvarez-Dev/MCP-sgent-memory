@@ -32,7 +32,7 @@ import json
 import os
 import re
 import unicodedata
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 

@@ -127,7 +127,8 @@ class Config:
                 port = urlparse(self.qdrant_url).port
                 if port is not None and not (1 <= port <= 65535):
                     errors.append(f"QDRANT_URL port out of range: {port}")
-            except Exception:
+            except ValueError:
+                errors.append(f"QDRANT_URL has invalid port number")
                 pass
 
         # Embedding backend

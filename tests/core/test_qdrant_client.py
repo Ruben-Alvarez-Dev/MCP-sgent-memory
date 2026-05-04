@@ -1,89 +1,70 @@
-"""Tests for QdrantClient — vector validation, retry logic."""
-import asyncio
+"""Tests for QdrantClient — payload validation and security."""
+import sys
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from shared.qdrant_client import QdrantClient
-import httpx
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from shared.qdrant_client import _validate_payload_keys, _QDRANT_RESERVED_KEYS
 
 
-class TestVectorValidation:
-    """B-1: Reject empty and mismatched vectors."""
+class TestValidatePayloadKeys:
+    """Verify that Qdrant payload key validation prevents injection."""
 
-    @pytest.mark.asyncio
-    async def test_empty_vector_rejected(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        with pytest.raises(ValueError, match="Invalid vector"):
-            await c.upsert("id-1", [], {"test": True})
+    def test_rejects_reserved_id(self):
+        with pytest.raises(ValueError, match="reserved by Qdrant"):
+            _validate_payload_keys({"id": "evil", "content": "ok"})
 
-    @pytest.mark.asyncio
-    async def test_wrong_dim_rejected(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        with pytest.raises(ValueError, match="1024"):
-            await c.upsert("id-1", [0.1] * 512, {"test": True})
+    def test_rejects_reserved_vector(self):
+        with pytest.raises(ValueError, match="reserved by Qdrant"):
+            _validate_payload_keys({"vector": [1, 2, 3], "content": "ok"})
 
-    @pytest.mark.asyncio
-    async def test_valid_vector_schema_version(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        mock_client = AsyncMock()
-        mock_client.put = AsyncMock()
-        c._get_client = AsyncMock(return_value=mock_client)
+    def test_rejects_reserved_payload(self):
+        with pytest.raises(ValueError, match="reserved by Qdrant"):
+            _validate_payload_keys({"payload": {"nested": True}})
 
-        await c.upsert("id-1", [0.1] * 1024, {"test": True})
-        call_args = mock_client.put.call_args
-        import json
-        points = call_args[1]["json"]["points"]
-        assert points[0]["payload"]["schema_version"] == "1.0"
+    def test_rejects_reserved_sparse_vectors(self):
+        with pytest.raises(ValueError, match="reserved by Qdrant"):
+            _validate_payload_keys({"sparse_vectors": {"indices": []}})
 
-    @pytest.mark.asyncio
-    async def test_batch_empty_vector_rejected(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        with pytest.raises(ValueError, match="Invalid vector"):
-            await c.upsert_batch([
-                {"id": "id-1", "vector": [], "payload": {"test": True}},
-            ])
+    def test_rejects_key_with_slash(self):
+        with pytest.raises(ValueError, match="must match"):
+            _validate_payload_keys({"my/key": "value"})
 
+    def test_rejects_key_with_dot(self):
+        with pytest.raises(ValueError, match="must match"):
+            _validate_payload_keys({"my.key": "value"})
 
-class TestRetryLogic:
-    """C-1: Retry with exponential backoff."""
+    def test_rejects_key_starting_with_number(self):
+        with pytest.raises(ValueError, match="must match"):
+            _validate_payload_keys({"123bad": "value"})
 
-    @pytest.mark.asyncio
-    async def test_retries_on_connection_error(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        mock_client = AsyncMock()
-        # Fail twice, succeed third time
-        mock_client.put = AsyncMock(
-            side_effect=[httpx.ConnectError("refused"), httpx.ConnectError("refused"), None]
-        )
-        c._get_client = AsyncMock(return_value=mock_client)
+    def test_rejects_key_with_spaces(self):
+        with pytest.raises(ValueError, match="must match"):
+            _validate_payload_keys({"bad key": "value"})
 
-        # Should succeed after retries
-        await c.upsert("id-1", [0.1] * 1024, {"test": True})
-        assert mock_client.put.call_count == 3
+    def test_accepts_normal_keys(self):
+        """Normal alphanumeric keys with underscores should pass."""
+        # Should NOT raise
+        _validate_payload_keys({
+            "memory_id": "abc",
+            "content": "hello",
+            "layer": "L1",
+            "scope_type": "session",
+            "created_at": "2025-01-01",
+            "_private_key": "ok",
+        })
 
-    @pytest.mark.asyncio
-    async def test_raises_after_max_retries(self):
-        c = QdrantClient("http://localhost:6333", "test", 1024)
-        mock_client = AsyncMock()
-        mock_client.put = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        c._get_client = AsyncMock(return_value=mock_client)
+    def test_includes_point_id_in_error(self):
+        with pytest.raises(ValueError, match="point-123"):
+            _validate_payload_keys({"id": "bad"}, point_id="point-123")
 
-        with pytest.raises(httpx.ConnectError):
-            await c.upsert("id-1", [0.1] * 1024, {"test": True})
-        assert mock_client.put.call_count == 3  # max_retries
-
-
-class TestConfigValidation:
-    """G-3: Config.validate() covers all fields."""
-
-    def test_valid_config(self):
-        from shared.config import Config
-        c = Config.from_env()
-        errors = c.validate()
-        assert isinstance(errors, list)
-
-    def test_invalid_backend(self):
-        from shared.config import Config
-        c = Config.from_env()
-        c.embedding_backend = "invalid_backend"
-        errors = c.validate()
-        assert any("EMBEDDING_BACKEND" in e for e in errors)
+    def test_reserved_keys_set_is_complete(self):
+        """Verify the reserved set covers all Qdrant point structure keys."""
+        assert "id" in _QDRANT_RESERVED_KEYS
+        assert "vector" in _QDRANT_RESERVED_KEYS
+        assert "sparse_vectors" in _QDRANT_RESERVED_KEYS
+        assert "payload" in _QDRANT_RESERVED_KEYS

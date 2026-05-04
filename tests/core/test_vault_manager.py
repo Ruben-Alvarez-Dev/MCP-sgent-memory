@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 
 import pytest
 from shared.vault_manager import VaultManager
+from shared.sanitize import SanitizeError
 from shared.vault_constants import (
     FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE,
     FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES,
@@ -304,3 +305,41 @@ class TestFolderMapping:
         """FOLDER_MAP_REVERSE is the inverse of FOLDER_MAP."""
         for k, v in vault.FOLDER_MAP.items():
             assert vault.FOLDER_MAP_REVERSE[v] == k
+
+
+# ── Path traversal prevention ───────────────────────────────────────
+
+
+class TestPathTraversalPrevention:
+    """Verify that vault operations cannot escape the vault directory."""
+
+    def test_write_strips_traversal_components(self, vault: VaultManager, tmp_path: Path):
+        """../../../etc/passwd.md should be stripped to 'passwd.md' by basename."""
+        dest = vault.write_note("decisions", "../../../etc/passwd.md", {"content": "safe"})
+        # os.path.basename strips directory — file stays inside vault
+        assert dest.name == "passwd.md"
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_write_strips_null_bytes(self, vault: VaultManager):
+        """Null bytes should not appear in the written filename."""
+        # Python's os.path.basename doesn't strip \x00 but the check does
+        with pytest.raises(SanitizeError, match="null bytes"):
+            vault.write_note("decisions", "test\x00evil.md", {"content": "evil"})
+
+    def test_write_strips_directory_from_filename(self, vault: VaultManager, tmp_path: Path):
+        """Subdirectory in filename should be stripped to basename only."""
+        dest = vault.write_note("decisions", "sub/dir/note.md", {"content": "safe"})
+        assert dest.name == "note.md"
+        # Verify it's inside the vault, not outside
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_append_strips_traversal_components(self, vault: VaultManager, tmp_path: Path):
+        """append_note should also strip traversal via basename."""
+        dest = vault.append_note("decisions", "../../../tmp/evil.md", "content")
+        assert dest.name == "evil.md"
+        assert str(dest.resolve()).startswith(str(tmp_path.resolve()))
+
+    def test_empty_folder_defaults_to_inbox(self, vault: VaultManager):
+        """Empty folder should default to 'inbox'."""
+        dest = vault.write_note("", "note.md", {"content": "test"})
+        assert "inbox" in str(dest)

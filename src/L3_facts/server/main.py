@@ -10,7 +10,7 @@ from shared.config import Config
 from shared.qdrant_client import QdrantClient
 from shared.embedding import async_embed, safe_embed, bm25_tokenize
 from shared.sanitize import validate_add_memory
-from shared.result_models import AddMemoryResult, SearchResult, LayerResult as Mem0ListResult, DismissResult as DeleteResult, Mem0StatusResult
+from shared.result_models import AddMemoryResult, SearchResult, LayerResult as Mem0ListResult, DismissResult as DeleteResult, L3FactsStatusResult as Mem0StatusResult
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, "L3_facts", config.embedding_dim)

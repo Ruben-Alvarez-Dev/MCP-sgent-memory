@@ -9,7 +9,7 @@ from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
 from shared.sanitize import validate_save_decision, validate_vault_write, sanitize_filename, sanitize_text, sanitize_thread_id, validate_json_field
-from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, EngramStatusResult
+from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, L3DecisionsStatusResult as EngramStatusResult
 
 config = Config.from_env()
 ENGRAM_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
@@ -137,7 +137,7 @@ async def list_model_packs() -> ModelPackListResult:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def status() -> EngramStatusResult:
     vc = sum(1 for _ in VAULT_PATH.rglob("*.md")) if VAULT_PATH.exists() else 0
-    return EngramStatusResult(daemon="engram", status="RUNNING", engram_files=len(_files()), vault_notes=vc)
+    return EngramStatusResult(daemon="L3_decisions", status="RUNNING", decision_files=len(_files()), vault_notes=vc)
 
 def register_tools(target_mcp, _qdrant, target_config, prefix=""):
     global config, ENGRAM_PATH, VAULT_PATH

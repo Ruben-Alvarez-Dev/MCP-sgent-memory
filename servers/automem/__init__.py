@@ -1,1 +1,0 @@
-# automem MCP server module

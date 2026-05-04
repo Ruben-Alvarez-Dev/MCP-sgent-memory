@@ -1,9 +1,0 @@
-# Qdrant configuration
-storage:
-  storage_path: ./data
-  snapshots_path: ./snapshots
-service:
-  host: 127.0.0.1
-  http_port: 6333
-  grpc_port: 6334
-log_level: INFO

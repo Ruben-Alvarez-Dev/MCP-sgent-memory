@@ -1,1 +1,0 @@
-# autodream MCP server module

@@ -18,7 +18,7 @@ from shared.qdrant_client import QdrantClient
 from shared.models import HeartbeatStatus, MemoryItem, MemoryLayer, MemoryScope, MemoryType, RawEvent, RawEventType
 from shared.embedding import async_embed, safe_embed, bm25_tokenize
 from shared.sanitize import validate_memorize, validate_ingest_event
-from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, AutoMemStatusResult
+from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult as AutoMemStatusResult
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)

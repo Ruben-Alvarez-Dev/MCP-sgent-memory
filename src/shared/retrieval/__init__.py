@@ -25,6 +25,7 @@ from ..embedding import get_embedding, bm25_tokenize
 from .index_repo import build_repo_index_points, upsert_repository_index
 from .pruner import prune_content
 from .repo_map import get_repo_map
+from ..qdrant_client import QdrantClient
 
 # ── Configuration ──────────────────────────────────────────────────
 
@@ -39,6 +40,12 @@ ENGRAM_PATH = os.getenv(
 )
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
+
+_qdrant_clients: dict[str, QdrantClient] = {}
+def _get_scoped_client(collection: str) -> QdrantClient:
+    if collection not in _qdrant_clients:
+        _qdrant_clients[collection] = QdrantClient(QDRANT_URL, collection, 1024)
+    return _qdrant_clients[collection]
 
 
 # ── Retrieval Profiles ────────────────────────────────────────────
@@ -162,6 +169,7 @@ async def retrieve(
     session_type: str = "coding",
     token_budget: int | None = None,
     open_files: list[str] | None = None,
+    agent_scope: str = "shared",
 ) -> ContextPack:
     intent = classify_intent(query, session_type, open_files)
     setattr(intent, "_original_query", query)
@@ -171,7 +179,7 @@ async def retrieve(
     if token_budget:
         profile = RetrievalProfile(**{**profile.__dict__, "token_budget": token_budget})
 
-    results = await _retrieve_parallel(intent, profile)
+    results = await _retrieve_parallel(intent, profile, agent_scope)
     ranked = _rank_and_fuse(results, profile, intent)
     pack = _pack_context(ranked, profile, intent)
     pack.query = query
@@ -179,7 +187,7 @@ async def retrieve(
 
 
 async def _retrieve_parallel(
-    intent: QueryIntent, profile: RetrievalProfile
+    intent: QueryIntent, profile: RetrievalProfile, agent_scope: str = "shared"
 ) -> dict[str, list[ContextItem]]:
     tasks: dict[str, asyncio.Task] = {}
     for level, weight in profile.level_weights.items():
@@ -189,20 +197,20 @@ async def _retrieve_parallel(
 
         if level == 0:
             tasks["L0"] = asyncio.create_task(
-                _retrieve_hybrid(intent, k, collection=CONV_COLLECTION)
+                _retrieve_hybrid(intent, k, collection=CONV_COLLECTION, agent_scope=agent_scope)
             )
         elif level == 1:
-            tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1))
+            tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1, agent_scope=agent_scope))
         elif level == 2:
-            tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2))
+            tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2, agent_scope=agent_scope))
             tasks["L2_engram"] = asyncio.create_task(_retrieve_engram(intent, k))
         elif level == 3:
-            tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3))
+            tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3, agent_scope=agent_scope))
         elif level == 4:
-            tasks["L4"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=4))
+            tasks["L4"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=4, agent_scope=agent_scope))
         elif level == 5:
             tasks["L5"] = asyncio.create_task(
-                _retrieve_hybrid(intent, k, collection=MEM0_COLLECTION)
+                _retrieve_hybrid(intent, k, collection=MEM0_COLLECTION, agent_scope=agent_scope)
             )
 
     raw_results: dict[str, list[ContextItem]] = {}
@@ -215,7 +223,7 @@ async def _retrieve_parallel(
 
 
 async def _retrieve_hybrid(
-    intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None
+    intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None, agent_scope: str = "shared"
 ) -> list[ContextItem]:
     """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
 
@@ -230,7 +238,7 @@ async def _retrieve_hybrid(
     if not query_text:
         return []
 
-    target_coll = collection or QDRANT_COLLECTION
+    target_coll = f"{collection or QDRANT_COLLECTION}_{agent_scope}" if agent_scope and agent_scope != "shared" else (collection or QDRANT_COLLECTION)
     search_filter = (
         {"must": [{"key": "layer", "match": {"value": level}}]}
         if level is not None
@@ -239,36 +247,29 @@ async def _retrieve_hybrid(
 
     results: list[ContextItem] = []
 
-    async with httpx.AsyncClient() as client:
-        # ── 1. Dense search via /points/search (reliable scores) ──
-        try:
-            vector = get_embedding(query_text)
-            body = {
-                "vector": vector,
-                "limit": k,
-                "score_threshold": MIN_SCORE,
-                "with_payload": True,
-            }
-            if search_filter:
-                body["filter"] = search_filter
-            resp = await client.post(
-                f"{QDRANT_URL}/collections/{target_coll}/points/search", json=body
+    try:
+        client = _get_scoped_client(target_coll)
+        vector = get_embedding(query_text)
+        search_results = await client.search(
+            vector,
+            limit=k,
+            score_threshold=MIN_SCORE,
+            filter=search_filter,
+        )
+        for p in search_results:
+            payload = p.get("payload", {})
+            results.append(
+                ContextItem(
+                    content=payload.get("content", ""),
+                    source_level=payload.get("layer", level or 1),
+                    source_name=target_coll,
+                    score=p.get("score", 0),
+                    metadata=payload,
+                    timestamp=_parse_ts(payload.get("created_at")),
+                )
             )
-            if resp.status_code == 200:
-                for p in resp.json().get("result", []):
-                    payload = p.get("payload", {})
-                    results.append(
-                        ContextItem(
-                            content=payload.get("content", ""),
-                            source_level=payload.get("layer", level or 1),
-                            source_name=target_coll,
-                            score=p.get("score", 0),
-                            metadata=payload,
-                            timestamp=_parse_ts(payload.get("created_at")),
-                        )
-                    )
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     return results
 

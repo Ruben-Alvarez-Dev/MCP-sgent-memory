@@ -25,11 +25,11 @@ def _save_reminder(r): (_L5_selective_path / f"{r.reminder_id}.json").write_text
 def _get_reminders(aid): return [ContextReminder(**json.loads(f.read_text())) for f in _L5_selective_path.glob("*.json")]
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def request_context(query: str, agent_id: str = "default", intent: str = "answer", token_budget: int = 8000, scopes: str = "", mode: str = "standard") -> ContextPackResult:
+async def request_context(query: str, agent_id: str = "shared", intent: str = "answer", token_budget: int = 8000, scopes: str = "", mode: str = "standard") -> ContextPackResult:
     """LLM requests context. Returns a ContextPack with smart routing."""
     clean = validate_request_context(query, intent)
     sm = {"answer":"dev","plan":"dev","review":"dev","debug":"ops","study":"docs"}
-    pack = await smart_retrieve(query=clean["query"], session_type=sm.get(clean["intent"],"dev"), token_budget=token_budget)
+    pack = await smart_retrieve(query=clean["query"], session_type=sm.get(clean["intent"],"dev"), token_budget=token_budget, agent_scope=agent_id)
     sources = [ContextSource(scope=s.get("source",""),layer=s.get("level",0),mem_type="",score=s.get("confidence",0),content_preview=s.get("content","")[:500]) for s in pack.sections]
     parts = [f"[{s.get('source','?')}] (conf={s.get('confidence',0):.2f}): {s.get('content','')[:200]}" for s in pack.sections]
     legacy = ContextPack(request_id="",query=clean["query"],sources=sources,summary="\n".join(parts) or "No context found",token_estimate=pack.total_tokens,reason=f"smart_retrieve:{pack.profile}")
@@ -47,7 +47,8 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     """System pushes a context reminder to the LLM."""
     clean = validate_push_reminder(query, agent_id)
     vector = await async_embed(clean["query"])
-    results = await qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
+    scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
+    results = await scoped_qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
     sources = [ContextSource(scope=f"{r.get('payload',{}).get('scope_type','')}/{r.get('payload',{}).get('scope_id','')}",layer=r.get("payload",{}).get("layer",0),mem_type=r.get("payload",{}).get("type",""),score=r.get("score",0),content_preview=r.get("payload",{}).get("content","")[:500]) for r in results]
     summary = "\n".join(f"[{s.layer}][{s.score:.2f}] {s.content_preview}" for s in sources) or "No context found"
     pack = ContextPack(request_id="",query=clean["query"],sources=sources,summary=summary,token_estimate=_estimate_tokens(summary),reason=reason)
@@ -75,7 +76,8 @@ async def detect_context_shift(current_query: str, previous_query: str = "", age
     new_ctx = ""
     if shifted:
         vec = await async_embed(current_query)
-        res = await qdrant.search(vec, limit=5)
+        scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
+        res = await scoped_qdrant.search(vec, limit=5)
         new_ctx = f"{len(res)} sources found"
     return ContextShiftResult(shift_detected=shifted, similarity=round(sim,4), new_context=new_ctx)
 
@@ -86,7 +88,7 @@ async def status() -> VkCacheStatusResult:
     return VkCacheStatusResult(daemon="vk-cache", status="RUNNING", qdrant="OK" if q_ok else "DOWN", active_reminders=len(list(_L5_selective_path.glob("*.json"))))
 
 def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
-    global qdrant, config; qdrant = target_qdrant; config = target_config
+    global qdrant, config; qdrant = target_qdrant if isinstance(target_qdrant, QdrantClient) else QdrantClient(target_config.qdrant_url, target_config.qdrant_collection, target_config.embedding_dim); config = target_config
     for fn in [request_context, check_reminders, push_reminder, dismiss_reminder, detect_context_shift, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")
 

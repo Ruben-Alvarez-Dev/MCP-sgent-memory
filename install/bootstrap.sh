@@ -36,7 +36,7 @@ resolve_python() {
         return
     fi
     # Fall back to pyenv or system
-    for candidate in "${PYTHON:-}" python3.12 python3; do
+    for candidate in "${PYTHON:-}" python3.14 python3.13 python3.12 python3; do
         if command -v "$candidate" &>/dev/null; then
             realpath "$(command -v "$candidate")" 2>/dev/null || echo "$candidate"
             return
@@ -83,7 +83,9 @@ VENV_DIR="$INSTALL_DIR/.venv"
 
 if [ -d "$VENV_DIR" ]; then
     # Check if existing venv uses the right Python and has deps
-    if [ -f "$VENV_DIR/lib/python3.12/site-packages/mcp/server/fastmcp.py" ]; then
+    if [ -f "$VENV_DIR/lib/python3.12/site-packages/mcp/server/fastmcp.py" ] || \
+       [ -f "$VENV_DIR/lib/python3.13/site-packages/mcp/server/fastmcp.py" ] || \
+       [ -f "$VENV_DIR/lib/python3.14/site-packages/mcp/server/fastmcp.py" ]; then
         # Quick sanity check — can we import the package?
         if "$VENV_DIR/bin/python3" -c "
 import sys; sys.path.insert(0, '$INSTALL_DIR/src')
@@ -101,9 +103,10 @@ from shared.config import Config; from mcp.server.fastmcp import FastMCP
 fi
 
 if [ ! -d "$VENV_DIR" ]; then
-    info "Creating venv (avoids pyenv symlink issues)..."
-    # Use homebrew python directly to prevent pyenv from creating broken symlinks
-    if command -v /opt/homebrew/opt/python@3.12/bin/python3.12 &>/dev/null; then
+    info "Creating venv..."
+    if command -v uv &>/dev/null; then
+        uv venv "$VENV_DIR" --python "$PYTHON_BIN" 2>&1 | tail -1
+    elif command -v /opt/homebrew/opt/python@3.12/bin/python3.12 &>/dev/null; then
         /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv "$VENV_DIR"
     else
         $PYTHON_BIN -m venv "$VENV_DIR"
@@ -328,7 +331,14 @@ else
     if curl -L --progress-bar -o "$LLM_MODEL_FILE" "$LLM_MODEL_URL" 2>&1; then
         pass "LLM model downloaded ($(du -h "$LLM_MODEL_FILE" | awk '{print $1}'))"
     else
-        fail "LLM model download failed"
+        # Fallback: try bartowski mirror (Qwen moved repos multiple times)
+        LLM_MODEL_URL_ALT="https://huggingface.co/bartowski/Qwen_Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+        info "Primary URL failed, trying bartowski mirror..."
+        if curl -L --progress-bar -o "$LLM_MODEL_FILE" "$LLM_MODEL_URL_ALT" 2>&1; then
+            pass "LLM model downloaded from mirror ($(du -h "$LLM_MODEL_FILE" | awk '{print $1}'))"
+        else
+            fail "LLM model download failed — download manually from https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF"
+        fi
     fi
 fi
 echo ""
@@ -337,7 +347,7 @@ echo ""
 echo -e "${BOLD}[6/6] Data directories${NC}"
 echo "────────────────────────────────────────────────────────────"
 
-mkdir -p "$INSTALL_DIR/data/memory"/{engram,dream,thoughts,heartbeats,reminders}
+mkdir -p "$INSTALL_DIR/data/memory"/{L3_decisions,dream,thoughts,heartbeats,reminders}
 mkdir -p "$INSTALL_DIR/data/staging_buffer"
 mkdir -p "$INSTALL_DIR/data/vault"/{Inbox,Decisiones,Conocimiento,Episodios,Entidades,Notes}
 pass "Data structure created"

@@ -10,7 +10,7 @@ Layout (same in dev and prod):
     PROJECT_ROOT/
     ├── config/.env
     ├── data/
-    │   ├── memory/          ← engram, dream, thoughts, heartbeats, reminders
+    │   ├── memory/          ← L3_decisions, dream, thoughts, heartbeats, reminders
     │   ├── qdrant/          ← vector DB storage
     │   ├── logs/            ← service logs
     │   ├── raw_events.jsonl ← L0 audit trail
@@ -97,7 +97,7 @@ def _setup_data_paths(root: Path) -> None:
     # Create dirs if they don't exist
     for d in [
         data, mem,
-        mem / "engram", mem / "dream", mem / "thoughts",
+        mem / "L3_decisions", mem / "dream", mem / "thoughts",
         mem / "heartbeats", mem / "reminders",
         data / "qdrant", data / "logs", data / "staging_buffer",
     ]:
@@ -110,7 +110,7 @@ def _setup_data_paths(root: Path) -> None:
         "MEMORY_DIR": str(mem),
         "AUTOMEM_JSONL": str(data / "raw_events.jsonl"),
         "STAGING_BUFFER": str(data / "staging_buffer"),
-        "ENGRAM_PATH": str(mem / "engram"),
+        "L3_DECISIONS_PATH": str(mem / "L3_decisions"),
         "DREAM_PATH": str(mem / "dream"),
         "THOUGHTS_PATH": str(mem / "thoughts"),
         "HEARTBEATS_PATH": str(mem / "heartbeats"),

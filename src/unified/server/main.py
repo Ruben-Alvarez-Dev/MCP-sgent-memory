@@ -120,7 +120,7 @@ async def _ensure_initialized() -> None:
         except Exception as e:
             logger.warning(f"Collection '{coll_name}' init failed: {e}")
 
-    # 3. Create engram subdirs
+    # 3. Create L3_decisions subdirs
     for sub in ["general", "project", "personal", "model-packs"]:
         p = Path(config.L3_decisions_path) / sub if config.L3_decisions_path else None
         if p:
@@ -206,8 +206,8 @@ def main() -> None:
         if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
             start_api_server(
                 ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
-                automem_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
-                autodream_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
+                L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
+                L0_to_L4_consolidation_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
                 save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
                 consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
                 request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,

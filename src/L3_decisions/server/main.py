@@ -1,4 +1,4 @@
-"""Engram — Semantic Decision Memory (L3)."""
+"""L3_decisions — Semantic Decision Memory."""
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,16 +7,16 @@ from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
 from shared.sanitize import validate_save_decision, validate_vault_write, sanitize_filename, SanitizeError
-from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, L3DecisionsStatusResult as EngramStatusResult
+from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, L3DecisionsStatusResult
 
 config = Config.from_env()
-ENGRAM_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
+DECISIONS_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
 VAULT_PATH = Path(config.Lx_persistent_path) if config.Lx_persistent_path else Path("")
 mcp = FastMCP("L3_decisions")
 
 def _files():
-    ENGRAM_PATH.mkdir(parents=True, exist_ok=True)
-    return sorted(ENGRAM_PATH.rglob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+    DECISIONS_PATH.mkdir(parents=True, exist_ok=True)
+    return sorted(DECISIONS_PATH.rglob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
 
 def _read(f):
     c = f.read_text(encoding="utf-8")
@@ -33,7 +33,7 @@ async def save_decision(title: str, content: str = "", category: str = "general"
         return SaveDecisionResult(status="error", file_path="", title=title, error=str(e))
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     fn = sanitize_filename(f"{ts}-{clean['title'][:50]}")
-    td = ENGRAM_PATH / clean["category"]; td.mkdir(parents=True, exist_ok=True)
+    td = DECISIONS_PATH / clean["category"]; td.mkdir(parents=True, exist_ok=True)
     fp = td / f"{fn}.md"
     md = f"---\ntitle: \"{clean['title']}\"\ncategory: {clean['category']}\ntags: {clean['tags']}\n---\n\n# {clean['title']}\n\n{effective_content}\n"
     fp.write_text(md, encoding="utf-8")
@@ -61,9 +61,9 @@ async def search_decisions(query: str, category: str = "", limit: int = 10) -> D
 async def get_decision(file_path: str) -> dict:
     """Get a specific decision by file path."""
     p = Path(file_path).resolve()
-    engram_root = ENGRAM_PATH.resolve()
-    if not str(p).startswith(str(engram_root)):
-        return {"status": "forbidden", "error": "Path outside engram root"}
+    decisions_root = DECISIONS_PATH.resolve()
+    if not str(p).startswith(str(decisions_root)):
+        return {"status": "forbidden", "error": "Path outside decisions root"}
     return _read(p) if p.exists() else {"status":"not_found"}
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -77,9 +77,9 @@ async def list_decisions(category: str = "", scope: str = "", limit: int = 20) -
 async def delete_decision(file_path: str) -> dict:
     """Delete a decision file."""
     p = Path(file_path).resolve()
-    engram_root = ENGRAM_PATH.resolve()
-    if not str(p).startswith(str(engram_root)):
-        return {"status": "forbidden", "error": "Path outside engram root"}
+    decisions_root = DECISIONS_PATH.resolve()
+    if not str(p).startswith(str(decisions_root)):
+        return {"status": "forbidden", "error": "Path outside decisions root"}
     if p.exists():
         p.unlink()
         return {"status": "deleted"}
@@ -120,30 +120,30 @@ async def vault_read_note(folder: str, filename: str) -> dict:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_model_pack(name: str = "default") -> ModelPackResult:
-    pf = ENGRAM_PATH / "model-packs" / f"{name}.yaml"
+    pf = DECISIONS_PATH / "model-packs" / f"{name}.yaml"
     return ModelPackResult(name=name, content=pf.read_text()) if pf.exists() else ModelPackResult(name=name, status="not_found")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def set_model_pack(name: str, content: str) -> ModelPackResult:
     safe_name = sanitize_filename(name, field="model_pack_name")
-    d = ENGRAM_PATH / "model-packs"; d.mkdir(parents=True, exist_ok=True)
+    d = DECISIONS_PATH / "model-packs"; d.mkdir(parents=True, exist_ok=True)
     (d / f"{safe_name}.yaml").write_text(content, encoding="utf-8")
     return ModelPackResult(name=safe_name, status="set")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def list_model_packs() -> ModelPackListResult:
-    d = ENGRAM_PATH / "model-packs"
+    d = DECISIONS_PATH / "model-packs"
     return ModelPackListResult(packs=[f.stem for f in d.glob("*.yaml")] if d.exists() else [])
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def status() -> EngramStatusResult:
+async def status() -> L3DecisionsStatusResult:
     vc = sum(1 for _ in VAULT_PATH.rglob("*.md")) if VAULT_PATH.exists() else 0
-    return EngramStatusResult(daemon="L3_decisions", status="RUNNING", decision_files=len(_files()), vault_notes=vc)
+    return L3DecisionsStatusResult(daemon="L3_decisions", status="RUNNING", decision_files=len(_files()), vault_notes=vc)
 
 def register_tools(target_mcp, _qdrant, target_config, prefix=""):
-    global config, ENGRAM_PATH, VAULT_PATH
+    global config, DECISIONS_PATH, VAULT_PATH
     config = target_config
-    ENGRAM_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
+    DECISIONS_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
     VAULT_PATH = Path(config.Lx_persistent_path) if config.Lx_persistent_path else Path("")
     for fn in [save_decision,search_decisions,get_decision,list_decisions,delete_decision,vault_write,vault_process_inbox,vault_integrity_check,vault_list_notes,vault_read_note,get_model_pack,set_model_pack,list_model_packs,status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")

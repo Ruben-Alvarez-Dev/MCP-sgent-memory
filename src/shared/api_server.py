@@ -327,7 +327,7 @@ def start_api_server(
         ingest_event_fn: L0_capture.ingest_event function
         L0_capture_heartbeat_fn: L0_capture.heartbeat function
         L0_to_L4_consolidation_heartbeat_fn: L0_to_L4_consolidation.heartbeat function
-        save_conversation_fn: conversation_store.save_conversation function
+        save_conversation_fn: L2_conversations.save_conversation function
         consolidate_fn: L0_to_L4_consolidation.consolidate function
         request_context_fn: L5_routing.request_context function (optional)
         port: Port to listen on (default: AUTOMEM_API_PORT env var or 8890)
@@ -339,8 +339,8 @@ def start_api_server(
     global _save_conversation_fn, _consolidate_fn, _request_context_fn
 
     _ingest_event_fn = ingest_event_fn
-    _L0_capture_heartbeat_fn = automem_heartbeat_fn
-    _L0_to_L4_consolidation_heartbeat_fn = autodream_heartbeat_fn
+    _L0_capture_heartbeat_fn = L0_capture_heartbeat_fn
+    _L0_to_L4_consolidation_heartbeat_fn = L0_to_L4_consolidation_heartbeat_fn
     _save_conversation_fn = save_conversation_fn
     _consolidate_fn = consolidate_fn
     _request_context_fn = request_context_fn

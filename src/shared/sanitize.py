@@ -50,7 +50,7 @@ MAX_TAG_LENGTH = 100
 MAX_USER_ID_LENGTH = 128
 MAX_TAGS_COUNT = 20
 
-# Valid event types for automem ingest
+# Valid event types for L0_capture ingest
 VALID_EVENT_TYPES = frozenset({
     "terminal", "git", "file", "system",
     "diff_proposed", "diff_accepted", "diff_rejected", "diff_applied", "diff_failed",
@@ -666,7 +666,7 @@ def validate_ingest_event(event_type: str, source: str, content: str) -> dict:
 
 
 def validate_save_decision(title: str, content: str, category: str, tags: str, scope: str) -> dict:
-    """Validate all inputs for engram.save_decision."""
+    """Validate all inputs for L3_decisions.save_decision."""
     return {
         "title": sanitize_text(title, max_length=MAX_TITLE_LENGTH, field="title"),
         "content": sanitize_text(content, field="content"),
@@ -677,7 +677,7 @@ def validate_save_decision(title: str, content: str, category: str, tags: str, s
 
 
 def validate_vault_write(folder: str, filename: str, content: str, tags: str) -> dict:
-    """Validate all inputs for engram.vault_write."""
+    """Validate all inputs for L3_decisions.vault_write."""
     return {
         "folder": sanitize_folder(folder),
         "filename": sanitize_filename(filename),
@@ -687,7 +687,7 @@ def validate_vault_write(folder: str, filename: str, content: str, tags: str) ->
 
 
 def validate_add_memory(content: str, user_id: str) -> dict:
-    """Validate all inputs for mem0.add_memory."""
+    """Validate all inputs for L3_facts.add_memory."""
     return {
         "content": sanitize_text(content, field="content"),
         "user_id": sanitize_user_id(user_id),

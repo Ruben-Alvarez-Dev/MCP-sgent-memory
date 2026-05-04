@@ -1,4 +1,4 @@
-"""AutoMem — Real-time Memory Ingestion Daemon."""
+"""L0_capture — Real-time Memory Ingestion Daemon."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from shared.qdrant_client import QdrantClient
 from shared.models import HeartbeatStatus, MemoryItem, MemoryLayer, MemoryScope, MemoryType, RawEvent, RawEventType
 from shared.embedding import async_embed, safe_embed, bm25_tokenize
 from shared.sanitize import validate_memorize, validate_ingest_event
-from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult as AutoMemStatusResult
+from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
@@ -43,7 +43,7 @@ async def _store_memory(item: MemoryItem) -> bool:
         _log.error("Failed to store memory %s: %s", item.memory_id, e)
         # Fallback: write to JSONL so data is never lost
         _append_raw_jsonl(RawEvent(
-            type=RawEventType.SYSTEM, source="automem_fallback",
+            type=RawEventType.SYSTEM, source="L0_capture_fallback",
             attributes={"error": str(e), "memory_id": item.memory_id, "content": item.content[:500]},
         ))
         return False
@@ -58,7 +58,7 @@ def _append_raw_jsonl(event: RawEvent) -> None:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
 async def memorize(content: str, mem_type: str = "fact", scope: str = "session", scope_id: str = "current", importance: float = 0.5, tags: str = "") -> dict:
-    """Store a memory. AutoMem ingests it immediately."""
+    """Store a memory. L0_capture ingests it immediately."""
     from shared.timing import Timer, DEBUG
     t = Timer()
     clean = validate_memorize(content, mem_type, scope, tags)
@@ -118,8 +118,8 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def status() -> AutoMemStatusResult:
-    """Show AutoMem daemon status — always ON regardless of agent state."""
+async def status() -> L0CaptureStatusResult:
+    """Show L0_capture daemon status — always ON regardless of agent state."""
     qdrant_ok = await qdrant.health()
     try:
         from shared.embedding import _get_llama_cmd
@@ -129,7 +129,7 @@ async def status() -> AutoMemStatusResult:
     raw_events = sum(1 for _ in open(JSONL_PATH)) if Path(JSONL_PATH).exists() else 0
     memory_count = await qdrant.count() if qdrant_ok else 0
     staging = sum(1 for _ in STAGING_BUFFER.glob("*.json")) if STAGING_BUFFER.exists() else 0
-    return AutoMemStatusResult(daemon="AutoMem", status="RUNNING", qdrant="OK" if qdrant_ok else "DOWN", llama_cpp="OK" if llama_ok else "NOT_INSTALLED", L0_events_jsonl=raw_events, stored_memories=memory_count, staged_change_sets=staging)
+    return L0CaptureStatusResult(daemon="L0_capture", status="RUNNING", qdrant="OK" if qdrant_ok else "DOWN", llama_cpp="OK" if llama_ok else "NOT_INSTALLED", L0_events_jsonl=raw_events, stored_memories=memory_count, staged_change_sets=staging)
 
 
 def register_tools(target_mcp: FastMCP, target_qdrant: QdrantClient, target_config: Config, prefix: str = "") -> None:

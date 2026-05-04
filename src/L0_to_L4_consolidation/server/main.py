@@ -1,4 +1,4 @@
-"""AutoDream — Consolidation & Dream Daemon."""
+"""L0_to_L4_consolidation — Consolidation & Dream Daemon."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from shared.qdrant_client import QdrantClient
 from shared.models import MemoryItem, MemoryLayer, MemoryScope, MemoryType
 from shared.llm import get_llm
 from shared.embedding import async_embed, safe_embed
-from shared.result_models import HeartbeatResult, ConsolidateResult, DreamResult, LayerResult, AutoDreamStatusResult
+from shared.result_models import HeartbeatResult, ConsolidateResult, DreamResult, LayerResult, ConsolidationStatusResult
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
@@ -313,10 +313,10 @@ async def get_semantic(scope: str = "") -> LayerResult:
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def status() -> AutoDreamStatusResult:
-    """Show AutoDream daemon status."""
+async def status() -> ConsolidationStatusResult:
+    """Show L0_to_L4_consolidation daemon status."""
     state = _load_state()
-    return AutoDreamStatusResult(daemon="AutoDream", status="RUNNING", state=state)
+    return ConsolidationStatusResult(daemon="L0_to_L4_consolidation", status="RUNNING", state=state)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))

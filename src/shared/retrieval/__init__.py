@@ -35,11 +35,11 @@ from ..qdrant_client import QdrantClient
 QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")
 CONV_COLLECTION = os.getenv("CONV_COLLECTION", "L2_conversations")
-MEM0_COLLECTION = os.getenv("MEM0_COLLECTION", "L3_facts")
+L3_FACTS_COLLECTION = os.getenv("L3_FACTS_COLLECTION", "L3_facts")
 _MSD = os.getenv("MEMORY_SERVER_DIR", "")
-ENGRAM_PATH = os.getenv(
-    "ENGRAM_PATH",
-    os.path.join(_MSD, "data", "memory", "engram") if _MSD else str(Path.home() / ".memory" / "engram")
+L3_DECISIONS_PATH = os.getenv(
+    "L3_DECISIONS_PATH",
+    os.path.join(_MSD, "data", "memory", "L3_decisions") if _MSD else str(Path.home() / ".memory" / "L3_decisions")
 )
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
@@ -206,14 +206,14 @@ async def _retrieve_parallel(
             tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1, agent_scope=agent_scope))
         elif level == 2:
             tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2, agent_scope=agent_scope))
-            tasks["L2_engram"] = asyncio.create_task(_retrieve_engram(intent, k))
+            tasks["L2_decisions"] = asyncio.create_task(_retrieve_L3_decisions(intent, k))
         elif level == 3:
             tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3, agent_scope=agent_scope))
         elif level == 4:
             tasks["L4"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=4, agent_scope=agent_scope))
         elif level == 5:
             tasks["L5"] = asyncio.create_task(
-                _retrieve_hybrid(intent, k, collection=MEM0_COLLECTION, agent_scope=agent_scope)
+                _retrieve_hybrid(intent, k, collection=L3_FACTS_COLLECTION, agent_scope=agent_scope)
             )
 
     raw_results: dict[str, list[ContextItem]] = {}
@@ -278,8 +278,8 @@ async def _retrieve_hybrid(
     return results
 
 
-async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:
-    L3_decisions_path = Path(ENGRAM_PATH)
+async def _retrieve_L3_decisions(intent: QueryIntent, k: int) -> list[ContextItem]:
+    L3_decisions_path = Path(L3_DECISIONS_PATH)
     if not L3_decisions_path.exists():
         return []
     results = []
@@ -294,14 +294,14 @@ async def _retrieve_engram(intent: QueryIntent, k: int) -> list[ContextItem]:
                     ContextItem(
                         content=content,
                         source_level=3,
-                        source_name="engram",
+                        source_name="L3_decisions",
                         score=0.6,
                         timestamp=datetime.fromtimestamp(md_file.stat().st_mtime),
                         metadata={"type": "decision"},
                     )
                 )
         except Exception as e:
-            logger.debug("Error reading engram file %s: %s", md_file, e)
+            logger.debug("Error reading L3_decisions file %s: %s", md_file, e)
     results.sort(key=lambda x: x.score, reverse=True)
     return results[:k]
 

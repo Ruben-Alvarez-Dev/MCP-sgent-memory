@@ -117,10 +117,10 @@ class TestL4Consolidation:
         r = DreamResult(status="dreaming", total_dreams=3)
         assert r.total_dreams == 3
 
-    def test_auto_dream_status(self):
-        from shared.result_models import AutoDreamStatusResult
-        r = AutoDreamStatusResult()
-        assert r.daemon == "AutoDream"
+    def test_consolidation_status(self):
+        from shared.result_models import ConsolidationStatusResult
+        r = ConsolidationStatusResult()
+        assert r.daemon == "L0_to_L4_consolidation"
 
 
 # ── L5 Routing ─────────────────────────────────────────────────────
@@ -170,10 +170,10 @@ class TestResultModelConsistency:
         """All *StatusResult models should have a 'daemon' field."""
         from shared.result_models import (
             L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-            AutoDreamStatusResult, VkCacheStatusResult, ConversationStatusResult,
+            ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult,
         )
         for cls in [L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-                    AutoDreamStatusResult, VkCacheStatusResult, ConversationStatusResult]:
+                    ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult]:
             instance = cls()
             assert hasattr(instance, 'daemon'), f"{cls.__name__} missing 'daemon'"
             assert isinstance(instance.daemon, str) and len(instance.daemon) > 0
@@ -182,10 +182,10 @@ class TestResultModelConsistency:
         """All *StatusResult models default to 'RUNNING'."""
         from shared.result_models import (
             L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-            AutoDreamStatusResult, VkCacheStatusResult, ConversationStatusResult,
+            ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult,
         )
         for cls in [L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-                    AutoDreamStatusResult, VkCacheStatusResult, ConversationStatusResult]:
+                    ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult]:
             instance = cls()
             assert instance.status == "RUNNING", f"{cls.__name__} status is '{instance.status}', expected 'RUNNING'"
 
@@ -197,7 +197,7 @@ class TestResultModelConsistency:
             "L0CaptureStatusResult", "AddMemoryResult", "SearchResult",
             "SaveDecisionResult", "DecisionListResult", "L3FactsStatusResult",
             "L3DecisionsStatusResult", "ConsolidateResult", "DreamResult",
-            "AutoDreamStatusResult", "ContextPackResult", "ReminderPushResult",
+            "ConsolidationStatusResult", "ContextPackResult", "ReminderPushResult",
             "ReminderListResult", "ContextShiftResult", "VkCacheStatusResult",
             "ConversationStatusResult", "SaveConversationResult",
             "VaultWriteResult", "VaultIntegrityResult",

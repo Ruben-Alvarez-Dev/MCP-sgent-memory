@@ -1,4 +1,4 @@
-"""mem0 — Semantic Memory (Mem0-compatible interface)."""
+"""L3_facts — Semantic Memory."""
 from __future__ import annotations
 import json
 from datetime import datetime, timezone
@@ -10,7 +10,7 @@ from shared.config import Config
 from shared.qdrant_client import QdrantClient
 from shared.embedding import async_embed, safe_embed, bm25_tokenize
 from shared.sanitize import validate_add_memory
-from shared.result_models import AddMemoryResult, SearchResult, LayerResult as Mem0ListResult, DismissResult as DeleteResult, L3FactsStatusResult as Mem0StatusResult
+from shared.result_models import AddMemoryResult, SearchResult, LayerResult, DismissResult, L3FactsStatusResult
 
 config = Config.from_env()
 qdrant = QdrantClient(config.qdrant_url, "L3_facts", config.embedding_dim)
@@ -43,28 +43,28 @@ async def search_memory(query: str, user_id: str = DEFAULT_USER, limit: int = 5,
     return SearchResult(count=len(filtered), results=filtered)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def get_all_memories(user_id: str = DEFAULT_USER, limit: int = 50) -> Mem0ListResult:
+async def get_all_memories(user_id: str = DEFAULT_USER, limit: int = 50) -> LayerResult:
     """Get all memories for a user."""
     results = await qdrant.scroll({"must":[{"key":"user_id","match":{"value":user_id}}]}, limit=limit)
-    return Mem0ListResult(layer="semantic", count=len(results), memories=results)
+    return LayerResult(layer="semantic", count=len(results), memories=results)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
-async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> DeleteResult:
+async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> DismissResult:
     """Delete a memory by ID."""
     point = await qdrant.get(memory_id)
     if point and point.get("payload",{}).get("user_id") == user_id:
         deleted = await qdrant.delete(memory_id)
         if deleted:
-            return DeleteResult(status="deleted", reminder_id=memory_id)
-        return DeleteResult(status="delete_failed", reminder_id=memory_id)
-    return DeleteResult(status="not_found")
+            return DismissResult(status="deleted", reminder_id=memory_id)
+        return DismissResult(status="delete_failed", reminder_id=memory_id)
+    return DismissResult(status="not_found")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def status() -> Mem0StatusResult:
-    """Show mem0 status."""
+async def status() -> L3FactsStatusResult:
+    """Show L3_facts status."""
     ok = await qdrant.health()
     count = await qdrant.count() if ok else 0
-    return Mem0StatusResult(daemon="mem0", status="RUNNING", memories=count)
+    return L3FactsStatusResult(daemon="L3_facts", status="RUNNING", memories=count)
 
 def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
     global qdrant, config

@@ -40,7 +40,7 @@ class L0CaptureStatusResult(BaseModel):
     staged_change_sets: int = 0
 
 
-# ── autodream ──────────────────────────────────────────────────────
+# ── L0_to_L4_consolidation ────────────────────────────────────────
 
 class ConsolidateResult(BaseModel):
     status: str = "consolidation complete"
@@ -56,8 +56,8 @@ class LayerResult(BaseModel):
     count: int
     memories: list[dict[str, Any]] = Field(default_factory=list)
 
-class AutoDreamStatusResult(BaseModel):
-    daemon: str = "AutoDream"
+class ConsolidationStatusResult(BaseModel):
+    daemon: str = "L0_to_L4_consolidation"
     status: str = "RUNNING"
     state: dict[str, Any] = Field(default_factory=dict)
 

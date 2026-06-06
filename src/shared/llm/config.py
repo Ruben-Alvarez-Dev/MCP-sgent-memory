@@ -12,8 +12,9 @@ Usage:
 Environment variables:
     LLM_BACKEND   — Backend type: llama_cpp (default: llama_cpp)
     LLM_MODEL     — Model name/identifier (backend-specific meaning)
-    SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
-    LLAMA_SERVER_PORT — llama.cpp server port (default: 8080)
+    SMALL_LLM_MODEL — Micro-LLM model (default: gemma-4-E2B-it-Q4_K_M.gguf)
+    SMALL_LLM_PORT — llama.cpp server port for the micro-LLM (default: 8083)
+    LLAMA_SERVER_PORT — llama.cpp server port for the primary LLM (default: 8080)
     LLAMA_MODEL   — llama.cpp model filename
 """
 
@@ -186,11 +187,14 @@ def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
 def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the SMALL LLM backend (for ranking, verification, routing).
 
-    Defaults to a micro-LLM model optimized for speed (qwen3.5:2b).
+    Defaults to a micro-LLM model optimized for speed
+    (gemma-4-E2B-it-Q4_K_M.gguf). Runs as a SEPARATE llama-server
+    instance on its own port (SMALL_LLM_PORT, default 8083) so the
+    primary and small LLMs are two distinct connections.
 
     Args:
         backend: Force a specific backend. If None, auto-detects.
-        **kwargs: Additional arguments (e.g., model="qwen3.5:2b").
+        **kwargs: Additional arguments (e.g., model="gemma-4-E2B-it-Q4_K_M.gguf").
 
     Returns:
         An initialized LLMBackend instance for lightweight tasks.
@@ -198,10 +202,12 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
     backend_name = backend_name.lower().strip()
 
-    # Default micro-LLM model
-    default_model = os.getenv("SMALL_LLM_MODEL", "qwen3.5:2b")
+    # Default micro-LLM model — dedicated port, never shared with primary
+    default_model = os.getenv("SMALL_LLM_MODEL", "gemma-4-E2B-it-Q4_K_M.gguf")
     if "model" not in kwargs:
         kwargs["model"] = default_model
+    if "port" not in kwargs:
+        kwargs["port"] = int(os.getenv("SMALL_LLM_PORT", "8083"))
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)

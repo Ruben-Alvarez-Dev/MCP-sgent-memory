@@ -95,6 +95,7 @@ class LLMBackend(ABC):
         stop: list[str] | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
+        grammar: str | None = None,
     ) -> ChatResponse:
         """Send messages and get a complete response.
 
@@ -105,6 +106,8 @@ class LLMBackend(ABC):
             stop: Stop sequences.
             tools: Tool schemas for function calling.
             tool_choice: Tool selection strategy.
+            grammar: Optional GBNF grammar constraining the output
+                (backend-specific; used for deterministic micro-tasks).
 
         Returns:
             ChatResponse with the full generated content.
@@ -137,6 +140,7 @@ class LLMBackend(ABC):
         system: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
+        grammar: str | None = None,
     ) -> str:
         """Simple Q&A — wraps chat() for single-turn usage.
 
@@ -145,6 +149,7 @@ class LLMBackend(ABC):
             system: Optional system prompt.
             temperature: Sampling temperature.
             max_tokens: Maximum tokens.
+            grammar: Optional GBNF grammar constraining the output.
 
         Returns:
             The assistant's response text.
@@ -154,7 +159,9 @@ class LLMBackend(ABC):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        response = self.chat(messages, temperature=temperature, max_tokens=max_tokens)
+        response = self.chat(
+            messages, temperature=temperature, max_tokens=max_tokens, grammar=grammar
+        )
         return response.content
 
     def __repr__(self) -> str:

@@ -45,11 +45,14 @@ class LlamaCppBackend(LLMBackend):
         model: str | None = None,
         n_ctx: int | None = None,
         n_gpu_layers: int | None = None,
+        reasoning_budget: int | None = None,
     ):
         self._port = port or int(os.getenv("LLAMA_SERVER_PORT", "8080"))
         self._model_name = model or os.getenv("LLAMA_MODEL")
         self._n_ctx = n_ctx or int(os.getenv("LLAMA_N_CTX", "4096"))
         self._n_gpu_layers = n_gpu_layers or int(os.getenv("LLAMA_N_GPU_LAYERS", "-1"))
+        # None = model default; 0 = disable thinking (for micro-LLM tasks)
+        self._reasoning_budget = reasoning_budget
 
         self._process: subprocess.Popen | None = None
         self._base_url = f"http://127.0.0.1:{self._port}"
@@ -163,6 +166,8 @@ class LlamaCppBackend(LLMBackend):
             "--host", "127.0.0.1",
             "--no-webui",
         ]
+        if self._reasoning_budget is not None:
+            args += ["--reasoning-budget", str(self._reasoning_budget)]
 
         self._process = subprocess.Popen(
             args,
@@ -232,9 +237,12 @@ class LlamaCppBackend(LLMBackend):
         stop: list[str] | None = None,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
+        grammar: str | None = None,
     ) -> ChatResponse:
         """Non-streaming chat completion via llama.cpp server API."""
         body = self._build_request(messages, temperature, max_tokens, stop, tools, tool_choice)
+        if grammar:
+            body["grammar"] = grammar
         body["stream"] = False
 
         data = self._post("/v1/chat/completions", body)

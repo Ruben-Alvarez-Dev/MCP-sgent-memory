@@ -14,8 +14,8 @@ Environment variables:
     LLM_MODEL     — Model name/identifier (backend-specific meaning)
     SMALL_LLM_MODEL — Micro-LLM model (default: gemma-4-E2B-it-Q4_K_M.gguf)
     SMALL_LLM_PORT — llama.cpp server port for the micro-LLM (default: 8083)
-    LLAMA_SERVER_PORT — llama.cpp server port for the primary LLM (default: 8080)
-    LLAMA_MODEL   — llama.cpp model filename
+    LLAMA_SERVER_PORT — llama.cpp server port for the primary LLM (default: 8082)
+    LLAMA_MODEL   — llama.cpp model filename (default: gemma-4-E4B-it-Q4_K_M.gguf)
 """
 
 from __future__ import annotations
@@ -164,6 +164,10 @@ def classify_intent(
 def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
 
+    Direct connection to an OpenAI-compatible REST API
+    (llama-server /v1/chat/completions). Defaults: gemma-4-E4B-it
+    on port 8082. No external config file required.
+
     Args:
         backend: Force a specific backend ("llama_cpp").
                  If None, auto-detects from LLM_BACKEND env var.
@@ -174,6 +178,16 @@ def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """
     backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
     backend_name = backend_name.lower().strip()
+
+    # Primary LLM defaults — large model, dedicated port
+    if "model" not in kwargs:
+        kwargs["model"] = (
+            os.getenv("LLM_MODEL")
+            or os.getenv("LLAMA_MODEL")
+            or "gemma-4-E4B-it-Q4_K_M.gguf"
+        )
+    if "port" not in kwargs:
+        kwargs["port"] = int(os.getenv("LLAMA_SERVER_PORT", "8082"))
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
@@ -208,6 +222,9 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
         kwargs["model"] = default_model
     if "port" not in kwargs:
         kwargs["port"] = int(os.getenv("SMALL_LLM_PORT", "8083"))
+    if "reasoning_budget" not in kwargs:
+        # Micro-LLM tasks (ranking, verification) need answers, not thinking
+        kwargs["reasoning_budget"] = 0
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
@@ -266,6 +283,11 @@ def list_available_backends() -> dict[str, bool]:
 
 # ── LLM Ranking (SPEC-4.1) ───────────────────────────────────────
 
+# GBNF grammar: comma-separated list of numbers, nothing else.
+# Prevents thinking-style models (e.g. Gemma 4) from spending the
+# token budget on reasoning prose instead of the ranking itself.
+RANKING_GRAMMAR = 'root ::= [0-9]+ ("," [0-9]+)*'
+
 def rank_by_relevance(
     query: str,
     items: list[dict],
@@ -310,7 +332,9 @@ def rank_by_relevance(
     )
 
     try:
-        response = llm.ask(prompt, max_tokens=128, temperature=0.0)
+        response = llm.ask(
+            prompt, max_tokens=128, temperature=0.0, grammar=RANKING_GRAMMAR
+        )
         # Parse numbers from response
         nums = re.findall(r'\d+', response.strip())
         indices = [int(n) - 1 for n in nums if 0 < int(n) <= len(items)]

@@ -35,5 +35,15 @@
       "total_dreams": 0
     },
     "zero_vectors": "13/5328 (0.24%)"
+  },
+  "after_phase_5": {
+    "layers": {
+      "L1": 5297,
+      "L2": 64,
+      "L3": 7,
+      "L4": 4
+    },
+    "purged_jsonl": 587,
+    "purged_qdrant": 34
   }
 }

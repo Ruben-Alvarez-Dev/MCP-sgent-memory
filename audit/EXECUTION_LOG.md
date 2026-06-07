@@ -29,8 +29,22 @@ Executed per `REMEDIATION_PLAN.md`. All gates machine-verified live.
 - **Final S9 scan: 13/5,328 = 0.24% zero vectors (gate <2% PASS).** The 13 残 are deterministic embedding-server failures on long terminal dumps → `audit/toxic-embeddings.json`, deferred to Phase 6 (chunk-before-embed).
 - Verification demo: semantic retrieval for a May-era topic now returns 4 sources (top score 0.51).
 
-## Pending (approved plan, not yet executed)
-- Phase 3 (type_map), Phase 4 (watchdog), Phase 5 (test-data purge), Phase 6 (repo unification + smoke gate + dedup marker + chunked embedding + safe_embed semantics).
+## Phase 3 — F-02 type_map ✅ (G3 green, ~05:00)
+- `tool_call → AGENT_ACTION`, `user_prompt → IDE_EVENT`, `file_edited → FILE_ACCESS` added; fallback branch now logs a WARNING.
+- Fidelity probe: all three types preserved end-to-end in JSONL. Live repo commit `055f8ee`.
+
+## Phase 4 — F-03 watchdog ✅ (G4 green) — scope grew, justified
+- `watchdog.sh`: ghost `gateway` label → `backpack-api` (2 sites); direct probes added for :8890 and :9000; **state.json staleness alert (>48 h)** — the exact silent symptom of F-01.
+- **Discovered during the fire-drill:** `shared/health.py` was also misaligned — probed the abandoned 1MCP gateway on :3050 (2 sites) and filtered `launchctl` output by stale substring `memory-server`, so the launchd check always reported zero services. All fixed; health now 6/6 green (launchd 4/4 core).
+- Fire-drill: killed backpack → launchd KeepAlive resurrected it in <2 s (layer 1); watchdog covers hangs (layer 2). Live repo commit `20d5aa0`.
+
+## Phase 5 — F-08 purge ✅ (G5 green, exact arithmetic)
+- `events.jsonl`: 9,123 → 8,536 lines (587 test/synthetic purged: audit-*, fuzz, cowork-verification, verificacion-e2e, panel-selftest, cowork-claude, synth-session-*). Race-guarded atomic replace.
+- Qdrant L1: 34 test points deleted by scope_id. Conversations: `audit-roundtrip-001` removed from SQLite + `L2_conversations`.
+- Post-purge: L1 5,297 · L2 64 · L3 7 · L4 4.
+
+## Pending
+- Phase 6 (separate session): repo unification + deploy smoke gate, L1 consumed-marker (dedup), chunk-before-embed for the 13 toxic items, `safe_embed` pending-tag semantics, dedicated USER_PROMPT enum.
 
 ## Notable live-fire lessons fed back into the plan
 1. Synchronous heavy consolidation through the API takes the whole daemon down (F-04 in production) — consolidation must run out-of-band or queued until Phase 6 re-architecture.

@@ -38,7 +38,10 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    _state_path.write_text(json.dumps(state, indent=2))
+    # Atomic write: a crash mid-write can never corrupt or truncate state.json.
+    tmp = _state_path.with_name(_state_path.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.replace(_state_path)
 
 mcp = FastMCP("L0_to_L4_consolidation")
 

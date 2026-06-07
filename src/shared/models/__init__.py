@@ -87,6 +87,7 @@ class RawEventType(str, Enum):
     GIT_EVENT = "git_event"
     AGENT_ACTION = "agent_action"
     IDE_EVENT = "ide_event"
+    USER_PROMPT = "user_prompt"
     PORT_CHANGE = "port_change"
     SYSTEM = "system"
 

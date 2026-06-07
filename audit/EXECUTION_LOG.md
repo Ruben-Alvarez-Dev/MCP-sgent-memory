@@ -43,8 +43,16 @@ Executed per `REMEDIATION_PLAN.md`. All gates machine-verified live.
 - Qdrant L1: 34 test points deleted by scope_id. Conversations: `audit-roundtrip-001` removed from SQLite + `L2_conversations`.
 - Post-purge: L1 5,297 · L2 64 · L3 7 · L4 4.
 
+## Phase 7 — Resilience & corpus hygiene quick-wins ✅ (~05:10)
+- **Context:** no crontab and no launchd timers existed — watchdog and lifecycle had NEVER run automatically (last Qdrant snapshots: May 3, manual).
+- 7.1 `_save_state` now atomic (tmp+rename); verified in isolated gate, daemon healthy after restart.
+- 7.2 New `scripts/backup-data.sh`: daily verified tar of data/ (excl. logs), 7-archive retention; first run produced a verified 6.5 MB archive.
+- 7.3 Three launchd timers installed and verified firing: `com.agent-memory.watchdog` (every 5 min), `.lifecycle` (Sunday 03:00, `L1_MAX_AGE_DAYS=60`), `.backup` (daily 04:00). Plists versioned in `etc/launchd/`.
+- **NEW FINDING F-12 (CRITICAL, latent):** lifecycle's Qdrant purge compared the integer `layer` payload against legacy strings (`'L3_SEMANTIC'`), so L2/L3/L4 were unprotected and everything older than 30 days was deletable. Had lifecycle ever been scheduled, it would have erased consolidated memory monthly. Fixed before scheduling; dry-run gate shows 0 purgable with protections active. Its JSONL rotation also pointed at a nonexistent file (`raw_events.jsonl`) — repointed to `L0-sensory/events.jsonl`.
+- Live repo commit `b6b1191`.
+
 ## Pending
-- Phase 6 (separate session): repo unification + deploy smoke gate, L1 consumed-marker (dedup), chunk-before-embed for the 13 toxic items, `safe_embed` pending-tag semantics, dedicated USER_PROMPT enum.
+- Phase 6 (separate session): repo unification + deploy smoke gate, L1 consumed-marker (dedup), chunk-before-embed for the 13 toxic items, `safe_embed` pending-tag semantics, dedicated USER_PROMPT enum, restore-drill runbook, SQLite `PRAGMA integrity_check` in lifecycle.
 
 ## Notable live-fire lessons fed back into the plan
 1. Synchronous heavy consolidation through the API takes the whole daemon down (F-04 in production) — consolidation must run out-of-band or queued until Phase 6 re-architecture.

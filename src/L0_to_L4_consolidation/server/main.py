@@ -131,11 +131,16 @@ async def _promote_l1_l2(state: dict) -> str | None:
     if state["turn_count"] - state.get("last_promote_l1_l2", 0) < config.consolidation_promote_L1:
         return None
     await qdrant.ensure_collection(sparse=False)
-    working = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 1}}]}, limit=200)
+    # must_not consolidated: items already promoted (or classified as noise)
+    # are never re-summarized — prevents duplicate episodes on repeated runs.
+    working = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 1}}], "must_not": [{"key": "consolidated", "match": {"value": True}}]}, limit=200)
     if not working:
         return None
     signal_items = [m for m in working if not _is_noise(m.get("content", ""))]
+    noise_ids = [m.get("memory_id") for m in working if m.get("memory_id") and _is_noise(m.get("content", ""))]
     if len(signal_items) < 2:
+        if noise_ids:
+            await qdrant.set_payload(noise_ids, {"consolidated": True})
         return None
     groups: dict[str, list] = {}
     for m in signal_items:
@@ -143,6 +148,7 @@ async def _promote_l1_l2(state: dict) -> str | None:
         groups.setdefault(key, []).append(m)
     batch_points = []
     episode_ids = []
+    consumed_ids: list = []
     for scope_key, items in groups.items():
         if len(items) < 2:
             continue

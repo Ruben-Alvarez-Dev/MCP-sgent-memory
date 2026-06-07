@@ -260,6 +260,26 @@ class QdrantClient:
             logger.warning("Qdrant delete failed: %s", e)
             return False
 
+    async def set_payload(self, point_ids: list, payload: dict[str, Any], wait: bool = True) -> bool:
+        """Set payload keys on existing points without touching vectors.
+
+        Used by consolidation to mark L1 items as consumed (dedup guard)."""
+        _validate_payload_keys(payload)
+
+        async def _do():
+            client = await self._get_client()
+            resp = await client.post(
+                f"{self.url}/collections/{self.collection}/points/payload"
+                f"{'?wait=true' if wait else ''}",
+                json={"points": point_ids, "payload": payload},
+            )
+            return resp.status_code == 200
+        try:
+            return await self._retry(_do)
+        except Exception as e:
+            logger.warning("Qdrant set_payload failed: %s", e)
+            return False
+
     # ── Search & query ─────────────────────────────────────────
 
     async def search(

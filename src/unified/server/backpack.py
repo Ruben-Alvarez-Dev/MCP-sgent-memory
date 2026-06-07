@@ -128,6 +128,46 @@ def _signal_handler(sig, frame):
 signal.signal(signal.SIGINT, _signal_handler)
 signal.signal(signal.SIGTERM, _signal_handler)
 
+# ── Inbox scanner (repair plan P1) ──────────────────────────────────
+# Every 60s: ingest each file dropped into <repo>/inbox/ (e.g. by
+# scripts/cowork_bridge.sh) as a cowork_memory event, then archive it
+# to inbox/processed/ so nothing is ingested twice.
+
+INBOX_DIR = BASE_DIR.parent / "inbox"
+INBOX_PROCESSED_DIR = INBOX_DIR / "processed"
+INBOX_SCAN_INTERVAL_S = 60
+
+
+def _inbox_scanner() -> None:
+    import asyncio
+    import shutil
+
+    ingest = getattr(L0_capture_mod, "ingest_event", None)
+    if ingest is None:
+        logger.warning("Inbox scanner disabled — L0_capture.ingest_event missing")
+        return
+    while not stop_event.wait(INBOX_SCAN_INTERVAL_S):
+        try:
+            if not INBOX_DIR.is_dir():
+                continue
+            INBOX_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+            for f in sorted(INBOX_DIR.iterdir()):
+                if not f.is_file() or f.name.startswith("."):
+                    continue
+                content = f.read_text(errors="replace")
+                asyncio.run(ingest(
+                    event_type="cowork_memory", source=f"inbox:{f.name}",
+                    content=content, actor_id="ruben",
+                ))
+                shutil.move(str(f), str(INBOX_PROCESSED_DIR / f.name))
+                logger.info("Inbox scanner: ingested %s", f.name)
+        except Exception as e:
+            logger.warning("Inbox scanner error: %s", e)
+
+
+threading.Thread(target=_inbox_scanner, daemon=True, name="inbox-scanner").start()
+logger.info("Inbox scanner watching %s every %ss", INBOX_DIR, INBOX_SCAN_INTERVAL_S)
+
 stop_event.wait()
 server.shutdown()
 logger.info("Backpack API stopped")

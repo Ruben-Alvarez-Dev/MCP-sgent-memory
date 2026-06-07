@@ -102,6 +102,10 @@
       <div class="card"><h4>🧪 Sensores de contaminación</h4><table id="tPoison"></table></div>
       <div class="card"><h4>💾 Infraestructura</h4><table id="tInfra"></table></div>
     </div>
+    <div class="card" style="margin-top:14px">
+      <h4>🛰 Captura en directo <span id="tickState" style="font-size:10px;color:var(--dim)">esperando eventos…</span></h4>
+      <div id="ticker" style="font-family:ui-monospace,Menlo,monospace; font-size:11.5px; max-height:200px; overflow-y:auto;"></div>
+    </div>
   </section>
   <!-- ════════ CONTROL ════════ -->
   <section id="control" class="tabPage">
@@ -152,6 +156,7 @@ function connect(){
   try{
     const es=new EventSource("/stream");
     es.onmessage=e=>{ M=JSON.parse(e.data); $("conn").textContent="⦿ en vivo (push)"; $("conn").className="live"; $("conn").id="conn"; render(); };
+    es.addEventListener("capture", e=>{ addTick(JSON.parse(e.data)); });
     es.onerror=()=>{ es.close(); fallback(); };
   }catch(_){ fallback(); }
   setInterval(()=>fetch("/history").then(r=>r.json()).then(h=>{HIST=h;}), 30000);
@@ -167,6 +172,21 @@ connect();
 const fmt=n=>n==null?"—":Number(n).toLocaleString("es-ES");
 const led=up=>`<span class="led ${up===true?"ok":up===false?"bad":"unk"}"></span>`;
 function table(el, rows){ el.innerHTML=rows.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join(""); }
+// ── live capture ticker (SSE `capture` frames, ≤0.5 s from disk write) ──
+let tickCount=0;
+function addTick(ev){
+  tickCount++;
+  $("tickState").textContent=`${tickCount} evento${tickCount>1?"s":""} esta sesión · último ${new Date().toLocaleTimeString("es-ES")}`;
+  const colors={user_prompt:"#8d7bf5", tool_call:"#46d4c0", file_edited:"#5b9cf5", agent_action:"#46d4c0", system:"#8b91a3", terminal:"#f0b429", git:"#f0b429"};
+  const c=colors[ev.subtype]||colors[ev.type]||"#8b91a3";
+  const row=document.createElement("div");
+  row.style.cssText="padding:3px 6px; border-left:3px solid "+c+"; margin-top:3px; background:#1e2230; border-radius:0 6px 6px 0;";
+  const t=(ev.ts||"").slice(11,19);
+  row.innerHTML=`<span style="color:#8b91a3">${t}</span> <b style="color:${c}">${ev.subtype||ev.type||"?"}</b> <span style="color:#8b91a3">${ev.source||""} ${ev.session||""}</span> ${(ev.content||"").replace(/</g,"&lt;")}`;
+  const tk=$("ticker");
+  tk.prepend(row);
+  while(tk.children.length>40) tk.removeChild(tk.lastChild);
+}
 function spark(cv, data, color){
   const c=cv.getContext("2d"), W=cv.width=cv.offsetWidth*2, H=cv.height=180;
   c.clearRect(0,0,W,H); if(!data.length) return;

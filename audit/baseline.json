@@ -1,0 +1,39 @@
+{
+  "ts": "2026-06-07T02:23:18Z",
+  "layers": {
+    "L1": 5327,
+    "L2": 29,
+    "L3": 5,
+    "L4": 2
+  },
+  "state": {
+    "last_promote_l1_l2": 0,
+    "last_promote_l2_l3": 1779914888.909164,
+    "last_promote_l3_l4": 1779883761.752895,
+    "last_dream": 0,
+    "turn_count": 7,
+    "total_consolidated": 7,
+    "total_dreams": 0
+  },
+  "state_mtime": 1779914889.183846,
+  "events_lines": 9119,
+  "log_bytes": 754614,
+  "after_phase_2bis": {
+    "layers": {
+      "L1": 5328,
+      "L2": 64,
+      "L3": 7,
+      "L4": 4
+    },
+    "state": {
+      "last_promote_l1_l2": 11,
+      "last_promote_l2_l3": 1780799519.161159,
+      "last_promote_l3_l4": 1780799519.161159,
+      "last_dream": 0,
+      "turn_count": 11,
+      "total_consolidated": 11,
+      "total_dreams": 0
+    },
+    "zero_vectors": "13/5328 (0.24%)"
+  }
+}

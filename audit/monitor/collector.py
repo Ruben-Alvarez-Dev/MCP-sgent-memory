@@ -342,10 +342,45 @@ def poll_loop():
                             "L1": m["qdrant"]["layers"].get("L1"),
                             "L2": m["qdrant"]["layers"].get("L2"),
                             "alarms": len(m["alarms"])})
-            payload = json.dumps(m, default=str)
+            payload = "data: " + json.dumps(m, default=str) + "\n\n"
             for q in list(SSE_CLIENTS):               # instant push to connected panels
                 q.append(payload)
         time.sleep(max(1, POLL_S - (time.time() - t0)))
+
+
+def tail_loop():
+    """Real-time capture beacon: tails events.jsonl and pushes every new event
+    to connected panels as an SSE `capture` frame (≤0.5 s latency, read-only)."""
+    pos = None
+    while True:
+        try:
+            size = EVENTS.stat().st_size
+            if pos is None:
+                pos = size                            # start at EOF: only NEW events
+            if size > pos:
+                with open(EVENTS, "rb") as f:
+                    f.seek(pos)
+                    chunk = f.read(min(size - pos, 200_000))
+                    pos = f.tell()
+                for ln in chunk.decode(errors="replace").splitlines():
+                    try:
+                        d = json.loads(ln)
+                    except Exception:
+                        continue
+                    evt = {"ts": d.get("timestamp"), "type": d.get("type"),
+                           "source": d.get("source"),
+                           "subtype": (d.get("attributes") or {}).get("event_subtype"),
+                           "session": (d.get("session_id") or "")[:20],
+                           "content": str((d.get("attributes") or {}).get("content", ""))[:140]}
+                    frame = "event: capture\ndata: " + json.dumps(evt) + "\n\n"
+                    with _lock:
+                        for q in list(SSE_CLIENTS):
+                            q.append(frame)
+            elif size < pos:                          # rotation/truncation
+                pos = size
+        except Exception:
+            pass
+        time.sleep(0.5)
 
 
 def read_config() -> dict:
@@ -424,17 +459,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            q: deque = deque(maxlen=5)
+            q: deque = deque(maxlen=50)
             with _lock:
-                q.append(json.dumps(METRICS, default=str))
+                q.append("data: " + json.dumps(METRICS, default=str) + "\n\n")
                 SSE_CLIENTS.append(q)
             try:
                 while True:
                     if q:
-                        self.wfile.write(f"data: {q.popleft()}\n\n".encode())
+                        self.wfile.write(q.popleft().encode())
                         self.wfile.flush()
                     else:
-                        time.sleep(0.5)
+                        time.sleep(0.2)
             except Exception:
                 pass
             finally:
@@ -463,6 +498,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=poll_loop, daemon=True).start()
+    threading.Thread(target=tail_loop, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Backpack Panel on http://127.0.0.1:{PORT}")
     srv.serve_forever()

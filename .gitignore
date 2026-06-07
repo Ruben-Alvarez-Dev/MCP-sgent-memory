@@ -75,6 +75,7 @@ $HOME/
 # ── Data (auto-created, local) ──────────────────────────────────
 data/
 storage/
+inbox/
 !data/Lx-persistent/
 !data/Lx-persistent/Inbox/
 !data/Lx-persistent/Decisiones/

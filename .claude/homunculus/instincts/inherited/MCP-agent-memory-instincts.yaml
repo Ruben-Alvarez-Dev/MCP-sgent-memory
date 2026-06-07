@@ -1,0 +1,526 @@
+# Instincts generated from https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+# Generated: 2026-06-07T04:31:06.117Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: MCP-agent-memory-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, fix, chore, docs
+
+## Evidence
+
+- 15 commits analyzed
+- Detected conventional commit pattern
+- Examples: fix(consolidation): restore _load_state and _save_state deleted by May 27 refactor, feat(resilience): scheduled self-healing, daily backups and atomic state writes
+
+---
+id: MCP-agent-memory-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Commit Length
+
+## Action
+
+Write moderate-length commit messages (~67 characters)
+
+## Evidence
+
+- Average commit message length: 67 chars
+- Based on 15 commits
+
+---
+id: MCP-agent-memory-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: MCP-agent-memory-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: MCP-agent-memory-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: MCP-agent-memory-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: MCP-agent-memory-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~20x per month
+- Files: **/api/**
+
+---
+id: MCP-agent-memory-workflow-feature-implementation-across-module
+trigger: "when doing feature implementation across module"
+confidence: 0.65
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Workflow Feature Implementation Across Module
+
+## Action
+
+Follow the feature-implementation-across-module workflow:
+1. Edit or create main implementation file(s) in a module directory (e.g., src/L0_capture/server/main.py, src/L0_to_L4_consolidation/server/main.py, src/shared/embedding.py, src/shared/llm/config.py)
+2. Update or create related shared files (e.g., src/shared/models/__init__.py, src/shared/qdrant_client.py)
+3. Optionally add or update scripts or configuration (e.g., scripts/lifecycle.sh, etc/launchd/*.plist)
+4. Document or verify the change as needed
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~3x per month
+- Files: src/L0_capture/server/main.py, src/L0_to_L4_consolidation/server/main.py, src/shared/embedding.py
+
+---
+id: MCP-agent-memory-workflow-ops-scheduling-and-resilience-hardening
+trigger: "when doing ops scheduling and resilience hardening"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Workflow Ops Scheduling And Resilience Hardening
+
+## Action
+
+Follow the ops-scheduling-and-resilience-hardening workflow:
+1. Create or update shell scripts in scripts/ (e.g., backup-data.sh, lifecycle.sh, reembed-pending.sh, run-backpack.sh, smoke.sh)
+2. Create or update launchd plist files in etc/launchd/
+3. Optionally update Python health check or related operational code (e.g., src/shared/health.py)
+4. Document the operational change (e.g., docs/RUNBOOK.md)
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: scripts/*.sh, etc/launchd/*.plist, src/shared/health.py
+
+---
+id: MCP-agent-memory-workflow-entity-system-extension-or-export
+trigger: "when doing entity system extension or export"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Workflow Entity System Extension Or Export
+
+## Action
+
+Follow the entity-system-extension-or-export workflow:
+1. Add or update entity system files in src/shared/ (e.g., entity_registry.py, entity_timeline.py, relation_manager.py, vault_entity_bridge.py, entity_migration.py)
+2. Optionally update governance or server files (e.g., src/governance/server.py, src/governance/generator.py)
+3. Update src/shared/__init__.py to export new components
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/shared/entity_registry.py, src/shared/entity_timeline.py, src/shared/relation_manager.py
+
+---
+id: MCP-agent-memory-workflow-bugfix-in-core-module
+trigger: "when doing bugfix in core module"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# MCP Agent Memory Workflow Bugfix In Core Module
+
+## Action
+
+Follow the bugfix-in-core-module workflow:
+1. Edit the main implementation file in the affected module (e.g., src/L0_to_L4_consolidation/server/main.py, src/L0_capture/server/main.py)
+2. Restore or correct function definitions or mappings
+3. Verify the fix via compile, runtime, or probe
+4. Optionally add logging or warnings for future issues
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/L0_to_L4_consolidation/server/main.py, src/L0_capture/server/main.py
+
+---
+id: mcp-agent-memory-instinct-file-naming
+trigger: "When creating a new Python file"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct File Naming
+
+## Action
+
+Name the file using camelCase (e.g., myModule.py)
+
+## Evidence
+
+- Pattern in namingConventions.files
+- Observed in src/shared/embedding.py, src/shared/llm/config.py
+
+---
+id: mcp-agent-memory-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Function Naming
+
+## Action
+
+Name the function using camelCase (e.g., processData)
+
+## Evidence
+
+- Pattern in namingConventions.functions
+- Seen in src/shared/qdrant_client.py
+
+---
+id: mcp-agent-memory-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase (e.g., EntityRegistry)
+
+## Evidence
+
+- Pattern in namingConventions.classes
+- Seen in src/shared/entity_registry.py
+
+---
+id: mcp-agent-memory-instinct-constant-naming
+trigger: "When defining a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE (e.g., DEFAULT_TIMEOUT)
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: mcp-agent-memory-instinct-import-style
+trigger: "When importing modules within the package"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Import Style
+
+## Action
+
+Use relative imports
+
+## Evidence
+
+- Pattern in importStyle: relative
+- Seen in src/shared/llm/config.py
+
+---
+id: mcp-agent-memory-instinct-export-style
+trigger: "When exporting functions or classes from a module"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Export Style
+
+## Action
+
+Use named exports (explicitly list in __init__.py)
+
+## Evidence
+
+- Pattern in exportStyle: named
+- Seen in src/shared/__init__.py
+
+---
+id: mcp-agent-memory-instinct-commit-format
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Commit Format
+
+## Action
+
+Use conventional commit format: <type>(<scope>): <description>
+
+## Evidence
+
+- Seen in commit 'fix(consolidation): restore _load_state and _save_state deleted by May 27 refactor'
+- Pattern in commits.prefixes
+
+---
+id: mcp-agent-memory-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Commit Length
+
+## Action
+
+Keep the commit message concise (around 67 characters on average)
+
+## Evidence
+
+- Pattern in commits.averageLength
+
+---
+id: mcp-agent-memory-instinct-feature-across-module
+trigger: "When adding a new capability, event type, or backend option to an existing module"
+confidence: 0.92
+domain: workflow
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Feature Across Module
+
+## Action
+
+Edit or create main implementation file(s) in a module directory, update related shared files, optionally update scripts/configuration, and document or verify the change
+
+## Evidence
+
+- Workflow 'feature-implementation-across-module'
+- Seen in commits editing src/L0_capture/server/main.py and src/shared/embedding.py
+
+---
+id: mcp-agent-memory-instinct-ops-scheduling
+trigger: "When automating operational tasks or adding resilience features"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Ops Scheduling
+
+## Action
+
+Create or update shell scripts in scripts/, update launchd plist files in etc/launchd/, optionally update Python health check code, and document the operational change
+
+## Evidence
+
+- Workflow 'ops-scheduling-and-resilience-hardening'
+- Seen in commits updating scripts/backup-data.sh, etc/launchd/com.agent-memory.backup.plist
+
+---
+id: mcp-agent-memory-instinct-entity-extension
+trigger: "When extending the entity system or making its components importable elsewhere"
+confidence: 0.88
+domain: workflow
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Entity Extension
+
+## Action
+
+Add or update entity system files in src/shared/, optionally update governance/server files, and update src/shared/__init__.py to export new components
+
+## Evidence
+
+- Workflow 'entity-system-extension-or-export'
+- Seen in commits updating src/shared/entity_registry.py, src/shared/__init__.py
+
+---
+id: mcp-agent-memory-instinct-bugfix-core-module
+trigger: "When fixing a regression or mapping error in a main service"
+confidence: 0.86
+domain: workflow
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Bugfix Core Module
+
+## Action
+
+Edit the main implementation file in the affected module, restore or correct function definitions or mappings, verify the fix, and optionally add logging or warnings
+
+## Evidence
+
+- Workflow 'bugfix-in-core-module'
+- Seen in commit 'fix(consolidation): restore _load_state and _save_state deleted by May 27 refactor'
+
+---
+id: mcp-agent-memory-instinct-test-location
+trigger: "When adding new tests"
+confidence: 0.75
+domain: testing
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Test Location
+
+## Action
+
+Place tests in a separate test directory, not mixed with source files
+
+## Evidence
+
+- Pattern in architecture.testLocation: separate
+
+---
+id: mcp-agent-memory-instinct-test-after-feature
+trigger: "When implementing a new feature"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: Ruben-Alvarez-Dev/MCP-agent-memory
+---
+
+# Mcp Agent Memory Instinct Test After Feature
+
+## Action
+
+Add or update tests for the new feature after implementation
+
+## Evidence
+
+- Workflow 'feature-development' commitSequence includes 'Add tests for feature'
+

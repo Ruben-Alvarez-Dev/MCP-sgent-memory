@@ -72,7 +72,7 @@ if [ -z "$HEALTH_JSON" ]; then
     log "Attempting to restart all services..."
     restart_service "com.agent-memory.qdrant" "Qdrant"
     restart_service "com.agent-memory.llama-embedding" "llama-server"
-    restart_service "com.agent-memory.gateway" "Gateway"
+    restart_service "com.agent-memory.backpack-api" "Backpack API"
     exit 1
 fi
 
@@ -109,7 +109,7 @@ for svc in $UNHEALTHY; do
             ;;
         gateway)
             log "🔴 Gateway is down"
-            restart_service "com.agent-memory.gateway" "Gateway"
+            restart_service "com.agent-memory.backpack-api" "Backpack API"
             ;;
         embedding)
             log "🔴 Embedding pipeline degraded (circuit breaker may be open)"
@@ -135,6 +135,27 @@ for svc in $UNHEALTHY; do
             ;;
     esac
 done
+
+# ── Direct probes for services not covered by shared.health ────────
+# Backpack API (:8890) and llama-llm (:9000) were previously unwatched (F-03).
+
+if ! curl -sS -m 5 http://127.0.0.1:8890/api/health >/dev/null 2>&1; then
+    log "🔴 Backpack API (:8890) not responding"
+    restart_service "com.agent-memory.backpack-api" "Backpack API"
+fi
+if ! curl -sS -m 5 http://127.0.0.1:9000/health >/dev/null 2>&1; then
+    log "🔴 llama-llm (:9000) not responding"
+    restart_service "com.agent-memory.llama-llm" "llama-llm"
+fi
+
+# Consolidation staleness alert: state.json should advance with normal use.
+STATE_FILE="$PROJECT_ROOT/data/L4-narrative/state.json"
+if [ -f "$STATE_FILE" ]; then
+    AGE_H=$(( ( $(date +%s) - $(stat -f %m "$STATE_FILE") ) / 3600 ))
+    if [ "$AGE_H" -gt 48 ]; then
+        log "⚠️  state.json has not advanced in ${AGE_H}h — consolidation may be stalled (see F-01 postmortem)"
+    fi
+fi
 
 # ── Post-recovery verification ──────────────────────────────────────
 

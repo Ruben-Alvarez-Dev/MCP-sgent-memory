@@ -29,18 +29,20 @@ from .base import LLMBackend
 
 # ── Query Intent Classifier (determinista, <5ms) ──────────────────
 
+
 @dataclass
 class QueryIntent:
     """Classified intent of a user/LLM query."""
-    intent_type: str          # code_lookup | decision_recall | how_to |
-                               # relationship | summary | conversation_recall |
-                               # error_diagnosis | pattern_match
-    entities: list[str]       # ["AuthService", "JWT", "user_session"]
-    scope: str                # this_project | general | user_preference
-    time_window: str          # now | recent | historical | all
-    needs_external: bool      # necesita Context7 / docs externos
-    needs_ranking: bool       # necesita AI ranking de memorias
-    needs_consolidation: bool # necesita consolidación post-sesión
+
+    intent_type: str  # code_lookup | decision_recall | how_to |
+    # relationship | summary | conversation_recall |
+    # error_diagnosis | pattern_match
+    entities: list[str]  # ["AuthService", "JWT", "user_session"]
+    scope: str  # this_project | general | user_preference
+    time_window: str  # now | recent | historical | all
+    needs_external: bool  # necesita Context7 / docs externos
+    needs_ranking: bool  # necesita AI ranking de memorias
+    needs_consolidation: bool  # necesita consolidación post-sesión
 
 
 def classify_intent(
@@ -71,72 +73,152 @@ def classify_intent(
     open_files = open_files or []
 
     # Intent type detection
-    if any(kw in q for kw in ["why did we", "why do we use", "why not",
-                               "decidimos", "elegimos", "cambiamos",
-                               "qué decidimos", "por qué usamos"]):
+    if any(
+        kw in q
+        for kw in [
+            "why did we",
+            "why do we use",
+            "why not",
+            "decidimos",
+            "elegimos",
+            "cambiamos",
+            "qué decidimos",
+            "por qué usamos",
+        ]
+    ):
         intent.intent_type = "decision_recall"
         intent.time_window = "historical"
         intent.needs_ranking = True
 
-    elif any(kw in q for kw in ["how to", "how do i", "cómo", "de qué manera",
-                                 "what's the best way", "cómo hago"]):
+    elif any(kw in q for kw in ["how to", "how do i", "cómo", "de qué manera", "what's the best way", "cómo hago"]):
         intent.intent_type = "how_to"
         intent.needs_external = True
         intent.needs_ranking = True
 
-    elif any(kw in q for kw in ["function", "class", "method", "import", "file",
-                                 "función", "archivo", "módulo"]):
-        if any(kw in q for kw in ["does", "what is", "where is", "show me",
-                                   "hace", "dónde está", "mostrame"]):
+    elif any(kw in q for kw in ["function", "class", "method", "import", "file", "función", "archivo", "módulo"]):
+        if any(kw in q for kw in ["does", "what is", "where is", "show me", "hace", "dónde está", "mostrame"]):
             intent.intent_type = "code_lookup"
             intent.needs_ranking = True
 
-    elif any(kw in q for kw in ["related", "depends on", "conecta",
-                                 "relación", "cómo se relaciona", "depende"]):
+    elif any(kw in q for kw in ["related", "depends on", "conecta", "relación", "cómo se relaciona", "depende"]):
         intent.intent_type = "relationship"
         intent.needs_ranking = True
 
-    elif any(kw in q for kw in ["summarize", "resumen", "overview",
-                                 "what's happening", "qué está pasando",
-                                 "resumí"]):
+    elif any(kw in q for kw in ["summarize", "resumen", "overview", "what's happening", "qué está pasando", "resumí"]):
         intent.intent_type = "summary"
         intent.time_window = "recent"
 
-    elif any(kw in q for kw in ["we said", "dijimos", "before", "antes",
-                                 "earlier", "lo que habl", "mencionamos"]):
+    elif any(kw in q for kw in ["we said", "dijimos", "before", "antes", "earlier", "lo que habl", "mencionamos"]):
         intent.intent_type = "conversation_recall"
         intent.time_window = "recent"
 
-    elif any(kw in q for kw in ["error", "bug", "fallo", "crash",
-                                 "not working", "doesn't work", "broken",
-                                 "roto", "falla"]):
+    elif any(
+        kw in q for kw in ["error", "bug", "fallo", "crash", "not working", "doesn't work", "broken", "roto", "falla"]
+    ):
         intent.intent_type = "error_diagnosis"
         intent.needs_external = True
         intent.time_window = "recent"
 
     # Entity extraction (CamelCase, UPPER_SNAKE)
-    camel_matches = re.findall(r'[A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]+)*', query)
-    snake_matches = re.findall(r'[A-Z_]{2,}', query)
+    camel_matches = re.findall(r"[A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]+)*", query)
+    snake_matches = re.findall(r"[A-Z_]{2,}", query)
     code_entities = list(set(camel_matches + snake_matches))
 
     # Fallback: keyword extraction for natural language queries (español, english)
     if not code_entities:
         STOP_WORDS = {
             # English
-            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
-            "for", "of", "with", "by", "from", "is", "are", "was", "were",
-            "how", "what", "why", "when", "where", "who", "which",
-            "do", "does", "did", "will", "would", "could", "should",
-            "not", "this", "that", "these", "those", "has", "have", "had",
-            "can", "about", "into", "over", "after", "before",
+            "a",
+            "an",
+            "the",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "is",
+            "are",
+            "was",
+            "were",
+            "how",
+            "what",
+            "why",
+            "when",
+            "where",
+            "who",
+            "which",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "not",
+            "this",
+            "that",
+            "these",
+            "those",
+            "has",
+            "have",
+            "had",
+            "can",
+            "about",
+            "into",
+            "over",
+            "after",
+            "before",
             # Español
-            "el", "la", "los", "las", "un", "una", "de", "del", "que",
-            "y", "o", "pero", "con", "sin", "para", "por", "se", "su",
-            "como", "muy", "es", "son", "tiene", "este", "esta",
-            "no", "si", "mi", "tu", "lo", "le", "me", "te", "nos",
-            "fue", "ser", "hay", "mas", "tambien", "todo", "todos",
+            "el",
+            "la",
+            "los",
+            "las",
+            "un",
+            "una",
+            "de",
+            "del",
+            "que",
+            "y",
+            "o",
+            "pero",
+            "con",
+            "sin",
+            "para",
+            "por",
+            "se",
+            "su",
+            "como",
+            "muy",
+            "es",
+            "son",
+            "tiene",
+            "este",
+            "esta",
+            "no",
+            "si",
+            "mi",
+            "tu",
+            "lo",
+            "le",
+            "me",
+            "te",
+            "nos",
+            "fue",
+            "ser",
+            "hay",
+            "mas",
+            "tambien",
+            "todo",
+            "todos",
         }
-        tokens = re.findall(r'[a-záéíóúüñA-Z]{3,}', q)
+        tokens = re.findall(r"[a-záéíóúüñA-Z]{3,}", q)
         code_entities = [t for t in tokens if t not in STOP_WORDS][:10]
 
     intent.entities = code_entities
@@ -160,6 +242,7 @@ def classify_intent(
 
 # ── LLM Backend factory ───────────────────────────────────────────
 
+
 def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
 
@@ -176,21 +259,20 @@ def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
+    elif backend_name == "http":
+        return _get_http(**kwargs)
     else:
-        raise ValueError(
-            f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
-        )
+        raise ValueError(f"Unknown LLM backend: {backend_name!r}. Supported: llama_cpp, http")
 
 
 def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the SMALL LLM backend (for ranking, verification, routing).
 
-    Defaults to a micro-LLM model optimized for speed (qwen3.5:2b).
+    Defaults to a micro-LLM model optimized for speed (qwen3-1.7b).
 
     Args:
         backend: Force a specific backend. If None, auto-detects.
-        **kwargs: Additional arguments (e.g., model="qwen3.5:2b").
+        **kwargs: Additional arguments (e.g., model="qwen3-1.7b").
 
     Returns:
         An initialized LLMBackend instance for lightweight tasks.
@@ -199,46 +281,43 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     backend_name = backend_name.lower().strip()
 
     # Default micro-LLM model
-    default_model = os.getenv("SMALL_LLM_MODEL", "qwen3.5:2b")
+    default_model = os.getenv("SMALL_LLM_MODEL", "qwen3-1.7b")
     if "model" not in kwargs:
         kwargs["model"] = default_model
 
     if backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
+    elif backend_name == "http":
+        return _get_http(**kwargs)
     else:
-        raise ValueError(
-            f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
-        )
+        raise ValueError(f"Unknown LLM backend: {backend_name!r}. Supported: llama_cpp, http")
 
 
 def _get_llama_cpp(**kwargs) -> LLMBackend:
     """Create llama.cpp backend.
-    
+
     If a local .gguf model is found, manages its own llama-server subprocess.
     If not, connects to an already-running external llama-server.
+    Returns backend even if unavailable — callers check is_available().
     """
     from .llama_cpp import LlamaCppBackend
 
     backend = LlamaCppBackend(**kwargs)
 
-    # Case 1: Local .gguf found — use bundled binary
     if backend._server_bin and backend._model_path and backend._model_path.exists():
         return backend
 
-    # Case 2: No local model — check if external server is already running
     if backend.is_available():
         return backend
 
-    # Case 3: Nothing available
-    raise RuntimeError(
-        "No LLM available.\n"
-        "  Either:\n"
-        "    1. Place a .gguf model in models/ and llama-server in engine/bin/\n"
-        "    2. Start an external llama-server on port 8080 (or set LLAMA_SERVER_PORT)\n"
-        f"  Searched models in: {backend._models_dir()}/\n"
-        f"  Server bin: {backend._server_bin or 'not found'}"
-    )
+    return backend
+
+
+def _get_http(**kwargs) -> LLMBackend:
+    """Create HTTP backend (OpenAI-compatible endpoint)."""
+    from .http import HttpLLMBackend
+
+    return HttpLLMBackend(**kwargs)
 
 
 def list_available_backends() -> dict[str, bool]:
@@ -259,6 +338,7 @@ def list_available_backends() -> dict[str, bool]:
 
 
 # ── LLM Ranking (SPEC-4.1) ───────────────────────────────────────
+
 
 def rank_by_relevance(
     query: str,
@@ -306,7 +386,7 @@ def rank_by_relevance(
     try:
         response = llm.ask(prompt, max_tokens=128, temperature=0.0)
         # Parse numbers from response
-        nums = re.findall(r'\d+', response.strip())
+        nums = re.findall(r"\d+", response.strip())
         indices = [int(n) - 1 for n in nums if 0 < int(n) <= len(items)]
 
         # Reorder by ranking

@@ -93,3 +93,8 @@ storage/
 !data/Lx-persistent/people/
 !data/Lx-persistent/templates/
 !data/Lx-persistent/README.md
+
+# ── Local runtime data (never versioned) ─────────────────
+qdrant/
+*.env.bak
+models/reasoning/

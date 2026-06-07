@@ -85,6 +85,22 @@ if not (L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod):
 
 from shared.api_server import start_api_server
 
+# ── Single-instance guard ───────────────────────────────────────────
+# A second backpack must exit cleanly instead of crash-looping on the
+# busy port (repair plan 2026-06-07, finding D2: OSError Errno 48).
+_port = int(__import__("os").environ.get("AUTOMEM_API_PORT", "8890"))
+import socket as _socket
+
+_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+try:
+    _probe.bind(("127.0.0.1", _port))
+except OSError:
+    logger.info("Backpack already running on port %s — this instance exits "
+                "cleanly (single-instance guard)", _port)
+    raise SystemExit(0)
+finally:
+    _probe.close()
+
 server = start_api_server(
     ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
     L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),

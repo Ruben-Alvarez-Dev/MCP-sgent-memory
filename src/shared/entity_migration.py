@@ -31,6 +31,35 @@ PROJECT_PATTERNS = re.compile(
 )
 
 
+def _is_sane_candidate(name: str) -> bool:
+    """Minimum sanity for a regex-detected entity candidate.
+
+    Rejects the junk classes documented in repair plan finding D4:
+    short fragments (\"A\", \"---\"), URL pieces (\"https\") and
+    filesystem paths (\"/Users/...\", \".worktrees/...\").
+    """
+    if len(name) < 3:
+        return False
+    if not re.search(r"[A-Za-z]", name):
+        return False
+    lowered = name.lower()
+    if lowered.startswith(("http", "www.")) or "://" in lowered:
+        return False
+    if name.startswith(("/", "./", "~", "..", ".")) or "/users/" in lowered:
+        return False
+    return True
+
+
+def _resolve_known_entity(registry: EntityRegistry, name: str):
+    """Return the registry entity matching `name` (exact, then
+    case-insensitive), or None. Catalog-validated linking only —
+    this function never creates entities (repair plan P2)."""
+    entity = registry.get_by_name(name)
+    if entity is None:
+        entity = registry.get_by_name_ci(name)
+    return entity
+
+
 def migrate_raw_events(
     jsonl_path: str,
     registry: EntityRegistry,
@@ -136,23 +165,21 @@ def migrate_raw_events(
                     description="First event captured",
                 )
 
-            # 3. Detect project references in content → create contact points
+            # 3. Detect project references in content → link to KNOWN
+            #    entities only. Unknown candidates are quarantined in
+            #    entity_candidates, never auto-registered (repair plan P2).
             if content:
                 projects = PROJECT_PATTERNS.findall(content)
                 for proj in projects:
                     if proj not in project_entities:
-                        try:
-                            proj_entity = registry.register(
-                                name=proj,
-                                kind="project",
-                                summary=f"Project mentioned in actor timelines",
-                            )
+                        if not _is_sane_candidate(proj):
+                            continue
+                        proj_entity = _resolve_known_entity(registry, proj)
+                        if proj_entity:
                             project_entities[proj] = proj_entity.entity_id
-                            total_entities += 1
-                        except ValueError:
-                            proj_entity = registry.get_by_name(proj)
-                            if proj_entity:
-                                project_entities[proj] = proj_entity.entity_id
+                        else:
+                            registry.add_candidate(proj, sample_content=content[:300])
+                            continue
 
                     if proj in project_entities:
                         proj_event = timeline.append(
@@ -175,7 +202,8 @@ def migrate_raw_events(
         else:
             total_appended += 1
             if content:
-                projects = PROJECT_PATTERNS.findall(content)
+                projects = [p for p in PROJECT_PATTERNS.findall(content)
+                            if _is_sane_candidate(p)]
                 total_relations += len(projects) * 2
 
     result = {

@@ -103,6 +103,16 @@ class EntityRegistry:
                     INSERT INTO entities_fts(rowid, name, summary)
                     VALUES (new.rowid, new.name, new.summary);
                 END;
+                -- Quarantine for regex-detected names that match no known
+                -- entity (repair plan 2026-06-07, P2). Reviewed weekly:
+                -- promoted to entities or discarded — never auto-registered.
+                CREATE TABLE IF NOT EXISTS entity_candidates (
+                    name            TEXT PRIMARY KEY,
+                    first_seen      TEXT NOT NULL,
+                    occurrences     INTEGER NOT NULL DEFAULT 1,
+                    sample_content  TEXT DEFAULT '',
+                    status          TEXT NOT NULL DEFAULT 'pending'
+                );
             """)
             conn.commit()
 
@@ -151,6 +161,53 @@ class EntityRegistry:
                 row = conn.execute("SELECT * FROM entities WHERE name = ?",
                                    (name,)).fetchone()
                 return self._row_to_entity(row) if row else None
+            finally:
+                conn.close()
+
+    def get_by_name_ci(self, name: str) -> Optional[EntityNode]:
+        """Case-insensitive exact-name lookup."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                row = conn.execute(
+                    "SELECT * FROM entities WHERE name = ? COLLATE NOCASE",
+                    (name,)).fetchone()
+                return self._row_to_entity(row) if row else None
+            finally:
+                conn.close()
+
+    def add_candidate(self, name: str, sample_content: str = "") -> None:
+        """Quarantine a detected-but-unknown entity name (repair plan P2).
+
+        Upserts into entity_candidates: first hit records first_seen and a
+        content sample, repeats increment occurrences. Candidates are
+        promoted or discarded on review — never auto-registered.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("""
+                    INSERT INTO entity_candidates
+                        (name, first_seen, occurrences, sample_content, status)
+                    VALUES (?, ?, 1, ?, 'pending')
+                    ON CONFLICT(name) DO UPDATE SET occurrences = occurrences + 1
+                """, (name, now, sample_content[:500]))
+                conn.commit()
+            finally:
+                conn.close()
+
+    def list_candidates(self, status: str = "pending", limit: int = 100) -> list[dict]:
+        """List quarantined entity candidates for review."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                rows = conn.execute("""
+                    SELECT name, first_seen, occurrences, sample_content, status
+                    FROM entity_candidates WHERE status = ?
+                    ORDER BY occurrences DESC LIMIT ?
+                """, (status, limit)).fetchall()
+                return [dict(r) for r in rows]
             finally:
                 conn.close()
 

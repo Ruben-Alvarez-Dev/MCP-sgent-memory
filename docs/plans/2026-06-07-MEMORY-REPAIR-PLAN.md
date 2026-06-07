@@ -81,3 +81,5 @@ Borrow what works from Claude's memory design:
 - universal-capture-proxy (big build; revisit after Phase 1 proves flow)
 - Qdrant-backed semantic entity search (needs its own ADR)
 - Multi-machine sync (mini + VPS)
+
+**2026-06-07 verification:** Broken-pipe API errors FIXED AND VERIFIED — commit ba58765 demotes client disconnects (BrokenPipeError/ConnectionResetError) to DEBUG; backpack restarted 07:52:45 (after the fix landed 07:49:24) and zero "API error" entries appear in data/logs/backpack.stderr.log since the restart marker; the dashboard's "116 API errors" reads a pre-restart log tail and is historical.

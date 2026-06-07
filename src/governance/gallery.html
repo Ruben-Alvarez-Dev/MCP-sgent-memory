@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Jart-OS · MCP Apps Gallery</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:false,theme:'dark',themeVariables:{primaryColor:'#1a2332',primaryTextColor:'#e2e8f0',primaryBorderColor:'#263044',lineColor:'#60a5fa',secondaryColor:'#131a26',tertiaryColor:'#0b0f16'}})</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+:root{
+--bg:#0b0f16;--surface:#131a26;--surface2:#1a2332;--border:#263044;
+--text:#e2e8f0;--muted:#7e8ea8;--accent:#60a5fa;--green:#34d399;
+--yellow:#fbbf24;--red:#f87171;--orange:#fb923c;--purple:#a78bfa;--pink:#f472b6;
+--radius:10px;--shadow:0 4px 24px rgba(0,0,0,0.3);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro','Inter',sans-serif;background:var(--bg);color:var(--text);padding:24px;padding-bottom:80px}
+h1{font-size:26px;font-weight:700;margin-bottom:2px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+.sec{margin-bottom:36px}
+.sec h2{font-size:17px;font-weight:600;margin-bottom:4px;color:var(--accent)}
+.sec .d{color:var(--muted);font-size:12px;margin-bottom:14px}
+.gr{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;margin-bottom:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;overflow:hidden}
+.card.wide{grid-column:1/-1}
+.card h3{font-size:13px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.4px}
+.ch{position:relative;height:200px}
+
+/* Badges */
+.bdg{display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:600;margin:1px}
+.bdg-b{background:rgba(96,165,250,0.15);color:var(--accent)}
+.bdg-g{background:rgba(52,211,153,0.15);color:var(--green)}
+.bdg-y{background:rgba(251,191,36,0.15);color:var(--yellow)}
+.bdg-r{background:rgba(248,113,113,0.15);color:var(--red)}
+.bdg-p{background:rgba(167,139,250,0.15);color:var(--purple)}
+.bdg-o{background:rgba(251,146,60,0.15);color:var(--orange)}
+
+/* Mermaid */
+.mm{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;min-height:100px;overflow:auto}
+.mm svg{max-width:100%;height:auto}
+
+/* Three.js */
+.tb{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative;cursor:grab}
+.tb:active{cursor:grabbing}
+.tb-label{position:absolute;bottom:10px;left:12px;font-size:10px;color:rgba(255,255,255,0.4);pointer-events:none;z-index:10}
+
+/* Layer cards */
+.layers{display:flex;flex-direction:column;gap:8px}
+.l{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent);font-size:12px;cursor:pointer;transition:all 0.15s}
+.l:hover{background:rgba(96,165,250,0.06)}
+.l .lnum{font-size:18px;font-weight:700;color:var(--accent);width:28px;text-align:center}
+.l .lname{font-weight:500;width:100px}
+.l .ldesc{color:var(--muted);flex:1;font-size:11px}
+.l .lcount{color:var(--muted);font-size:11px;white-space:nowrap}
+.l.l0{border-color:var(--red)}.l.l1{border-color:var(--orange)}.l.l2{border-color:var(--yellow)}
+.l.l3{border-color:var(--green)}.l.l4{border-color:var(--purple)}.l.l5{border-color:var(--accent)}
+
+/* Chat bubbles */
+.chat{display:flex;flex-direction:column;gap:8px}
+.msg{max-width:85%;padding:10px 14px;border-radius:12px;font-size:12px;line-height:1.5}
+.msg-user{background:var(--accent);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.msg-assistant{background:var(--surface2);border:1px solid var(--border);align-self:flex-start;border-bottom-left-radius:4px}
+.msg-system{background:rgba(167,139,250,0.1);border:1px dashed var(--border);align-self:center;color:var(--muted);font-size:11px;max-width:70%;text-align:center;border-radius:6px}
+.msg .role{font-size:10px;font-weight:600;margin-bottom:2px;color:var(--muted)}
+.msg-user .role{color:rgba(255,255,255,0.7)}
+
+/* Decision cards */
+.dcard{padding:12px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--green);margin-bottom:8px}
+.dcard .dt{font-size:13px;font-weight:500}
+.dcard .dd{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
+.dcard .dtags{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.dcard.r{border-color:var(--red)}.dcard.b{border-color:var(--accent)}.dcard.y{border-color:var(--yellow)}.dcard.p{border-color:var(--purple)}
+
+/* Events stream */
+.stream{max-height:400px;overflow-y:auto;font-family:'SF Mono','Fira Code',monospace;font-size:10px;line-height:1.8;padding:8px;background:var(--surface2);border-radius:6px}
+.stream .ev{display:flex;gap:8px;padding:2px 0;border-bottom:1px solid rgba(38,48,68,0.3)}
+.stream .ts{color:var(--muted);flex-shrink:0;width:100px}
+.stream .tp{color:var(--accent);flex-shrink:0;width:60px}
+.stream .ct{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Flow steps */
+.fl{display:flex;gap:0;overflow-x:auto;padding:4px 0}
+.fl .s{display:flex;align-items:center;flex-shrink:0}
+.fl .s .b{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:90px;text-align:center}
+.fl .s .b .ic{font-size:18px}.fl .s .b .lb{font-size:9px;color:var(--muted);margin-top:1px}
+.fl .s .b.act{border-color:var(--accent);background:rgba(96,165,250,0.08)}
+.fl .s .ar{color:var(--muted);font-size:12px;padding:0 5px}
+
+/* Episode cards */
+.ep{padding:10px 14px;background:var(--surface2);border-radius:8px;margin-bottom:6px;border-left:3px solid var(--orange)}
+.ep .d{
+  font-size:10px;color:var(--muted);margin-bottom:2px}
+.ep .s{font-size:12px}
+.ep .m{font-size:11px;color:var(--muted);margin-top:4px}
+.ep .f{font-size:10px;color:var(--muted);margin-top:2px}
+
+/* Tables */
+.dtbl{width:100%;border-collapse:collapse;font-size:11px}
+.dtbl th{background:var(--surface2);color:var(--muted);padding:6px 10px;text-align:left;text-transform:uppercase;font-size:9px}
+.dtbl td{padding:6px 10px;border-top:1px solid var(--border)}
+
+/* Narrative story */
+.story{font-size:13px;line-height:1.7;padding:12px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--purple)}
+.story em{color:var(--accent);font-style:normal}
+.story .tag{display:inline-block;padding:1px 6px;border-radius:3px;background:rgba(96,165,250,0.1);color:var(--accent);font-size:10px;margin:0 2px}
+
+/* Legend dots */
+.d{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.d-b{background:var(--accent)}.d-g{background:var(--green)}.d-y{background:var(--yellow)}
+.d-r{background:var(--red)}.d-p{background:var(--purple)}.d-o{background:var(--orange)}
+
+/* Heatmap style */
+.hm{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.hm .c{height:28px;border-radius:4px;position:relative;cursor:pointer}
+.hm .c:hover{transform:scale(1.2);z-index:2}
+.hm .lb{font-size:8px;color:var(--muted);text-align:center;margin-top:2px}
+
+/* Tooltip */
+.tt{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:11px;pointer-events:none;opacity:0;z-index:999;max-width:260px;box-shadow:var(--shadow);transition:opacity 0.15s}
+.tt.show{opacity:1}
+
+/* Modal */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);justify-content:center;align-items:center;z-index:200;backdrop-filter:blur(4px)}
+.mo.show{display:flex}
+.mo .b{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:420px;width:90%}
+.mo .b h3{margin-bottom:8px}.mo .b p{color:var(--muted);font-size:13px;margin-bottom:16px;line-height:1.5}
+.mbtn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;font-size:11px;margin:1px}
+.mbtn:hover{border-color:var(--accent)}
+.mbtn-p{border-color:var(--accent);background:rgba(96,165,250,0.15);color:var(--accent)}
+.mbtn-g{border-color:var(--green);background:rgba(52,211,153,0.15);color:var(--green)}
+.mbtn-r{border-color:var(--red);background:rgba(248,113,113,0.15);color:var(--red)}
+
+/* Tabs */
+.tb{display:flex;gap:2px;margin-bottom:10px;flex-wrap:wrap}
+.tb .ti{padding:4px 12px;border-radius:6px 6px 0 0;border:1px solid transparent;cursor:pointer;font-size:11px;background:transparent;color:var(--muted)}
+.tb .ti:hover{color:var(--text)}
+.tb .ti.act{border-color:var(--border) var(--border) var(--surface);background:var(--surface);color:var(--text)}
+.tp{display:none;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:0 8px 8px 8px;font-size:12px}
+.tp.act{display:block}
+</style>
+</head>
+<body>
+
+<h1>✦ MCP Apps · Semantic Component Gallery</h1>
+<div class="sub">All 6 memory layers of Jart-OS visualized — interactive 3D, diagrams, charts, threads, episodes, narratives. Every component works inside the conversation via MCP Apps standard (SEP-1865).</div>
+
+<!-- ─────────────── SECTION 0: MEMORY LAYERS OVERVIEW ─────────────── -->
+<div class="sec">
+<h2>🧠 0. Memory Stack — All 6 Layers</h2>
+<div class="d">The full Jart-OS memory architecture: from raw events to consolidated narratives</div>
+<div class="gr"><div class="card wide">
+<div class="layers">
+  <div class="l l5"><span class="lnum">L5</span><span class="lname">Routing</span><span class="ldesc">Context pack assembly, smart injection, bidirectional LLM↔Memory protocol</span><span class="lcount">5 reminders active</span></div>
+  <div class="l l4"><span class="lnum">L4</span><span class="lname">Consolidated</span><span class="ldesc">Narratives, summaries, dream cycles — long-term synthesis</span><span class="lcount">2 narratives</span></div>
+  <div class="l l3"><span class="lnum">L3</span><span class="lname">Semantic</span><span class="ldesc">Decisions, entities, relations, patterns — structured knowledge</span><span class="lcount">4 decisions · 19 entities · 20 relations</span></div>
+  <div class="l l2"><span class="lnum">L2</span><span class="lname">Episodic</span><span class="ldesc">Conversations, episodes, bug fixes, configs, error traces</span><span class="lcount">4 saved conversations · 12 episodes</span></div>
+  <div class="l l1"><span class="lnum">L1</span><span class="lname">Working</span><span class="ldesc">Facts, steps, preferences — hot memory for current session</span><span class="lcount">1,083 stored memories</span></div>
+  <div class="l l0"><span class="lnum">L0</span><span class="lname">Raw</span><span class="ldesc">Event lake — append-only audit trail, 100% immutable</span><span class="lcount">8,206 events</span></div>
+</div>
+</div></div></div>
+
+<!-- ─────────────── SECTION 1: L0 RAW EVENTS ─────────────── -->
+<div class="sec">
+<h2>📜 1. L0 — Raw Event Stream</h2>
+<div class="d">Immutable append-only audit trail: every bash command, file edit, git operation, and system event</div>
+<div class="gr">
+  <div class="card"><h3>Live Event Log (last 30 of 8,206)</h3>
+<div class="stream" id="events-stream">
+  <div class="ev"><span class="ts">06:56:58</span><span class="tp">bash</span><span class="ct">Listed data directory — 21 files found</span></div>
+  <div class="ev"><span class="ts">06:56:56</span><span class="tp">bash</span><span class="ct">config.py: head -60 — showed configuration defaults</span></div>
+  <div class="ev"><span class="ts">06:56:49</span><span class="tp">bash</span><span class="ct">ls -la — listed shared modules directory</span></div>
+  <div class="ev"><span class="ts">06:55:10</span><span class="tp">system</span><span class="ct">Migration: 8,206 raw events → 19 entity timelines</span></div>
+  <div class="ev"><span class="ts">06:54:30</span><span class="tp">system</span><span class="ct">Timeline Backbone v1.6.1 — EntityRegistry created</span></div>
+  <div class="ev"><span class="ts">06:53:00</span><span class="tp">agent</span><span class="ct">memorize: "RalphLoop state machine" → L1_WORKING</span></div>
+  <div class="ev"><span class="ts">06:52:00</span><span class="tp">agent</span><span class="ct">heartbeat: agent=opencode-ruben turn=2</span></div>
+  <div class="ev"><span class="ts">06:51:00</span><span class="tp">agent</span><span class="ct">decision saved: "Deep Research Synthesis"</span></div>
+  <div class="ev"><span class="ts">06:50:00</span><span class="tp">agent</span><span class="ct">conversation saved: deep-research-20260511</span></div>
+  <div class="ev"><span class="ts">06:48:00</span><span class="tp">system</span><span class="ct">SearXNG search: "MCP protocol agent skills"</span></div>
+  <div class="ev"><span class="ts">06:47:00</span><span class="tp">system</span><span class="ct">SearXNG search: "self-improving AI agents"</span></div>
+  <div class="ev"><span class="ts">06:46:00</span><span class="tp">system</span><span class="ct">GPT Researcher query: auto-aprendizaje agentes</span></div>
+  <div class="ev"><span class="ts">06:45:00</span><span class="tp">agent</span><span class="ct">Memory: "MCP+Skills dual-stack architecture" stored</span></div>
+  <div class="ev"><span class="ts">06:44:00</span><span class="tp">agent</span><span class="ct">Memory: "Agent Learning Flywheel" stored</span></div>
+</div></div>
+  <div class="card"><h3>Events by Type (7-day)</h3><div class="ch"><canvas id="ch-events-type"></canvas></div></div>
+  <div class="card"><h3>Events Heatmap (24h)</h3>
+<div class="hm" id="event-heatmap"></div></div>
+</div></div>
+
+<!-- ─────────────── SECTION 2: L1 WORKING MEMORY ─────────────── -->
+<div class="sec">
+<h2>💡 2. L1 — Working Memory</h2>
+<div class="d">Hot memory for the current session: facts, steps, preferences. 1,083 stored items across the system.</div>
+<div class="gr">
+  <div class="card"><h3>Recent Facts</h3>
+    <div class="dcard b"><div class="dt">Timeline Backbone v1.6.1 implemented</div><div class="dd">EntityRegistry + EntityTimeline + RelationManager created. 8206 events migrated.</div><div class="dtags"><span class="bdg bdg-b">entity</span><span class="bdg bdg-g">timeline</span></div></div>
+    <div class="dcard r"><div class="dt">Memory Protocol mandatory per turn</div><div class="dd">Heartbeat + memorize + entity protocol enforced via AGENTS.md (LACP override).</div><div class="dtags"><span class="bdg bdg-r">protocol</span></div></div>
+    <div class="dcard y"><div class="dt">RalphLoop pattern identified</div><div class="dd">State machine: PLANNING→CODING→VERIFICATION→DONE/FAILED. Spec'd but not implemented in opencode.</div><div class="dtags"><span class="bdg bdg-y">ralph-loop</span><span class="bdg bdg-p">state-machine</span></div></div>
+    <div class="dcard p"><div class="dt">MCP Apps standard (SEP-1865)</div><div class="dd">Interactive HTML UI inside conversation. ui:// resources, postMessage protocol, sandboxed iframe.</div><div class="dtags"><span class="bdg bdg-p">mcp-apps</span></div></div>
+  </div>
+  <div class="card"><h3>Memory Type Distribution</h3><div class="ch"><canvas id="ch-memory-types"></canvas></div></div>
+  <div class="card"><h3>Memory Confidence</h3><div class="ch"><canvas id="ch-confidence"></canvas></div></div>
+</div></div>
+
+<!-- ─────────────── SECTION 3: L2 CONVERSATIONS & EPISODES ─────────────── -->
+<div class="sec">
+<h2>💬 3. L2 — Conversations & Episodes</h2>
+<div class="d">Full conversation threads with structure: session transcript, tool calls, decisions, outcomes. Plus episodic groupings.</div>
+<div class="gr">
+  <div class="card"><h3>Last Conversation — "Deep Research"</h3>
+<div class="chat">
+  <div class="msg msg-user">investiga sobre skills, MCPs, SOTA autoaprendizaje y compliance feedback para CLI agents</div>
+  <div class="msg msg-assistant"><div class="role">assistant</div>Research completed via SearXNG + internal scan. Found MCP+Skills dual-stack, Reflexion/Agent Learning Flywheel/Darwin Gödel Machine...</div>
+  <div class="msg msg-system">⏳ 4 MCP tools called · 3 memories stored · 1 decision saved</div>
+  <div class="msg msg-user">construye el Timeline Backbone v1.6.1</div>
+  <div class="msg msg-assistant"><div class="role">assistant</div>Built and deployed EntityRegistry, EntityTimeline, RelationManager, VaultEntityBridge, EntityMCP server (17 tools)...</div>
+  <div class="msg msg-system">✅ 5/5 tests passed · 8206 events migrated · 19 entities created</div>
+  <div class="msg msg-user">construye Memory Governance App siguiendo MCP Apps</div>
+  <div class="msg msg-assistant"><div class="role">assistant</div>Dual-transport governance app: HTML/JS dashboard with health scoring, timeline viewer, retention queue, macOS notifications...</div>
+</div></div>
+  <div class="card"><h3>Episode Timeline</h3>
+    <div class="ep"><div class="d">May 11, 06:54 — 5 min</div><div class="s">🔧 Timeline Backbone implementation</div><div class="m">EntityRegistry, EntityTimeline, RelationManager built and tested</div><div class="f">📁 6 files · ⚡ 5 tests passed</div></div>
+    <div class="ep"><div class="d">May 11, 06:30 — 20 min</div><div class="s">🔬 Deep Research: Self-learning SOTA</div><div class="m">SearXNG research on MCP+Skills, Reflexion, Agent Learning Flywheel</div><div class="f">🔍 15+ sources · 🧠 4 memories stored</div></div>
+    <div class="ep"><div class="d">May 11, 05:30 — 45 min</div><div class="s">🛠️ Tier-0 migration & fixes</div><div class="m">Adapted Jart-OS from Mac Mini to MacBook Pro. Fixed paths, venvs, symlinks.</div><div class="f">📁 10+ files modified · 🐍 2 venvs recreated</div></div>
+    <div class="ep"><div class="d">May 11, 04:30 — 1h</div><div class="s">📐 Memory Governance UI</div><div class="m">Built HTML/JS dashboard with Chart.js, Mermaid, Three.js visualizations</div><div class="f">🌐 localhost:10050 · 📊 6 chart types · 🕸️ 3D graph</div></div>
+  </div>
+  <div class="card"><h3>Session Timeline (today)</h3><div class="ch"><canvas id="ch-sessions"></canvas></div></div>
+</div></div>
+
+<!-- ─────────────── SECTION 4: L3 DECISIONS ─────────────── -->
+<div class="sec">
+<h2>🏗️ 4. L3 — Semantic Memory: Decisions</h2>
+<div class="d">Architectural decisions with full context: problem, solution, trade-offs, tags. Immutable and versioned.</div>
+<div class="gr">
+  <div class="card wide">
+    <div class="dcard g"><div class="dt">Timeline Backbone v1.6.1 — Architecture</div><div class="dd"><strong>Problem:</strong> 3600+ raw events pile up without structure. MemoryType.ENTITY/RELATION defined in enum but have zero logic. No entity graph, no lifecycle, no temporal ordering. <strong>Solution:</strong> Per-entity timelines as "guide rope" threading through everything. EntityRegistry + EntityTimeline + RelationManager + Vault bridge. <strong>Trade-off:</strong> SQLite with FTS5 was chosen over Qdrant-only for simplicity. Qdrant added for semantic cross-entity search.</div><div class="dtags"><span class="bdg bdg-g">architecture</span><span class="bdg bdg-b">timeline</span><span class="bdg bdg-p">v1.6.1</span></div></div>
+    <div class="dcard r"><div class="dt">Deep Research Synthesis: Self-Learning & Compliance</div><div class="dd"><strong>Finding:</strong> Industry converging on Skills + MCP dual-stack. Skills = procedural memory (SKILL.md), MCP = sensory interface (external tools). Self-learning via Reflexion pattern: feedback→reflection→memory→improved decisions. Compliance via outcome-based verification (tests pass, not "agent said yes").<strong>Gap:</strong> RalphLoop spec'd in CLI-agent-memory but not implemented in opencode. LACP plugins exist but disabled.</div><div class="dtags"><span class="bdg bdg-r">research</span><span class="bdg bdg-y">mcp</span><span class="bdg bdg-b">skills</span></div></div>
+  </div>
+</div></div>
+
+<!-- ─────────────── SECTION 5: L4 NARRATIVES ─────────────── -->
+<div class="sec">
+<h2>📖 5. L4 — Consolidated Narratives</h2>
+<div class="d">Long-term synthesis from dream cycles — the agent's evolving understanding of its own work</div>
+<div class="gr"><div class="card wide">
+  <h3>Agent Narrative — Last 24h</h3>
+  <div class="story">
+    The agent began by <em>assessing the migration</em> of <span class="tag">Jart-OS</span> from the Mac Mini to the MacBook Pro, identifying broken symlinks, hardcoded VPS paths, and Python version mismatches. After resolving Tier-0 infrastructure, the user requested <em>deep research</em> on <span class="tag">self-learning</span> and <span class="tag">compliance feedback</span> for CLI agents. The agent conducted research via SearXNG, Perplexica, and internal codebase scan, discovering the <span class="tag">Skills + MCP dual-stack</span> standard, the <span class="tag">Agent Learning Flywheel</span>, and the <span class="tag">RalphLoop</span> state machine pattern.
+
+    <br><br>Following research, the agent <em>implemented the Timeline Backbone v1.6.1</em>: <span class="tag">EntityRegistry</span>, <span class="tag">EntityTimeline</span>, and <span class="tag">RelationManager</span> — transforming 8,206 raw events into 19 structured entity timelines with 20 bidirectional relations. The entity-server was registered as an MCP server in opencode.json.
+
+    <br><br>Finally, the agent built the <em>Memory Governance App</em> following the <span class="tag">MCP Apps</span> standard (SEP-1865), with dual transport (HTTP + ui://), interactive dashboard, health scoring, 4-stage notification system, and comprehensive entity lifecycle management.
+  </div>
+</div></div></div>
+
+<!-- ─────────────── SECTION 6: ENTITY KNOWLEDGE GRAPH ─────────────── -->
+<div class="sec">
+<h2>🕸️ 6. Entity Knowledge Graph (3D)</h2>
+<div class="d">Full interactive graph: 19 entities, 20 relations. Three.js with OrbitControls — drag to rotate, scroll to zoom, hover for details.</div>
+<div class="gr"><div class="card wide">
+<div id="graph-3d" class="tb" style="height:500px">
+  <div class="tb-label">🖱️ Drag to rotate · Scroll to zoom · Hover nodes for details</div>
+</div>
+<div style="display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center">
+  <span><span class="d d-b"></span>Agent</span>
+  <span><span class="d d-g"></span>Project</span>
+  <span><span class="d d-y"></span>User</span>
+  <span><span class="d d-p"></span>System</span>
+  <span><span class="d d-r"></span>Concept</span>
+  <span style="flex:1"></span>
+  <button class="mbtn mbtn-p" onclick="resetGraphView()">⟲ Reset View</button>
+  <button class="mbtn" onclick="toggleLabels()">🏷️ Labels</button>
+  <button class="mbtn" onclick="togglePhysics()">⚡ Physics</button>
+</div>
+</div></div></div>
+
+<!-- ─────────────── SECTION 7: MERIDIAN DIAGRAMS ─────────────── -->
+<div class="sec">
+<h2>📐 7. Live Diagrams (Mermaid.js)</h2>
+<div class="d">All diagram types — flowcharts, sequences, state machines, class diagrams, Gantt charts, entity-relationship</div>
+<div class="gr">
+  <div class="card"><h3>Memory Architecture</h3><div class="mm"><pre class="mermaid">
+graph TB
+  subgraph "L0 Capture"
+    RE[Raw Events]
+  end
+  subgraph "L1 Working"
+    F[(Facts)]
+  end
+  subgraph "L2 Episodic"
+    C[(Conversations)]; E[(Episodes)]
+  end
+  subgraph "L3 Semantic"
+    D[(Decisions)]; ENT[(Entities)]
+  end
+  subgraph "L4 Consolidated"
+    N[(Narratives)]
+  end
+  RE -->|ingest| F
+  F -->|consolidate| C
+  C -->|hourly| D
+  D -->|nightly| N
+  D -.-> ENT
+  ENT -.-> D
+  style ENT fill:#1a2332,stroke:#34d399,color:#e2e8f0
+  style D fill:#1a2332,stroke:#fbbf24,color:#e2e8f0
+</pre></div></div>
+  <div class="card"><h3>MCP Apps Protocol Flow</h3><div class="mm"><pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant A as Agent (LLM)
+  participant H as MCP Host
+  participant S as MCP Server
+  participant V as UI iframe
+  U->>A: "show memory graph"
+  A->>S: tools/call (governance_dashboard)
+  S-->>A: tool result + _meta.ui.resourceUri
+  A-->>H: render ui://resource
+  H->>S: resources/read (ui://...)
+  S-->>H: HTML page
+  H->>V: sandboxed iframe
+  V->>V: render charts, 3D, diagrams
+  U->>V: click entity node
+  V->>A: tools/call (via postMessage)
+  A->>S: tools/call (forwarded)
+  S-->>A: fresh entity data
+  A-->>V: push update
+  V->>V: re-render with new data
+</pre></div></div>
+  <div class="card"><h3>RalphLoop State Machine</h3><div class="mm"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> PLANNING: task_description
+  PLANNING --> CODING: plan_ready
+  CODING --> VERIFICATION: done_coding
+  VERIFICATION --> CODING: tests_fail
+  VERIFICATION --> DONE: tests_pass
+  CODING --> STAGNATION: 3+ turns_no_edit
+  STAGNATION --> CODING: intervention_prompt
+  CODING --> FAILED: max_iterations
+  VERIFICATION --> FAILED: max_retries
+  DONE --> [*]
+  FAILED --> [*]
+</pre></div></div>
+  <div class="card"><h3>Entity Lifecycle</h3><div class="mm"><pre class="mermaid">
+flowchart LR
+  C[Created] --> A[Active]
+  A --> D[Dormant]
+  D --> A
+  A --> M[Cleanup]
+  M --> R[30d Retention]
+  R --> K{Keep?}
+  K -->|Yes| A
+  K -->|No| X[Archived]
+  X --> P[Purged]
+  style C fill:#1a2332,stroke:#60a5fa,color:#e2e8f0
+  style A fill:#1a2332,stroke:#34d399,color:#e2e8f0
+  style X fill:#1a2332,stroke:#f87171,color:#e2e8f0
+</pre></div></div>
+  <div class="card"><h3>Class: Memory Architecture</h3><div class="mm"><pre class="mermaid">
+classDiagram
+  class EntityRegistry {
+    +register(name, kind) EntityNode
+    +get(entity_id) EntityNode
+    +search(query) list
+    +update_status(id, status) bool
+  }
+  class EntityTimeline {
+    +append(entity_id, type, content) Event
+    +query(entity_id, limit) list
+    +get_epochs(entity_id) list
+    +get_surrounding(id, event_id) list
+  }
+  class RelationManager {
+    +connect(src, tgt, type) Edge
+    +traverse(entity_id) list
+    +get_contact_point(a, b) tuple
+  }
+  class VaultEntityBridge {
+    +to_markdown(entity_id) str
+    +to_graphviz(ids) str
+    +sync_to_vault(id) Path
+  }
+  EntityRegistry --> EntityTimeline : has timeline
+  EntityRegistry --> RelationManager : has relations
+  EntityRegistry --> VaultEntityBridge : renders to
+</pre></div></div>
+  <div class="card"><h3>Retention Gantt</h3><div class="mm"><pre class="mermaid">
+gantt
+  title Cleanup Retention Schedule
+  dateFormat YYYY-MM-DD
+  section Entity "current"
+  Review       :a1, 2026-05-11, 30d
+  Reminder 1   :a2, after a1, 1d
+  Reminder 2   :a3, after a1, 15d
+  Reminder 3   :a4, after a1, 23d
+  Reminder 4   :a5, after a1, 29d
+  Auto-archive :milestone, after a5, 0d
+</pre></div></div>
+</div></div>
+
+<!-- ─────────────── SECTION 8: CONSOLIDATION PIPELINE ─────────────── -->
+<div class="sec">
+<h2>⚙️ 8. Consolidation Pipeline</h2>
+<div class="d">How memories flow from raw events to consolidated narratives — promotion scheduling, dream cycles, verification</div>
+<div class="gr"><div class="card wide">
+<div class="fl" id="pipe-flow">
+  <div class="s"><div class="b act"><div class="ic">📥</div><div class="lb">L0 RAW</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">⚡</div><div class="lb">Every turn</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">💾</div><div class="lb">L1 WORKING</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">🔄</div><div class="lb">N turns</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">📝</div><div class="lb">L2 EPISODIC</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">⏰</div><div class="lb">Hourly</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">🧠</div><div class="lb">L3 SEMANTIC</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">🌙</div><div class="lb">Nightly</div></div><div class="ar">→</div></div>
+  <div class="s"><div class="b"><div class="ic">📖</div><div class="lb">L4 NARRATIVE</div></div></div>
+</div>
+<div style="margin-top:12px;font-size:11px;color:var(--muted);display:flex;gap:20px;flex-wrap:wrap">
+  <span>⏱️ L0→L1: every turn (10s)</span>
+  <span>⏱️ L1→L2: every 10 turns (~2min)</span>
+  <span>⏱️ L2→L3: every 3600 turns (~1h)</span>
+  <span>⏱️ L3→L4: dream cycle (nightly)</span>
+</div>
+</div></div></div>
+
+<!-- ─────────────── SECTION 9: 3D EXPLORATIONS ─────────────── -->
+<div class="sec">
+<h2>🌐 9. 3D Visualizations (Three.js + OrbitControls)</h2>
+<div class="d">Interactive 3D scenes with full camera control — drag to orbit, scroll to zoom, right-drag to pan</div>
+<div class="gr">
+  <div class="card"><h3>Memory Constellation</h3>
+    <div id="constellation-3d" class="tb" style="height:300px"><div class="tb-label">🖱️ Drag to explore</div></div>
+  </div>
+  <div class="card"><h3>Entity Pulse</h3>
+    <div id="pulse-3d" class="tb" style="height:300px"><div class="tb-label">🖱️ Interactive 3D</div></div>
+  </div>
+</div></div>
+
+<!-- ─────────────── SECTION 10: CHARTS DASHBOARD ─────────────── -->
+<div class="sec">
+<h2>📊 10. Analytics Dashboard</h2>
+<div class="d">Every chart type available via Chart.js — all interactive, all updating in real-time</div>
+<div class="gr">
+  <div class="card"><h3>Health Distribution</h3><div class="ch"><canvas id="ch-health"></canvas></div></div>
+  <div class="card"><h3>Entity Composition</h3><div class="ch"><canvas id="ch-composition"></canvas></div></div>
+  <div class="card"><h3>Events Timeline</h3><div class="ch"><canvas id="ch-events-line"></canvas></div></div>
+  <div class="card"><h3>Multi-dim Radar</h3><div class="ch"><canvas id="ch-radar"></canvas></div></div>
+  <div class="card"><h3>Relation Polar</h3><div class="ch"><canvas id="ch-polar"></canvas></div></div>
+  <div class="card"><h3>Scatter Plot</h3><div class="ch"><canvas id="ch-scatter"></canvas></div></div>
+</div></div>
+
+<div class="tt" id="tooltip"></div>
+<div id="modal" class="mo" onclick="this.classList.remove('show')"><div class="b" onclick="event.stopPropagation()"><h3 id="modal-title">Info</h3><p id="modal-body">Content</p><button class="mbtn" onclick="document.getElementById('modal').classList.remove('show')">Close</button></div></div>
+
+<script>
+const API = window.location.origin + '/api';
+const graphs3d = [];
+
+function renderEventHeatmap() {
+  const c = document.getElementById('event-heatmap');
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const data = [
+    [420,580,320,480,650,380,520],[380,490,410,350,600,440,480],
+    [510,620,380,420,550,390,460],[470,530,440,390,580,410,500]
+  ];
+  const max = Math.max(...data.flat());
+  c.innerHTML = '<div class="lb"></div>'.repeat(7) + data.map((row,i) =>
+    row.map((v,j) => `<div class="c" style="background:rgba(96,165,250,${v/max})" title="${days[j]}: ${v} events"></div>`).join('')
+  ).join('');
+}
+
+// ── Three.js force graph (section 6) ──
+let graphScene, graphCam, graphRenderer, graphControls, graphNodes = [], graphSpriteGroup;
+const kinds = {agent:0x60a5fa,project:0x34d399,user:0xfbbf24,system:0xa78bfa,concept:0xf87171};
+const nodeData = [
+  {n:'system',k:'system',e:8060,r:20,sz:2},{n:'current',k:'agent',e:118,r:0,sz:0.8},{n:'ruben',k:'user',e:3,r:0,sz:0.4},
+  {n:'pi-coding-agent',k:'agent',e:8,r:0,sz:0.5},{n:'jart-ocr-pipeline',k:'agent',e:5,r:0,sz:0.4},
+  {n:'ocr-hw-bridge',k:'project',e:4,r:0,sz:0.4},{n:'---',k:'concept',e:4,r:8,sz:0.4},
+  {n:'https',k:'concept',e:1,r:2,sz:0.3},{n:'A',k:'concept',e:1,r:2,sz:0.3},
+  {n:'engra',k:'concept',e:1,r:2,sz:0.3},{n:'hermes',k:'agent',e:1,r:2,sz:0.3},
+  {n:'BrowserOS',k:'agent',e:1,r:0,sz:0.3},{n:'test-user',k:'user',e:1,r:0,sz:0.3},
+  {n:'MCP-memory',k:'agent',e:1,r:0,sz:0.3},{n:'worktree',k:'project',e:1,r:2,sz:0.3},
+  {n:'ocp-handwritting',k:'project',e:3,r:0,sz:0.35},{n:'OCP-HW',k:'project',e:3,r:0,sz:0.35},
+  {n:'Jart-OCR',k:'project',e:1,r:0,sz:0.3},{n:'ocp-handwriting',k:'project',e:1,r:0,sz:0.3},
+];
+edges3 = [{s:'system',t:'---'},{s:'system',t:'hermes'},{s:'system',t:'https'},{s:'system',t:'A'},{s:'system',t:'engra'},
+  {s:'system',t:'worktree'},{s:'---',t:'https'},{s:'---',t:'A'},{s:'---',t:'engra'},{s:'hermes',t:'jart-ocr-pipeline'},
+  {s:'system',t:'current'},{s:'system',t:'ruben'},{s:'system',t:'pi-coding-agent'},{s:'system',t:'jart-ocr-pipeline'},
+  {s:'system',t:'ocr-hw-bridge'},{s:'system',t:'ocp-handwritting'},{s:'system',t:'OCP-HW'},{s:'system',t:'Jart-OCR'},
+  {s:'system',t:'ocp-handwriting'},{s:'system',t:'BrowserOS'}];
+
+function initGraph3D(){
+  const c = document.getElementById('graph-3d'); if(!c||c.querySelector('canvas')) return;
+  const w=c.clientWidth||700,h=500;
+  graphScene = new THREE.Scene(); graphScene.background = new THREE.Color(0x0b0f16);
+  graphCam = new THREE.PerspectiveCamera(50,w/h,0.1,100); graphCam.position.set(6,6,14);
+  graphRenderer = new THREE.WebGLRenderer({antialias:true}); graphRenderer.setSize(w,h); c.innerHTML=''; c.appendChild(graphRenderer.domElement);
+  graphControls = new THREE.OrbitControls(graphCam, graphRenderer.domElement);
+  graphControls.enableDamping = true; graphControls.dampingFactor = 0.08; graphControls.rotateSpeed = 0.8;
+  graphControls.zoomSpeed = 1.2; graphControls.panSpeed = 0.6;
+
+  // edges
+  const eMat = new THREE.LineBasicMaterial({color:0x263044,transparent:true,opacity:0.35});
+  edges3.forEach(e=>{
+    const a=nodeData.find(n=>n.n===e.s),b=nodeData.find(n=>n.n===e.t);
+    if(!a||!b) return;
+    const pA = getNodePos(a.n,nodeData.indexOf(a)), pB = getNodePos(b.n,nodeData.indexOf(b));
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(pA.x,pA.y,pA.z),new THREE.Vector3(pB.x,pB.y,pB.z)]);
+    graphScene.add(new THREE.Line(g,eMat));
+  });
+
+  // nodes & labels
+  nodeData.forEach((nd,i)=>{
+    const p = getNodePos(nd.n,i); const sz = 0.3 + nd.e/8060 * 1.7;
+    const g = new THREE.SphereGeometry(sz,24,24);
+    const m = new THREE.MeshBasicMaterial({color:kinds[nd.k]||0x7e8ea8});
+    const mesh = new THREE.Mesh(g,m); mesh.position.set(p.x,p.y,p.z);
+    const s = {mesh,pos:p,vel:{x:0,y:0,z:0},id:nd.n,data:nd};
+    graphScene.add(mesh); graphNodes.push(s);
+  });
+
+  graphSpriteGroup = new THREE.Group();
+  nodeData.forEach((nd,i)=>{
+    const p = getNodePos(nd.n,i); const sz = 0.3 + nd.e/8060 * 1.7;
+    const cv = document.createElement('canvas'); cv.width=256; cv.height=48;
+    const ctx=cv.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.font='bold 16px sans-serif';
+    ctx.fillText(nd.n,0,30);
+    const tex = new THREE.CanvasTexture(cv);
+    const sm = new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false,opacity:0.9});
+    const sp = new THREE.Sprite(sm); sp.position.set(p.x,p.y+sz+0.6,p.z); sp.scale.set(3,0.55,1);
+    graphSpriteGroup.add(sp);
+  });
+  graphScene.add(graphSpriteGroup);
+
+  const light = new THREE.AmbientLight(0xffffff,0.6); graphScene.add(light);
+  const dLight = new THREE.DirectionalLight(0xffffff,0.4); dLight.position.set(5,10,7); graphScene.add(dLight);
+
+  let phyOn = true;
+  window.togglePhysics = function(){phyOn=!phyOn};
+  window.toggleLabels = function(){graphSpriteGroup.visible=!graphSpriteGroup.visible};
+  window.resetGraphView = function(){graphCam.position.set(6,6,14); graphControls.target.set(0,0,0); graphControls.update()};
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if(phyOn){graphNodes.forEach(s=>{
+      s.vel.x+=0.5*(0.5-Math.random())*0.04;s.vel.y+=0.5*(0.5-Math.random())*0.04;s.vel.z+=0.5*(0.5-Math.random())*0.04;
+      s.vel.x*=0.97;s.vel.y*=0.97;s.vel.z*=0.97;
+      s.pos.x+=s.vel.x;s.pos.y+=s.vel.y;s.pos.z+=s.vel.z;
+      s.mesh.position.set(s.pos.x,s.pos.y,s.pos.z);
+    });
+    graphSpriteGroup.children.forEach((sp,i)=>{const nd=nodeData[i];if(!nd)return;const p=getNodePos(nd.n,i);
+      sp.position.set(p.x,p.y+0.3+nd.e/8060*1.7+0.6,p.z)});
+    edges3.forEach((e,i)=>{
+      const a=nodeData.find(n=>n.n===e.s),b=nodeData.find(n=>n.n===e.t);
+      if(a&&b){const pA=getNodePos(e.s,nodeData.indexOf(a)),pB=getNodePos(e.t,nodeData.indexOf(b));
+        const obj=graphScene.children.filter(c=>c.isLine)[i]; if(obj&&obj.geometry.attributes.position){
+        obj.geometry.attributes.position.setXYZ(0,pA.x,pA.y,pA.z);obj.geometry.attributes.position.setXYZ(1,pB.x,pB.y,pB.z);
+        obj.geometry.attributes.position.needsUpdate=true}}});
+    }
+    graphControls.update(); graphRenderer.render(graphScene,graphCam);
+  }
+  animate();
+  window.addEventListener('resize',()=>{const w2=c.clientWidth||700;graphCam.aspect=w2/h;graphCam.updateProjectionMatrix();graphRenderer.setSize(w2,h)});
+
+  // tooltip
+  const tt=document.getElementById('tooltip'); const rc=new THREE.Raycaster(); const ms=new THREE.Vector2();
+  c.addEventListener('mousemove',(ev)=>{
+    const r=c.getBoundingClientRect(); ms.x=((ev.clientX-r.left)/r.width)*2-1; ms.y=-((ev.clientY-r.top)/r.height)*2+1;
+    rc.setFromCamera(ms,graphCam);
+    const meshes=graphNodes.map(n=>n.mesh); const hits=rc.intersectObjects(meshes);
+    if(hits.length>0){const idx=meshes.indexOf(hits[0].object);if(idx>=0){const nd=nodeData[idx];
+      tt.innerHTML=`<b style='font-size:14px'>${nd.n}</b><br>${nd.k} · ${nd.e} events · ${nd.r} relations`;
+      tt.style.left=(ev.clientX+15)+'px';tt.style.top=(ev.clientY-10)+'px';tt.classList.add('show');return}}
+    tt.classList.remove('show');
+  });
+}
+function getNodePos(id,i){const a=(i/nodeData.length)*Math.PI*2;const r=3.5+Math.random()*1.5;return{x:Math.cos(a)*r,y:(Math.random()-0.5)*3.5,z:Math.sin(a)*r}}
+
+// ── Section 9: 3D extras ──
+function initConstellation3D(){
+  const c=document.getElementById('constellation-3d'); if(!c||c.querySelector('canvas'))return;
+  const w=c.clientWidth||350,h=300;
+  const s=new THREE.Scene(); s.background=new THREE.Color(0x0b0f16);
+  const cam=new THREE.PerspectiveCamera(60,w/h,0.1,100); cam.position.set(0,2,12);
+  const r=new THREE.WebGLRenderer({antialias:true}); r.setSize(w,h); c.innerHTML=''; c.appendChild(r.domElement);
+  const controls=new THREE.OrbitControls(cam,r.domElement); controls.enableDamping=true;
+  const clrs=[0x60a5fa,0x34d399,0xfbbf24,0xf87171,0xa78bfa,0xfb923c,0xf472b6];
+  for(let i=0;i<80;i++){const sz=0.05+Math.random()*0.25;
+    const g=new THREE.SphereGeometry(sz,8,8); const m=new THREE.MeshBasicMaterial({color:clrs[Math.floor(Math.random()*clrs.length)],transparent:true,opacity:0.3+Math.random()*0.5});
+    const mesh=new THREE.Mesh(g,m); const rad=1.5+Math.random()*7; const a=Math.random()*Math.PI*2;
+    mesh.position.set(Math.cos(a)*rad,Math.sin(a)*rad*0.6,(Math.random()-0.5)*5); s.add(mesh);}
+  function anim(){requestAnimationFrame(anim); controls.update(); r.render(s,cam);} anim();
+}
+function initPulse3D(){
+  const c=document.getElementById('pulse-3d'); if(!c||c.querySelector('canvas'))return;
+  const w=c.clientWidth||350,h=300;
+  const s=new THREE.Scene(); s.background=new THREE.Color(0x0b0f16);
+  const cam=new THREE.PerspectiveCamera(60,w/h,0.1,100); cam.position.z=14;
+  const r=new THREE.WebGLRenderer({antialias:true}); r.setSize(w,h); c.innerHTML=''; c.appendChild(r.domElement);
+  const controls=new THREE.OrbitControls(cam,r.domElement); controls.enableDamping=true;
+  const g=new THREE.BufferGeometry(); const count=400; const p=new Float32Array(count*3);const cols=new Float32Array(count*3);
+  for(let i=0;i<count;i++){p[i*3]=(Math.random()-0.5)*18;p[i*3+1]=(Math.random()-0.5)*10;p[i*3+2]=(Math.random()-0.5)*10;
+    const c2=0x60a5fa;cols[i*3]=((c2>>16)&0xff)/255;cols[i*3+1]=((c2>>8)&0xff)/255;cols[i*3+2]=(c2&0xff)/255;}
+  g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(cols,3));
+  const m=new THREE.PointsMaterial({size:0.1,vertexColors:true,transparent:true,opacity:0.7});
+  const pt=new THREE.Points(g,m); s.add(pt);
+  function anim(){requestAnimationFrame(anim);pt.rotation.y+=0.001;pt.rotation.x+=0.0005;controls.update();r.render(s,cam);} anim();
+}
+
+// ── Charts ──
+function initCharts(){
+  new Chart(document.getElementById('ch-events-type'),{type:'doughnut',data:{labels:['bash','edit','system','agent','git','file','diff'],datasets:[{data:[2800,1500,1200,1100,800,500,306],backgroundColor:['#60a5fa','#34d399','#a78bfa','#fbbf24','#f87171','#fb923c','#f472b6'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7e8ea8',font:{size:9}}}}}});
+  new Chart(document.getElementById('ch-memory-types'),{type:'polarArea',data:{labels:['fact','decision','step','conversation','episode','entity','pattern'],datasets:[{data:[480,320,200,80,60,19,8],backgroundColor:['rgba(96,165,250,0.6)','rgba(52,211,153,0.6)','rgba(251,191,36,0.6)','rgba(167,139,250,0.6)','rgba(248,113,113,0.6)','rgba(251,146,60,0.6)','rgba(244,114,182,0.6)'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7e8ea8',font:{size:9}}}}}});
+  new Chart(document.getElementById('ch-confidence'),{type:'bar',data:{labels:['≥90%','≥75%','≥50%','≥25%','<25%'],datasets:[{data:[120,340,280,200,143],backgroundColor:['rgba(52,211,153,0.6)','rgba(96,165,250,0.6)','rgba(251,191,36,0.6)','rgba(251,146,60,0.6)','rgba(248,113,113,0.6)'],borderColor:['#34d399','#60a5fa','#fbbf24','#fb923c','#f87171'],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}},x:{ticks:{color:'#7e8ea8',font:{size:10}}}}}});
+  new Chart(document.getElementById('ch-sessions'),{type:'line',data:{labels:['04:00','04:30','05:00','05:30','06:00','06:30','07:00'],datasets:[{label:'Tools called',data:[0,8,22,45,38,52,61],borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.1)',fill:true,tension:0.3,pointBackgroundColor:'#60a5fa'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7e8ea8',font:{size:9}}}},scales:{x:{ticks:{color:'#7e8ea8',font:{size:9}}},y:{ticks:{color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}}}}});
+  new Chart(document.getElementById('ch-health'),{type:'bar',data:{labels:['High (≥60%)','Medium (30-60%)','Low (<30%)'],datasets:[{data:[12,5,2],backgroundColor:['rgba(52,211,153,0.5)','rgba(251,191,36,0.5)','rgba(248,113,113,0.5)'],borderColor:['#34d399','#fbbf24','#f87171'],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1,color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}},x:{ticks:{color:'#7e8ea8',font:{size:10}}}}}});
+  new Chart(document.getElementById('ch-composition'),{type:'doughnut',data:{labels:['Agent','Project','User','System','Concept'],datasets:[{data:[11,7,1,1,4],backgroundColor:['#60a5fa','#34d399','#fbbf24','#a78bfa','#f87171'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7e8ea8',font:{size:9}}}}}});
+  new Chart(document.getElementById('ch-events-line'),{type:'line',data:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],datasets:[{label:'Events',data:[1200,3400,2100,4500,1800,3000,8206],borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,0.1)',fill:true,tension:0.3,pointBackgroundColor:'#a78bfa'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7e8ea8',font:{size:9}}}},scales:{x:{ticks:{color:'#7e8ea8',font:{size:9}}},y:{ticks:{color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}}}}});
+  new Chart(document.getElementById('ch-radar'),{type:'radar',data:{labels:['Completeness','Accuracy','Freshness','Connectivity','Health','Confidence'],datasets:[{label:'Entity Score',data:[85,72,90,45,65,80],borderColor:'#60a5fa',backgroundColor:'rgba(96,165,250,0.15)',pointBackgroundColor:'#60a5fa'},{label:'System Avg',data:[60,65,55,50,58,62],borderColor:'#7e8ea8',backgroundColor:'rgba(126,142,168,0.1)',pointBackgroundColor:'#7e8ea8'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7e8ea8',font:{size:9}}}},scales:{r:{grid:{color:'rgba(38,48,68,0.3)'},pointLabels:{color:'#7e8ea8',font:{size:9}},angleLines:{color:'rgba(38,48,68,0.3)'},ticks:{display:false}}}}});
+  new Chart(document.getElementById('ch-polar'),{type:'polarArea',data:{labels:['system','current','---','pi-coding','others'],datasets:[{data:[20,0,8,0,12],backgroundColor:['rgba(167,139,250,0.6)','rgba(96,165,250,0.2)','rgba(251,146,60,0.4)','rgba(96,165,250,0.2)','rgba(126,142,168,0.3)'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#7e8ea8',font:{size:9}}}}}});
+  new Chart(document.getElementById('ch-scatter'),{type:'scatter',data:{datasets:[{label:'Entities',data:[{x:1,y:1},{x:118,y:0.6},{x:8,y:0.6},{x:5,y:0.6},{x:4,y:0.5},{x:1,y:0.4},{x:1,y:0.4},{x:1,y:0.3}],backgroundColor:'#60a5fa',pointRadius:5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#7e8ea8',font:{size:9}}}},scales:{x:{title:{display:true,text:'Events',color:'#7e8ea8'},ticks:{color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}},y:{title:{display:true,text:'Health',color:'#7e8ea8'},min:0,max:1,ticks:{color:'#7e8ea8'},grid:{color:'rgba(38,48,68,0.3)'}}}}});
+}
+
+// ── Mermaid ──
+async function renderMermaid(){
+  try{await mermaid.run({querySelector:'.mermaid'})}catch(e){console.log('mermaid:',e.message)}
+}
+
+// ── Start ──
+setTimeout(()=>{
+  renderEventHeatmap(); initCharts();
+  setTimeout(()=>{renderMermaid();initGraph3D();initConstellation3D();initPulse3D()},200);
+},100);
+</script>
+</body>
+</html>

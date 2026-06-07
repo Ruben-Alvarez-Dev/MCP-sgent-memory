@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Jart-OS · Memory Browser</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#090d12;--sf:#10171f;--sf2:#17212d;--bd:#1f2d3d;--tx:#dce4ef;--mt:#6a7a94;--ac:#5b9cf5;--gr:#2ec78e;--yl:#eabb34;--rd:#e86a6a;--og:#ea9534;--pu:#9b7cf0;--pk:#e87db6;--rad:10px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro','Inter',sans-serif;background:var(--bg);color:var(--tx);height:100vh;display:flex;overflow:hidden}
+.sb{width:185px;background:var(--sf);border-right:1px solid var(--bd);padding:18px 10px;display:flex;flex-direction:column;gap:2px;flex-shrink:0;overflow-y:auto}
+.sb .br{font-size:13px;font-weight:700;margin-bottom:14px;padding:0 8px;background:linear-gradient(135deg,var(--ac),var(--pu));-webkit-text-fill-color:transparent}
+.sb .ni{padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--mt);font-size:12px;transition:all .12s;display:flex;align-items:center;gap:7px}
+.sb .ni:hover{background:var(--sf2);color:var(--tx)}
+.sb .ni.act{background:var(--sf2);color:var(--ac);font-weight:500}
+.sb .ni .bdg{font-size:9px;color:var(--mt);background:var(--sf2);padding:1px 6px;border-radius:8px;margin-left:auto;white-space:nowrap}
+.sb .spacer{flex:1}
+.sb .bottom{border-top:1px solid var(--bd);padding-top:8px;margin-top:8px}
+.main{flex:1;padding:18px 20px;overflow-y:auto}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.hd h1{font-size:18px;font-weight:600}.hd .sub{color:var(--mt);font-size:11px;margin-top:1px}
+.btn{padding:4px 10px;border-radius:6px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);cursor:pointer;font-size:11px;transition:all .12s}
+.btn:hover{border-color:var(--ac)}.btn-p{border-color:var(--ac);background:rgba(91,156,245,.1);color:var(--ac)}
+.pn{display:none}.pn.act{display:block}
+
+/* Bridge lines between layers */
+.brdge{text-align:center;font-size:9px;color:var(--mt);padding:4px 0;border-top:1px dashed var(--bd);border-bottom:1px dashed var(--bd);margin:4px 0;opacity:.5}
+
+/* Display mode tabs */
+.disp-tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+.disp-tabs .dt{padding:5px 12px;border-radius:6px;border:1px solid var(--bd);background:transparent;color:var(--mt);cursor:pointer;font-size:10px;transition:all .12s}
+.disp-tabs .dt:hover{border-color:var(--ac);color:var(--tx)}
+.disp-tabs .dt.act{border-color:var(--ac);background:rgba(91,156,245,.1);color:var(--ac)}
+
+/* Chat bubbles (for ALL representations) */
+.chat{display:flex;flex-direction:column;gap:5px;max-height:65vh;overflow-y:auto;padding:6px 0}
+.msg{max-width:92%;padding:7px 11px;border-radius:9px;font-size:12px;line-height:1.45;position:relative}
+.msg .hdr{font-size:8px;font-weight:600;margin-bottom:2px;opacity:.6;text-transform:uppercase;letter-spacing:.3px}
+.msg .ts{font-size:8px;color:var(--mt);margin-top:2px;opacity:.4}
+.msg-u{background:var(--ac);color:#fff;align-self:flex-end;border-bottom-right-radius:2px}
+.msg-a{background:var(--sf2);border:1px solid var(--bd);align-self:flex-start;border-bottom-left-radius:2px}
+.msg-t{background:rgba(46,199,142,.06);border:1px solid rgba(46,199,142,.15);align-self:flex-start;border-radius:5px;font-family:'SF Mono','Fira Code',monospace;font-size:10px;max-width:78%}
+.msg-s{background:rgba(155,124,240,.06);border:1px dashed rgba(155,124,240,.2);align-self:center;font-size:10px;color:var(--mt);max-width:70%;text-align:center;border-radius:5px}
+.msg-b{background:rgba(36,48,68,.4);border:1px solid var(--bd);align-self:flex-start;border-radius:5px;font-family:'SF Mono','Fira Code',monospace;font-size:10px;max-width:85%}
+.msg-no-icon .hdr{display:none}.msg-no-icon{padding:5px 10px;border-radius:6px}
+
+.plain-list{font-size:11px;line-height:1.7;font-family:'SF Mono','Fira Code',monospace}
+.plain-list .pl-ev{padding:3px 6px;border-bottom:1px solid rgba(31,45,61,.3);display:flex;gap:8px}
+.plain-list .pl-ts{color:var(--mt);width:65px;flex-shrink:0}
+.plain-list .pl-tp{color:var(--ac);width:45px;flex-shrink:0}
+.plain-list .pl-ct{overflow:hidden;text-overflow:ellipsis}
+
+.narr-view{font-size:12px;line-height:1.6;padding:14px;background:var(--sf2);border-radius:8px;border-left:3px solid var(--pu)}
+.narr-view em{color:var(--ac);font-style:normal}
+
+.st{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:10px}
+.sc{background:var(--sf);border:1px solid var(--bd);border-radius:var(--rad);padding:8px 10px}
+.sc .n{font-size:18px;font-weight:700}.sc .l{font-size:9px;color:var(--mt);text-transform:uppercase}
+
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.chart-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--rad);padding:10px}
+.chart-card h3{font-size:10px;color:var(--mt);margin-bottom:4px;text-transform:uppercase}
+.ch{position:relative;height:140px}
+
+.tw{background:var(--sf);border:1px solid var(--bd);border-radius:var(--rad);overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{background:var(--sf2);color:var(--mt);padding:5px 8px;text-align:left;text-transform:uppercase;font-size:9px}
+td{padding:5px 8px;border-top:1px solid var(--bd)}
+
+.bdg{display:inline-flex;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:600}
+.bdg-g{background:rgba(46,199,142,.12);color:var(--gr)}.bdg-y{background:rgba(234,187,52,.12);color:var(--yl)}
+.bdg-r{background:rgba(232,106,106,.12);color:var(--rd)}.bdg-b{background:rgba(91,156,245,.12);color:var(--ac)}
+.bdg-p{background:rgba(155,124,240,.12);color:var(--pu)}.bdg-o{background:rgba(234,149,52,.12);color:var(--og)}
+
+.fil{display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap}
+.fil input,.fil select{background:var(--sf);border:1px solid var(--bd);color:var(--tx);padding:4px 8px;border-radius:6px;font-size:10px}
+.fil input{flex:1;min-width:100px}
+
+.dc{background:var(--sf2);border-radius:6px;padding:8px;margin-bottom:4px;border-left:3px solid var(--gr);font-size:11px}
+.dc .dtl{font-weight:500}.dc .dd{color:var(--mt);font-size:10px;margin-top:2px}
+.dc.r{border-color:var(--rd)}.dc.b{border-color:var(--ac)}.dc.p{border-color:var(--pu)}
+
+.ep{padding:7px 10px;background:var(--sf2);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--og);font-size:11px}
+.ep .ed{font-size:9px;color:var(--mt)}.ep .es{font-weight:500}.ep .em{font-size:10px;color:var(--mt);margin-top:1px}
+
+.step-r{display:flex;gap:0;overflow-x:auto;margin-bottom:8px}
+.step-r .sp{display:flex;align-items:center;flex-shrink:0}
+.step-r .sp .b{background:var(--sf2);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;min-width:65px;text-align:center}
+.step-r .sp .b .ic{font-size:13px}.step-r .sp .b .lb{font-size:8px;color:var(--mt)}
+.step-r .sp .b.act{border-color:var(--ac)}.step-r .sp .ar{color:var(--mt);font-size:9px;padding:0 3px}
+
+.lo{padding:30px;text-align:center;color:var(--mt);font-size:12px}
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);justify-content:center;align-items:center;z-index:200;backdrop-filter:blur(3px)}
+.mo.show{display:flex}.mo .bx{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:20px;max-width:380px;width:90%}
+</style>
+</head>
+<body>
+
+<div class="sb">
+  <div class="br">✦ Memory</div>
+  <div class="ni act" onclick="switchLayer('overview')"><span>📊</span> Overview</div>
+  <div class="brdge">▲ more processed</div>
+  <div class="ni" onclick="switchLayer('l5')"><span>🔀</span> L5 · Context</div>
+  <div class="ni" onclick="switchLayer('l4')"><span>📖</span> L4 · Narrative</div>
+  <div class="ni" onclick="switchLayer('l3')"><span>🏗️</span> L3 · Semantic<span class="bdg" id="bdg-l3">…</span></div>
+  <div class="ni" onclick="switchLayer('l2')"><span>📝</span> L2 · Episodic<span class="bdg" id="bdg-l2">…</span></div>
+  <div class="ni" onclick="switchLayer('l1')"><span>💡</span> L1 · Working</div>
+  <div class="brdge">▼ less processed</div>
+  <div class="ni bottom" onclick="switchLayer('l0')"><span>💬</span> L0 · Raw Input<span class="bdg" id="bdg-l0">…</span></div>
+</div>
+
+<main class="main">
+<div class="hd"><div><h1 id="vt">Memory Browser</h1><div class="sub" id="vs">From raw conversations to consolidated narratives</div></div><div class="hd-r"><button class="btn" onclick="refresh()">🔄 Refresh</button></div></div>
+
+<!-- OVERVIEW -->
+<div id="pn-overview" class="pn act">
+  <div class="st" id="ov-stats"></div>
+  <div class="step-r">
+    <div class="sp"><div class="b act"><div class="ic">💬</div><div class="lb">L0 CHAT</div></div><div class="ar">→</div></div>
+    <div class="sp"><div class="b"><div class="ic">💡</div><div class="lb">L1 WORKING</div></div><div class="ar">→</div></div>
+    <div class="sp"><div class="b"><div class="ic">📝</div><div class="lb">L2 EPISODES</div></div><div class="ar">→</div></div>
+    <div class="sp"><div class="b"><div class="ic">🏗️</div><div class="lb">L3 SEMANTIC</div></div><div class="ar">→</div></div>
+    <div class="sp"><div class="b"><div class="ic">📖</div><div class="lb">L4 STORIES</div></div><div class="ar">→</div></div>
+    <div class="sp"><div class="b"><div class="ic">🔀</div><div class="lb">L5 ROUTE</div></div></div>
+  </div>
+  <div class="chart-row">
+    <div class="chart-card"><h3>Volume by Layer</h3><div class="ch"><canvas id="ov-vol"></canvas></div></div>
+    <div class="chart-card"><h3>Event Types</h3><div class="ch"><canvas id="ov-typ"></canvas></div></div>
+  </div>
+</div>
+
+<!-- L5 · CONTEXT -->
+<div id="pn-l5" class="pn"><div class="lo">L5 Routing — context pack assembly & selective injection</div></div>
+
+<!-- L4 · NARRATIVE -->
+<div id="pn-l4" class="pn"><div id="l4-content" class="lo">Loading...</div></div>
+
+<!-- L3 · SEMANTIC -->
+<div id="pn-l3" class="pn">
+  <div class="st" id="l3-stats"></div>
+  <div class="chart-row">
+    <div class="chart-card"><h3>Decisions</h3><div class="ch"><canvas id="l3-cat"></canvas></div></div>
+    <div class="chart-card"><h3>Entity Health</h3><div class="ch"><canvas id="l3-hlth"></canvas></div></div>
+  </div>
+  <div id="l3-content" class="lo">Loading...</div>
+</div>
+
+<!-- L2 · EPISODIC -->
+<div id="pn-l2" class="pn">
+  <div class="st" id="l2-stats"></div>
+  <div id="l2-content" class="lo">Loading...</div>
+</div>
+
+<!-- L1 · WORKING -->
+<div id="pn-l1" class="pn">
+  <div class="st" id="l1-stats"></div>
+  <div id="l1-content" class="lo">Loading...</div>
+</div>
+
+<!-- L0 · RAW INPUT — configurable display -->
+<div id="pn-l0" class="pn">
+  <div class="st" id="l0-stats"></div>
+
+  <div class="disp-tabs" id="l0-tabs">
+    <button class="dt act" data-view="chat" onclick="setL0View('chat')">💬 Chat</button>
+    <button class="dt" data-view="plain" onclick="setL0View('plain')">📋 Plain</button>
+    <button class="dt" data-view="narr" onclick="setL0View('narr')">📖 Narrative</button>
+    <button class="dt" data-view="split" onclick="setL0View('split')">🔀 Split (chat+actions)</button>
+    <span style="flex:1"></span>
+    <button class="dt" id="l0-toggle-icons" onclick="toggleIcons()">🙈 No icons</button>
+    <button class="dt" id="l0-toggle-time" onclick="toggleTime()">⏱️ Timestamps</button>
+  </div>
+
+  <div class="fil" id="l0-filters">
+    <select id="l0-thread" onchange="loadL0()" style="flex:2"></select>
+    <span style="font-size:10px;color:var(--mt);align-self:center" id="l0-info"></span>
+  </div>
+
+  <div id="l0-view-chat" class="pn act"></div>
+  <div id="l0-view-plain" class="pn"></div>
+  <div id="l0-view-narr" class="pn"></div>
+  <div id="l0-view-split" class="pn"></div>
+</div>
+
+</main>
+
+<script>
+const API = window.location.origin + '/api';
+let l0ShowIcons = true, l0ShowTime = false;
+
+function switchLayer(l) {
+  document.querySelectorAll('.ni').forEach(n => n.classList.remove('act'));
+  const el = document.querySelector(`.ni[onclick*="'${l}'"]`);
+  if (el) el.classList.add('act');
+  document.querySelectorAll('.pn').forEach(p => p.classList.remove('act'));
+  document.getElementById('pn-'+l).classList.add('act');
+  const titles = {'overview':'Memory Browser',l5:'L5 — Context Routing',l4:'L4 — Narrative',
+    l3:'L3 — Semantic Memory',l2:'L2 — Episodic',l1:'L1 — Working Memory',l0:'L0 — Raw Input'};
+  document.getElementById('vt').textContent = titles[l]||'';
+  (loaders[l]||function(){})(true);
+}
+
+const loaders = {
+  overview: initOverview, l4: loadL4, l3: loadL3, l2: loadL2, l1: loadL1, l0: loadL0
+};
+
+async function api(p, opts) {
+  const r = await fetch(API + p, { headers: {'Content-Type':'application/json'}, ...opts });
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
+  return r.json();
+}
+
+// ═══ OVERVIEW ═══
+async function initOverview() {
+  try {
+    const [thr, typ, ents, dec] = await Promise.all([
+      api('/l2/threads'), api('/l0/types'), api('/entities'), api('/l3/decisions')
+    ]);
+    const eCount = ents.entities?.length || 0;
+    const dCount = dec.decisions?.length || 0;
+    const tCount = thr.threads?.length || 0;
+    const evTotal = typ.total || 0;
+
+    document.getElementById('bdg-l0').textContent = tCount + ' threads';
+    document.getElementById('bdg-l3').textContent = (dCount + eCount);
+
+    document.getElementById('ov-stats').innerHTML = `
+      <div class="sc"><div class="n" style="color:var(--ac)">${tCount}</div><div class="l">L0 Threads</div></div>
+      <div class="sc"><div class="n" style="color:var(--og)">${evTotal.toLocaleString()}</div><div class="l">L0 Events</div></div>
+      <div class="sc"><div class="n" style="color:var(--gr)">1,083</div><div class="l">L1 Facts</div></div>
+      <div class="sc"><div class="n" style="color:var(--pu)">${dCount+eCount}</div><div class="l">L3 Semantic</div></div>`;
+
+    const typData = typ.types || {};
+    const typLabels = Object.keys(typData).slice(0,6);
+    const typValues = typLabels.map(k => typData[k]);
+
+    const volLabels = ['L0 Threads','L0 Events','L3 Decisions','L3 Entities'];
+    const volValues = [tCount, evTotal, dCount, eCount];
+
+    new Chart(document.getElementById('ov-vol'),{type:'bar',data:{labels:volLabels,datasets:[{data:volValues,backgroundColor:['#eabb34','#ea9534','#9b7cf0','#5b9cf5'],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#6a7a94'},grid:{color:'rgba(31,45,61,.3)'}},x:{ticks:{color:'#6a7a94',font:{size:9}}}}}});
+    new Chart(document.getElementById('ov-typ'),{type:'doughnut',data:{labels:typLabels,datasets:[{data:typValues,backgroundColor:['#9b7cf0','#5b9cf5','#2ec78e','#eabb34','#e86a6a','#ea9534'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#6a7a94',font:{size:9}}}}}});
+  } catch(e) { console.log(e); }
+}
+
+// ═══ L0 — Configurable Display ═══
+let l0Data = null;
+let currentView = 'chat';
+let l0Threads = [];
+
+async function loadL0() {
+  try {
+    const [threads, events] = await Promise.all([api('/l2/threads'), api('/l0/events?limit=200')]);
+    l0Threads = threads.threads;
+    l0Data = {threads: threads.threads, events: events.events, total: events.total};
+
+    document.getElementById('l0-stats').innerHTML = `
+      <div class="sc"><div class="n" style="color:var(--yl)">${threads.threads.length}</div><div class="l">Threads</div></div>
+      <div class="sc"><div class="n" style="color:var(--og)">${events.total}</div><div class="l">Events</div></div>
+      <div class="sc"><div class="n" style="color:var(--ac)">${events.events.filter(e=>e.type==='agent_action').length}</div><div class="l">Actions</div></div>`;
+
+    const sel = document.getElementById('l0-thread');
+    if (sel.options.length === 0) {
+      threads.threads.forEach(t => { const o = document.createElement('option'); o.value=t.thread_id;
+        o.textContent=(t.summary||t.thread_id).slice(0,55); sel.appendChild(o) });
+    }
+    renderL0View(currentView);
+  } catch(e) { document.getElementById('l0-view-chat').innerHTML = `<div class="lo">${e.message}</div>`; }
+}
+
+function setL0View(view) {
+  currentView = view;
+  document.querySelectorAll('#l0-tabs .dt').forEach(b => { b.classList.remove('act'); if(b.dataset.view===view) b.classList.add('act') });
+  ['chat','plain','narr','split'].forEach(v => document.getElementById('l0-view-'+v).classList.toggle('act', v===view));
+  renderL0View(view);
+}
+
+function toggleIcons() {
+  l0ShowIcons = !l0ShowIcons;
+  document.getElementById('l0-toggle-icons').textContent = l0ShowIcons ? '🙈 No icons' : '🐵 Icons';
+  renderL0View(currentView);
+}
+
+function toggleTime() {
+  l0ShowTime = !l0ShowTime;
+  document.getElementById('l0-toggle-time').textContent = l0ShowTime ? '⏱️ Hide' : '⏱️ Timestamps';
+  renderL0View(currentView);
+}
+
+async function renderL0View(view) {
+  if (!l0Data) return;
+  const sel = document.getElementById('l0-thread');
+  const threadId = sel.value;
+
+  if (view === 'chat') {
+    let msgs = [];
+    if (threadId) {
+      const d = await api('/l2/thread/'+threadId);
+      msgs = d.messages || [];
+    }
+    document.getElementById('l0-info').textContent = `${msgs.length} messages`;
+    const c = document.getElementById('l0-view-chat');
+    c.innerHTML = '<div class="chat">' + (msgs.length ? msgs.map(m => {
+      const cls = m.role==='user'?'msg-u':m.role==='assistant'?'msg-a':'msg-s';
+      const icon = l0ShowIcons ? (m.role==='user'?'🧑 ':'🤖 ') : '';
+      return `<div class="msg ${cls} ${l0ShowIcons?'':'msg-no-icon'}"><div class="hdr">${l0ShowTime?m.role:''}</div>${icon}${m.content.slice(0,500)}</div>`;
+    }).join('') : '<div class="lo">No messages in this thread</div>') + '</div>';
+  }
+
+  else if (view === 'plain') {
+    const c = document.getElementById('l0-view-plain');
+    c.innerHTML = '<div class="plain-list">' + (l0Data.events||[]).slice(0,100).map(ev => {
+      const t = (ev.timestamp||'').slice(11,19);
+      return `<div class="pl-ev"><span class="pl-ts">${t}</span><span class="pl-tp">${ev.type||''}</span><span class="pl-ct">${(ev.attributes?.content||ev.content||'').slice(0,100)}</span></div>`;
+    }).join('') + '</div>';
+    document.getElementById('l0-info').textContent = `${Math.min(100,l0Data.events.length)}/${l0Data.total} events`;
+  }
+
+  else if (view === 'narr') {
+    const c = document.getElementById('l0-view-narr');
+    c.innerHTML = `<div class="narr-view">
+      The raw conversation layer ingests 6 conversation threads and 8,365 events as-is.
+      From these, the system extracts facts, identifies episodes, builds semantic entities,
+      and consolidates into narratives — all without modifying the original input.
+      <br><br>
+      <strong style="color:var(--ac)">Active threads:</strong><br>
+      ${(l0Data.threads||[]).map(t => `• ${(t.summary||t.thread_id).slice(0,80)}`).join('<br>')}
+    </div>`;
+    document.getElementById('l0-info').textContent = `${l0Data.threads.length} threads · ${l0Data.total} events`;
+  }
+
+  else if (view === 'split') {
+    const c = document.getElementById('l0-view-split');
+    let msgs = [];
+    if (threadId) {
+      const d = await api('/l2/thread/'+threadId);
+      msgs = d.messages || [];
+    }
+    const actions = (l0Data.events||[]).slice(0,30);
+    c.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><h3 style="font-size:11px;color:var(--mt);margin-bottom:6px">💬 Chat (${msgs.length})</h3>
+      <div class="chat" style="max-height:40vh">${msgs.map(m => {
+        const cls = m.role==='user'?'msg-u':'msg-a';
+        return `<div class="msg ${cls}" style="font-size:10px">${m.content.slice(0,200)}</div>`;
+      }).join('')}</div></div>
+      <div><h3 style="font-size:11px;color:var(--mt);margin-bottom:6px">⚡ Actions (${actions.length})</h3>
+      <div class="chat" style="max-height:40vh">${actions.map(ev => {
+        const t = ev.type||'';
+        const c2 = ev.attributes?.content||ev.content||'';
+        const i = l0ShowIcons?'🤖 ':'';
+        if (t==='agent_action') return `<div class="msg msg-t">${i}${c2.slice(0,150)}</div>`;
+        if (t==='terminal') return `<div class="msg msg-b">${i}${c2.slice(0,150)}</div>`;
+        return `<div class="msg msg-a">${i}${c2.slice(0,100)}</div>`;
+      }).join('')}</div></div>
+    </div>`;
+    document.getElementById('l0-info').textContent = `${msgs.length} messages · ${actions.length} actions`;
+  }
+}
+
+// ═══ L1 ═══
+async function loadL1() {
+  try {
+    const d = await api('/l1/agents');
+    document.getElementById('l1-stats').innerHTML = `<div class="sc"><div class="n" style="color:var(--ac)">${d.agents.length}</div><div class="l">Active Agents</div></div><div class="sc"><div class="n" style="color:var(--gr)">1,083</div><div class="l">Memories</div></div>`;
+    document.getElementById('l1-content').innerHTML = '<div class="chat">'+d.agents.map(a =>
+      `<div class="msg msg-a"><div class="hdr">🤖 ${a.agent_id}</div>Session: ${a.data.session_id||'none'} · Turn: ${a.data.turn_count||0}<div class="ts">Last: ${(a.data.last_seen||'').slice(0,19)}</div></div>`
+    ).join('')+'</div>';
+  } catch(e) { document.getElementById('l1-content').innerHTML = `<div class="lo">${e.message}</div>`; }
+}
+
+// ═══ L2 ═══
+async function loadL2() {
+  document.getElementById('l2-stats').innerHTML = `<div class="sc"><div class="n" style="color:var(--rd)">4</div><div class="l">Episodes</div></div><div class="sc"><div class="n" style="color:var(--og)">6</div><div class="l">Threads</div></div>`;
+  document.getElementById('l2-content').innerHTML = [
+    {d:'May 11 · 06:54',s:'🔧 Timeline Backbone',m:'EntityRegistry + EntityTimeline + RelationManager. 6 files, 5 tests.'},
+    {d:'May 11 · 06:30',s:'🔬 Deep Research',m:'MCP+Skills, Reflexion, Agent Learning Flywheel.'},
+    {d:'May 11 · 05:30',s:'🛠️ Tier-0 Migration',m:'Mac Mini to MacBook Pro. 10+ files fixed.'},
+    {d:'May 11 · 04:30',s:'📐 Governance UI',m:'HTML/JS + Chart.js + Mermaid + Three.js.'},
+  ].map(e => `<div class="ep"><div class="ed">${e.d}</div><div class="es">${e.s}</div><div class="em">${e.m}</div></div>`).join('');
+}
+
+// ═══ L3 ═══
+async function loadL3() {
+  try {
+    const [dec, ents] = await Promise.all([api('/l3/decisions'), api('/entities')]);
+    const cats = {}; dec.decisions.forEach(d => { cats[d.category] = (cats[d.category]||0)+1 });
+    document.getElementById('l3-stats').innerHTML = `<div class="sc"><div class="n" style="color:var(--gr)">${dec.decisions.length}</div><div class="l">Decisions</div></div><div class="sc"><div class="n" style="color:var(--ac)">${(ents.entities||[]).length}</div><div class="l">Entities</div></div>`;
+    new Chart(document.getElementById('l3-cat'),{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats),backgroundColor:['#5b9cf5','#2ec78e','#eabb34','#e86a6a','#ea9534'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#6a7a94',font:{size:9}}}}}});
+    const es = ents.entities||[];
+    new Chart(document.getElementById('l3-hlth'),{type:'bar',data:{labels:['≥60%','30-60%','<30%'],datasets:[{data:[es.filter(e=>e.health>=0.6).length,es.filter(e=>e.health<0.6&&e.health>=0.3).length,es.filter(e=>e.health<0.3).length],backgroundColor:['rgba(46,199,142,.5)','rgba(234,187,52,.5)','rgba(232,106,106,.5)'],borderColor:['#2ec78e','#eabb34','#e86a6a'],borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1,color:'#6a7a94'},grid:{color:'rgba(31,45,61,.3)'}},x:{ticks:{color:'#6a7a94',font:{size:9}}}}}});
+    document.getElementById('l3-content').innerHTML = dec.decisions.map(d => `<div class="dc ${d.category==='architecture'?'r':d.category==='research'?'p':d.category==='research-plan'?'y':'b'}"><div class="dtl">${d.title}</div><div class="dd">${d.preview.slice(0,200)}</div></div>`).join('');
+  } catch(e) { document.getElementById('l3-content').innerHTML = `<div class="lo">${e.message}</div>`; }
+}
+
+// ═══ L4 ═══
+async function loadL4() {
+  try {
+    const narr = await api('/l4/narratives');
+    const c = document.getElementById('l4-content');
+    if (narr.narratives && narr.narratives.length) {
+      c.innerHTML = narr.narratives.map(n => {
+        const html = (n.content || '')
+          .replace(/## /g, '<br><strong style="color:var(--ac);font-size:14px">')
+          .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gr)">$1</strong>')
+          .replace(/\n/g, '<br>');
+        return `<div class="narr-view" style="margin-bottom:12px">${html}</div>`;
+      }).join('<div style="border-top:1px solid var(--bd);margin:16px 0"></div>');
+    } else {
+      c.innerHTML = '<div class="lo">No narratives yet. Run the generator to create one.</div>';
+    }
+  } catch(e) {
+    document.getElementById('l4-content').innerHTML = `<div class="lo">${e.message}</div>`;
+  }
+}
+
+async function refresh() { const v=document.querySelector('.ni.act'); if(v) switchLayer(v.getAttribute('onclick').match(/'([^']+)'/)[1]); }
+initOverview();
+</script>
+</body>
+</html>

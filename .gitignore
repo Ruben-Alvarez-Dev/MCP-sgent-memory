@@ -99,3 +99,4 @@ inbox/
 qdrant/
 *.env.bak
 models/reasoning/
+logs/

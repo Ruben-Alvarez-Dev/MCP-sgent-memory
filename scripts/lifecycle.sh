@@ -455,6 +455,48 @@ else
     skip "Snapshots: ${SNAP_COUNT}/${QDRANT_BACKUP_KEEP} — no rotation needed"
 fi
 
+# 8. Daemon Log Rotation (size-based, gzip + truncate-in-place)
+#    llama-server and backpack run under launchd with StandardOut/ErrPath
+#    redirects, so the daemons hold open file descriptors on these logs.
+#    We gzip a copy to logs/archive/ and truncate with ': >' (never delete)
+#    so the open handles keep writing at offset 0 without a restart.
+LOG_ROTATE_MAX_MB="${LOG_ROTATE_MAX_MB:-50}"
+log "🪵 Daemon Log Rotation (threshold: ${LOG_ROTATE_MAX_MB} MB)"
+ARCHIVE_DIR="$PROJECT_ROOT/logs/archive"
+mkdir -p "$ARCHIVE_DIR"
+MAX_BYTES=$((LOG_ROTATE_MAX_MB * 1024 * 1024))
+ROTATED=0
+for LOG_FILE in \
+    "$PROJECT_ROOT/llama-emb.log" \
+    "$PROJECT_ROOT/llama-llm.log" \
+    "$PROJECT_ROOT/backpack.log" \
+    "$DATA_DIR/logs/llama-embedding.stderr.log" \
+    "$DATA_DIR/logs/llama-embedding.stdout.log" \
+    "$DATA_DIR/logs/llama-llm.stderr.log" \
+    "$DATA_DIR/logs/llama-llm.stdout.log" \
+    "$DATA_DIR/logs/backpack.stderr.log" \
+    "$DATA_DIR/logs/backpack.stdout.log"; do
+    [ -f "$LOG_FILE" ] || continue
+    SIZE=$(stat -f %z "$LOG_FILE" 2>/dev/null || stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)
+    if [ "$SIZE" -gt "$MAX_BYTES" ]; then
+        BASE=$(basename "$LOG_FILE" .log)
+        ARCHIVE="$ARCHIVE_DIR/${BASE}-$(date '+%Y%m%d-%H%M%S').gz"
+        if $DRY_RUN; then
+            log "DRY RUN: would archive $(basename "$LOG_FILE") ($((SIZE / 1048576)) MB) → $(basename "$ARCHIVE")"
+        elif gzip -c "$LOG_FILE" > "$ARCHIVE" 2>/dev/null; then
+            : > "$LOG_FILE"
+            ok "Rotated $(basename "$LOG_FILE"): $((SIZE / 1048576)) MB → $(basename "$ARCHIVE")"
+            ROTATED=$((ROTATED + 1))
+        else
+            rm -f "$ARCHIVE"
+            warn "gzip failed for $(basename "$LOG_FILE") — left untouched"
+        fi
+    fi
+done
+if [ "$ROTATED" -eq 0 ] && ! $DRY_RUN; then
+    skip "No logs above ${LOG_ROTATE_MAX_MB} MB"
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────
 TOTAL_SIZE=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 | tr -d ' ')
 QDRANT_SIZE=$(du -sh "$PROJECT_ROOT/src/shared/qdrant/data" 2>/dev/null | cut -f1 | tr -d ' ')

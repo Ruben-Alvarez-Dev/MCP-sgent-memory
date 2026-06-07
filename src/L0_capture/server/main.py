@@ -76,9 +76,14 @@ async def memorize(content: str, mem_type: str = "fact", scope: str = "session",
 async def ingest_event(event_type: str, source: str, content: str, actor_id: str = "system", session_id: str = "") -> IngestResult:
     """Ingest a raw L0 event (terminal, git, file, system, diff)."""
     clean = validate_ingest_event(event_type, source, content)
-    type_map = {"terminal": RawEventType.TERMINAL, "file": RawEventType.FILE_ACCESS, "git": RawEventType.GIT_EVENT, "agent": RawEventType.AGENT_ACTION, "ide": RawEventType.IDE_EVENT, "system": RawEventType.SYSTEM, "diff_proposed": RawEventType.AGENT_ACTION, "diff_accepted": RawEventType.AGENT_ACTION, "diff_rejected": RawEventType.AGENT_ACTION, "diff_applied": RawEventType.AGENT_ACTION, "diff_failed": RawEventType.AGENT_ACTION}
+    type_map = {"terminal": RawEventType.TERMINAL, "file": RawEventType.FILE_ACCESS, "git": RawEventType.GIT_EVENT, "agent": RawEventType.AGENT_ACTION, "ide": RawEventType.IDE_EVENT, "system": RawEventType.SYSTEM, "diff_proposed": RawEventType.AGENT_ACTION, "diff_accepted": RawEventType.AGENT_ACTION, "diff_rejected": RawEventType.AGENT_ACTION, "diff_applied": RawEventType.AGENT_ACTION, "diff_failed": RawEventType.AGENT_ACTION, "tool_call": RawEventType.AGENT_ACTION, "user_prompt": RawEventType.USER_PROMPT, "file_edited": RawEventType.FILE_ACCESS, "cowork_memory": RawEventType.SYSTEM}
     is_diff = clean["event_type"].startswith("diff_")
-    event = RawEvent(type=type_map.get(clean["event_type"], RawEventType.SYSTEM), source=clean["source"], actor_id=actor_id, session_id=session_id, attributes={"content": clean["content"], "event_subtype": clean["event_type"]})
+    etype = type_map.get(clean["event_type"])
+    if etype is None:
+        import logging
+        logging.getLogger(__name__).warning("ingest_event: unmapped event_type %r — falling back to SYSTEM", clean["event_type"])
+        etype = RawEventType.SYSTEM
+    event = RawEvent(type=etype, source=clean["source"], actor_id=actor_id, session_id=session_id, attributes={"content": clean["content"], "event_subtype": clean["event_type"]})
     _append_raw_jsonl(event)
     importance, meta = 0.3, {}
     if is_diff and clean["content"].startswith("{"):

@@ -53,7 +53,7 @@ if $STATUS_ONLY; then
     echo ""
     
     # JSONL
-    JSONL="$DATA_DIR/raw_events.jsonl"
+    JSONL="$DATA_DIR/L0-sensory/events.jsonl"
     if [ -f "$JSONL" ]; then
         LINES=$(wc -l < "$JSONL" | tr -d ' ')
         SIZE=$(du -sh "$JSONL" | cut -f1 | tr -d ' ')
@@ -172,6 +172,41 @@ fi
 log "${B}🧹 Data Lifecycle Management${X}"
 
 TOTAL_FREED=0
+
+# 0. Freshness Probe (repair plan P4) — the alarm that would have caught
+#    finding D1 (capture dead for 11 days) within one day.
+FRESHNESS_MAX_AGE_HOURS="${FRESHNESS_MAX_AGE_HOURS:-24}"
+log "⏱️  Freshness Probe (alarm if capture silent > ${FRESHNESS_MAX_AGE_HOURS}h)"
+PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
+NOW_EPOCH=$(date '+%s')
+FRESH_CUTOFF=$((NOW_EPOCH - FRESHNESS_MAX_AGE_HOURS * 3600))
+
+# Newest entity_events timestamp (epoch; 0 if DB missing/unreadable)
+EE_EPOCH=$("$PYTHON" -c "
+import sqlite3, datetime
+try:
+    ts = sqlite3.connect('file:${DATA_DIR}/entity_timeline.db?mode=ro', uri=True) \
+        .execute('SELECT max(timestamp) FROM entity_events').fetchone()[0]
+    print(int(datetime.datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp()) if ts else 0)
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+
+# Newest mtime under data/L0-sensory/ (epoch; 0 if dir missing/empty)
+L0_EPOCH=$(find "$DATA_DIR/L0-sensory" -type f -exec stat -f %m {} \; 2>/dev/null | sort -n | tail -1)
+L0_EPOCH="${L0_EPOCH:-0}"
+
+if [ "$EE_EPOCH" -lt "$FRESH_CUTOFF" ] && [ "$L0_EPOCH" -lt "$FRESH_CUTOFF" ]; then
+    MSG="CRITICAL: memory capture silent for >${FRESHNESS_MAX_AGE_HOURS}h (entity_events: $(date -r "$EE_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never), L0-sensory: $(date -r "$L0_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never))"
+    mkdir -p "$PROJECT_ROOT/logs"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $MSG" >> "$PROJECT_ROOT/logs/freshness.log"
+    warn "$MSG"
+    if ! $DRY_RUN; then
+        osascript -e 'display notification "Memory capture has been silent for 24h" with title "MCP-agent-memory"' 2>/dev/null || true
+    fi
+else
+    ok "Capture fresh (entity_events: $(date -r "$EE_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never), L0-sensory: $(date -r "$L0_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never))"
+fi
 
 # 1. JSONL Rotation
 log "📝 JSONL Rotation (max ${JSONL_MAX_LINES} lines)"
@@ -302,6 +337,18 @@ else
 fi
 
 # 6. Qdrant Point Purge (L0/L1 only, never touch L3/L4)
+log "🧬 SQLite Integrity (PRAGMA integrity_check)"
+for db in "$DATA_DIR/conversations.db" "$DATA_DIR/entity_timeline.db" "${PROJECT_ROOT}/src/embedding_cache.db"; do
+    if [ -f "$db" ]; then
+        R=$("${PROJECT_ROOT}/.venv/bin/python3" -c "import sqlite3; print(sqlite3.connect('$db').execute('PRAGMA integrity_check').fetchone()[0])" 2>&1 | tail -1)
+        if [ "$R" = "ok" ]; then
+            echo "  ✅ $(basename "$db"): ok"
+        else
+            echo "  ❌ $(basename "$db"): $R — RESTORE FROM BACKUP (see docs/RUNBOOK.md)"
+        fi
+    fi
+done
+
 log "🗄️  Qdrant Point Purge (L0/L1 stale points)"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
@@ -334,8 +381,11 @@ for col in ['L0_L4_memory', 'L3_facts', 'L2_conversations']:
             layer = payload.get('layer', '')
             created = payload.get('created_at', '')
             
-            # Never purge L3 or L4
-            if layer in ('L3_SEMANTIC', 'L4_CONSOLIDATED'):
+            # Purge ONLY L0/L1 (working memory). Payload layer is an integer
+            # (1..4) in current schema; legacy string values kept for safety.
+            # F-12 fix: the old check compared against strings that never
+            # matched the integer schema, leaving L2/L3/L4 unprotected.
+            if layer not in (0, 1, 'L0_RAW', 'L1_WORKING'):
                 continue
             
             # Check age
@@ -347,7 +397,7 @@ for col in ['L0_L4_memory', 'L3_facts', 'L2_conversations']:
                 continue
             
             age_days = (now - ct) / 86400
-            max_age = l0_max if layer == 'L0_RAW' else l1_max
+            max_age = l0_max if layer in (0, 'L0_RAW') else l1_max
             
             if age_days > max_age:
                 ids_to_delete.append(p.get('id', ''))
@@ -403,6 +453,48 @@ if [ "$SNAP_COUNT" -gt "$QDRANT_BACKUP_KEEP" ]; then
     ok "Rotated ${REMOVE} old snapshots"
 else
     skip "Snapshots: ${SNAP_COUNT}/${QDRANT_BACKUP_KEEP} — no rotation needed"
+fi
+
+# 8. Daemon Log Rotation (size-based, gzip + truncate-in-place)
+#    llama-server and backpack run under launchd with StandardOut/ErrPath
+#    redirects, so the daemons hold open file descriptors on these logs.
+#    We gzip a copy to logs/archive/ and truncate with ': >' (never delete)
+#    so the open handles keep writing at offset 0 without a restart.
+LOG_ROTATE_MAX_MB="${LOG_ROTATE_MAX_MB:-50}"
+log "🪵 Daemon Log Rotation (threshold: ${LOG_ROTATE_MAX_MB} MB)"
+ARCHIVE_DIR="$PROJECT_ROOT/logs/archive"
+mkdir -p "$ARCHIVE_DIR"
+MAX_BYTES=$((LOG_ROTATE_MAX_MB * 1024 * 1024))
+ROTATED=0
+for LOG_FILE in \
+    "$PROJECT_ROOT/llama-emb.log" \
+    "$PROJECT_ROOT/llama-llm.log" \
+    "$PROJECT_ROOT/backpack.log" \
+    "$DATA_DIR/logs/llama-embedding.stderr.log" \
+    "$DATA_DIR/logs/llama-embedding.stdout.log" \
+    "$DATA_DIR/logs/llama-llm.stderr.log" \
+    "$DATA_DIR/logs/llama-llm.stdout.log" \
+    "$DATA_DIR/logs/backpack.stderr.log" \
+    "$DATA_DIR/logs/backpack.stdout.log"; do
+    [ -f "$LOG_FILE" ] || continue
+    SIZE=$(stat -f %z "$LOG_FILE" 2>/dev/null || stat -c %s "$LOG_FILE" 2>/dev/null || echo 0)
+    if [ "$SIZE" -gt "$MAX_BYTES" ]; then
+        BASE=$(basename "$LOG_FILE" .log)
+        ARCHIVE="$ARCHIVE_DIR/${BASE}-$(date '+%Y%m%d-%H%M%S').gz"
+        if $DRY_RUN; then
+            log "DRY RUN: would archive $(basename "$LOG_FILE") ($((SIZE / 1048576)) MB) → $(basename "$ARCHIVE")"
+        elif gzip -c "$LOG_FILE" > "$ARCHIVE" 2>/dev/null; then
+            : > "$LOG_FILE"
+            ok "Rotated $(basename "$LOG_FILE"): $((SIZE / 1048576)) MB → $(basename "$ARCHIVE")"
+            ROTATED=$((ROTATED + 1))
+        else
+            rm -f "$ARCHIVE"
+            warn "gzip failed for $(basename "$LOG_FILE") — left untouched"
+        fi
+    fi
+done
+if [ "$ROTATED" -eq 0 ] && ! $DRY_RUN; then
+    skip "No logs above ${LOG_ROTATE_MAX_MB} MB"
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────

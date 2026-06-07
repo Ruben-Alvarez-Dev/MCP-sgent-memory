@@ -75,6 +75,7 @@ $HOME/
 # ── Data (auto-created, local) ──────────────────────────────────
 data/
 storage/
+inbox/
 !data/Lx-persistent/
 !data/Lx-persistent/Inbox/
 !data/Lx-persistent/Decisiones/
@@ -93,3 +94,9 @@ storage/
 !data/Lx-persistent/people/
 !data/Lx-persistent/templates/
 !data/Lx-persistent/README.md
+
+# ── Local runtime data (never versioned) ─────────────────
+qdrant/
+*.env.bak
+models/reasoning/
+logs/

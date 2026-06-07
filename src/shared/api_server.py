@@ -265,17 +265,24 @@ class _ApiHandler(BaseHTTPRequestHandler):
             else:
                 self._json_response(404, {"error": f"not found: {self.path}"})
 
+        except (BrokenPipeError, ConnectionResetError) as e:
+            # Client (e.g. dashboard) disconnected mid-response — not an API error.
+            logger.debug("Client disconnected on %s: %s", self.path, e)
+
         except Exception as e:
             logger.warning("API error on %s: %s", self.path, e)
             self._json_response(500, {"error": str(e)})
 
     def do_OPTIONS(self) -> None:
         """CORS preflight support."""
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
+        try:
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+        except (BrokenPipeError, ConnectionResetError) as e:
+            logger.debug("Client disconnected on %s (OPTIONS): %s", self.path, e)
 
     # ── Helpers ──────────────────────────────────────────────────
 
@@ -291,11 +298,16 @@ class _ApiHandler(BaseHTTPRequestHandler):
             return None
 
     def _json_response(self, code: int, data: Any) -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, default=str).encode())
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(data, default=str).encode())
+        except (BrokenPipeError, ConnectionResetError) as e:
+            # Client disconnected before/while we wrote the response.
+            # Normal for dashboard polling — log at DEBUG, never as an error.
+            logger.debug("Client disconnected on %s: %s", self.path, e)
 
     def _serialize(self, result: Any) -> Any:
         """Handle Pydantic models, dicts, and plain values."""

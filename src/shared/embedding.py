@@ -52,6 +52,7 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")  # optional override
 
 # ── Backend ABC ────────────────────────────────────────────────────
 
+
 class EmbeddingBackend(ABC):
     """Abstract embedding backend."""
 
@@ -72,6 +73,7 @@ class EmbeddingBackend(ABC):
 
 
 # ── llama.cpp binary backend ──────────────────────────────────────
+
 
 def _discover_llama_binary() -> Optional[Path]:
     """Find llama-embedding binary by scanning upward from this file.
@@ -101,6 +103,7 @@ def _discover_llama_binary() -> Optional[Path]:
 
     # PATH fallback
     import shutil
+
     found = shutil.which("llama-embedding")
     if found:
         return Path(found)
@@ -115,9 +118,9 @@ def _discover_llama_libs(bin_path: Path) -> Optional[Path]:
     """
     bin_dir = bin_path.parent
     candidates = [
-        bin_dir.parent / "lib",       # engine/bin/../lib
-        bin_dir / "lib",              # engine/bin/lib
-        bin_dir,                      # same dir as binary
+        bin_dir.parent / "lib",  # engine/bin/../lib
+        bin_dir / "lib",  # engine/bin/lib
+        bin_dir,  # same dir as binary
     ]
     for c in candidates:
         if c.exists() and any(c.glob("*.dylib" if sys.platform == "darwin" else "*.so")):
@@ -151,13 +154,13 @@ def _discover_model() -> Optional[Path]:
         if models_dir.exists():
             # Preference: BGE-M3 > Nomic > MiniLM
             for pattern in [
-                "*bge*m3*.gguf",        # BGE-M3 (1024 dims, best)
-                "*bge*.gguf",            # Any BGE
-                "*nomic*embed*.gguf",    # Nomic (768 dims)
-                "*_f16.gguf",            # MiniLM f16 (384 dims)
-                "*_q8*.gguf",            # MiniLM q8
-                "*_f32.gguf",            # MiniLM f32
-                "*.gguf",                # Any gguf
+                "*bge*m3*.gguf",  # BGE-M3 (1024 dims, best)
+                "*bge*.gguf",  # Any BGE
+                "*nomic*embed*.gguf",  # Nomic (768 dims)
+                "*_f16.gguf",  # MiniLM f16 (384 dims)
+                "*_q8*.gguf",  # MiniLM q8
+                "*_f32.gguf",  # MiniLM f32
+                "*.gguf",  # Any gguf
             ]:
                 matches = list(models_dir.glob(pattern))
                 if matches:
@@ -223,7 +226,10 @@ class LlamaCppBackend(EmbeddingBackend):
 
         result = subprocess.run(
             [str(self._bin), "-m", str(self._model), "-p", clean_text, "--pooling", "mean"],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
 
         if result.returncode != 0:
@@ -239,24 +245,142 @@ class LlamaCppBackend(EmbeddingBackend):
 # ── BM25 Sparse Vector Tokenizer ─────────────────────────────────
 
 # Common stop words for BM25 sparse vectors
-_STOP_WORDS = frozenset([
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
-    "being", "have", "has", "had", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "shall", "can", "need", "dare",
-    "ought", "used", "it", "its", "this", "that", "these", "those",
-    "i", "you", "he", "she", "we", "they", "what", "which", "who",
-    "whom", "whose", "where", "when", "why", "how", "all", "each",
-    "every", "both", "few", "more", "most", "other", "some", "such",
-    "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-    "very", "just", "because", "as", "until", "while", "about",
-    "between", "through", "during", "before", "after", "above",
-    "below", "up", "down", "out", "off", "over", "under", "again",
-    "further", "then", "once", "here", "there", "into", "also",
-    "el", "la", "los", "las", "un", "una", "de", "del", "que",
-    "y", "o", "pero", "con", "sin", "para", "por", "se", "su",
-    "como", "muy", "es", "son", "tiene", "tener",
-])
+_STOP_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "we",
+        "they",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "where",
+        "when",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "because",
+        "as",
+        "until",
+        "while",
+        "about",
+        "between",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "up",
+        "down",
+        "out",
+        "off",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "into",
+        "also",
+        "el",
+        "la",
+        "los",
+        "las",
+        "un",
+        "una",
+        "de",
+        "del",
+        "que",
+        "y",
+        "o",
+        "pero",
+        "con",
+        "sin",
+        "para",
+        "por",
+        "se",
+        "su",
+        "como",
+        "muy",
+        "es",
+        "son",
+        "tiene",
+        "tener",
+    ]
+)
 
 
 def bm25_tokenize(text: str) -> dict:
@@ -269,7 +393,7 @@ def bm25_tokenize(text: str) -> dict:
 
     text = text.lower()
     # Split on non-alphanumeric, keep alphanumeric + underscores
-    tokens = re.findall(r'[a-z0-9_]{2,}', text)
+    tokens = re.findall(r"[a-z0-9_]{2,}", text)
     # Filter stop words
     tokens = [t for t in tokens if t not in _STOP_WORDS]
     if not tokens:
@@ -294,6 +418,7 @@ def bm25_tokenize(text: str) -> dict:
 
 # ── HTTP backend (OpenAI-compatible) ──────────────────────────────
 
+
 class HttpBackend(EmbeddingBackend):
     """Embedding via HTTP endpoint (OpenAI API, etc.).
 
@@ -317,6 +442,7 @@ class HttpBackend(EmbeddingBackend):
         try:
             import urllib.request
             import json
+
             # Simple connectivity check
             req = urllib.request.Request(self._endpoint, method="HEAD")
             urllib.request.urlopen(req, timeout=3)
@@ -351,6 +477,7 @@ class HttpBackend(EmbeddingBackend):
 
 # ── NoOp backend (testing / fallback) ─────────────────────────────
 
+
 class NoOpBackend(EmbeddingBackend):
     """Returns zero-vectors. Useful for testing / CI / fallback."""
 
@@ -363,6 +490,7 @@ class NoOpBackend(EmbeddingBackend):
 
 # ── llama-server HTTP backend (72x faster than subprocess) ─────────
 
+
 class LlamaServerBackend(EmbeddingBackend):
     """Embedding via persistent llama-server HTTP daemon.
 
@@ -372,10 +500,11 @@ class LlamaServerBackend(EmbeddingBackend):
 
     Env vars:
       LLAMA_SERVER_URL  — Server URL (default: http://127.0.0.1:8080)
-     """
+    """
 
     def __init__(self):
         self._url = os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
+        self._api_key = os.getenv("LLAMA_SERVER_API_KEY", "")
         self._available: Optional[bool] = None
 
     def is_available(self) -> bool:
@@ -383,6 +512,7 @@ class LlamaServerBackend(EmbeddingBackend):
             return self._available
         try:
             import urllib.request
+
             req = urllib.request.Request(f"{self._url}/health", method="GET")
             urllib.request.urlopen(req, timeout=2)
             self._available = True
@@ -401,6 +531,8 @@ class LlamaServerBackend(EmbeddingBackend):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        if self._api_key:
+            req.add_header("Authorization", f"Bearer {self._api_key}")
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = _json.loads(resp.read())
@@ -425,6 +557,8 @@ class LlamaServerBackend(EmbeddingBackend):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        if self._api_key:
+            req.add_header("Authorization", f"Bearer {self._api_key}")
 
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = _json.loads(resp.read())
@@ -459,10 +593,7 @@ def get_backend(name: Optional[str] = None) -> EmbeddingBackend:
     backend_name = name or EMBEDDING_BACKEND
     cls = _BACKENDS.get(backend_name)
     if cls is None:
-        raise ValueError(
-            f"Unknown embedding backend: {backend_name!r}. "
-            f"Available: {list(_BACKENDS.keys())}"
-        )
+        raise ValueError(f"Unknown embedding backend: {backend_name!r}. Available: {list(_BACKENDS.keys())}")
     return cls()
 
 
@@ -510,6 +641,7 @@ def _get_default_backend() -> EmbeddingBackend:
 
 # ── Public API (unchanged for backwards compatibility) ─────────────
 
+
 def get_embedding(text: str) -> list[float]:
     """Get embedding vector using the configured backend (cached via lru_cache + SQLite)."""
     global _cache_hits
@@ -518,6 +650,7 @@ def get_embedding(text: str) -> list[float]:
     # Smart truncate long texts to avoid slow tokenization
     if len(text) > 2000:
         from shared.text import smart_truncate
+
         text = smart_truncate(text, 2000)
 
     # 1. Check in-memory LRU cache
@@ -529,11 +662,13 @@ def get_embedding(text: str) -> list[float]:
             vec = list(result)
             # Also populate persistent cache for restart survival
             from shared.embedding_cache import cache_set
+
             cache_set(text, vec)
             return vec
 
     # 2. Check persistent SQLite cache
     from shared.embedding_cache import cache_get, cache_set
+
     cached = cache_get(text)
     if cached and len(cached) > 0:
         _cache_hits += 1
@@ -568,6 +703,7 @@ def get_cache_stats() -> dict[str, int]:
 
 # ── Legacy helpers (for backwards compatibility with existing servers) ──
 
+
 def _ensure_binaries() -> bool:
     """Check if the embedding backend is available.
 
@@ -594,6 +730,7 @@ async def async_embed(text: str) -> list[float]:
     Handles backend initialization transparently.
     """
     import asyncio
+
     return await asyncio.to_thread(get_embedding, text)
 
 
@@ -605,6 +742,7 @@ async def safe_embed(text: str) -> list[float]:
     Use this as the safe replacement for local _embed() wrappers.
     """
     import asyncio as _aio
+
     try:
         vec = await async_embed(text)
         if vec and len(vec) > 0:
@@ -623,12 +761,13 @@ async def async_embed_batch(texts: list[str]) -> list[list[float]]:
     Falls back to individual embeds with parallel thread pool.
     """
     import asyncio as _aio
+
     if not texts:
         return []
 
     # Try batch embedding if backend supports it
     backend = _get_default_backend()
-    if hasattr(backend, 'embed_batch'):
+    if hasattr(backend, "embed_batch"):
         try:
             vecs = await asyncio.to_thread(backend.embed_batch, texts)
             return vecs
@@ -653,14 +792,15 @@ async def async_embed_batch(texts: list[str]) -> list[list[float]]:
 
 # ── Internal helpers ──────────────────────────────────────────────
 
+
 def _parse_embedding_output(stdout: str) -> list[float]:
     """Parse llama-embedding text output.
 
     Format: "embedding 0: -0.034495  0.030879  ..."
     """
-    for line in stdout.split('\n'):
-        if line.startswith('embedding '):
-            match = re.search(r':\s*(.+)', line)
+    for line in stdout.split("\n"):
+        if line.startswith("embedding "):
+            match = re.search(r":\s*(.+)", line)
             if match:
                 nums = match.group(1).strip().split()
                 result = []
@@ -676,6 +816,7 @@ def _parse_embedding_output(stdout: str) -> list[float]:
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="Get embeddings via configured backend")
     parser.add_argument("text", nargs="+", help="Text(s) to embed")
     parser.add_argument("--backend", choices=list(_BACKENDS.keys()), default=None)

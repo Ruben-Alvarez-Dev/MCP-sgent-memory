@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.agent-memory.cowork-bridge</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/ruben/MCP-servers/MCP-agent-memory/scripts/cowork_bridge.sh</string>
+	</array>
+	<key>WatchPaths</key>
+	<array>
+		<string>/Users/ruben/Library/Application Support/Claude/local-agent-mode-sessions/3b2bb955-5100-45f9-bfcd-bde0ad6e444d/e790cca3-a832-461d-b87d-fc1ca403d911/spaces/59c9d747-6d76-4f2e-bbee-8dfca386aaff/memory</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/ruben/MCP-servers/MCP-agent-memory/data/logs/cowork-bridge.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/ruben/MCP-servers/MCP-agent-memory/data/logs/cowork-bridge.log</string>
+	<key>WorkingDirectory</key>
+	<string>/Users/ruben/MCP-servers/MCP-agent-memory</string>
+</dict>
+</plist>

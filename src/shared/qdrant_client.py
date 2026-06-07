@@ -62,22 +62,33 @@ class QdrantClient:
         self.collection = collection
         self.embedding_dim = embedding_dim
         self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
+        # One httpx client per event loop. Pooled keepalive connections are
+        # bound to the loop they were created on, so sharing a single client
+        # across threads/loops raises "Event loop is closed" (or cross-loop
+        # errors) as soon as a connection outlives its loop.
+        self._clients: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create a persistent httpx client with connection pooling."""
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+        """Get or create a persistent httpx client for the running event loop."""
+        loop = asyncio.get_running_loop()
+        client = self._clients.get(loop)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(
                 timeout=self._timeout,
                 limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
             )
-        return self._client
+            self._clients[loop] = client
+        return client
 
     async def close(self):
-        """Close the persistent client."""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
-            self._client = None
+        """Close the persistent client(s)."""
+        for client in self._clients.values():
+            if not client.is_closed:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass  # Client may belong to another (possibly closed) loop
+        self._clients.clear()
 
     async def _retry(self, fn, max_retries: int = 3, base_delay: float = 0.5):
         """Execute fn with exponential backoff on transient errors."""
@@ -258,6 +269,26 @@ class QdrantClient:
             return await self._retry(_do)
         except Exception as e:
             logger.warning("Qdrant delete failed: %s", e)
+            return False
+
+    async def set_payload(self, point_ids: list, payload: dict[str, Any], wait: bool = True) -> bool:
+        """Set payload keys on existing points without touching vectors.
+
+        Used by consolidation to mark L1 items as consumed (dedup guard)."""
+        _validate_payload_keys(payload)
+
+        async def _do():
+            client = await self._get_client()
+            resp = await client.post(
+                f"{self.url}/collections/{self.collection}/points/payload"
+                f"{'?wait=true' if wait else ''}",
+                json={"points": point_ids, "payload": payload},
+            )
+            return resp.status_code == 200
+        try:
+            return await self._retry(_do)
+        except Exception as e:
+            logger.warning("Qdrant set_payload failed: %s", e)
             return False
 
     # ── Search & query ─────────────────────────────────────────

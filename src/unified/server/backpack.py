@@ -85,6 +85,22 @@ if not (L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod):
 
 from shared.api_server import start_api_server
 
+# ── Single-instance guard ───────────────────────────────────────────
+# A second backpack must exit cleanly instead of crash-looping on the
+# busy port (repair plan 2026-06-07, finding D2: OSError Errno 48).
+_port = int(__import__("os").environ.get("AUTOMEM_API_PORT", "8890"))
+import socket as _socket
+
+_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+try:
+    _probe.bind(("127.0.0.1", _port))
+except OSError:
+    logger.info("Backpack already running on port %s — this instance exits "
+                "cleanly (single-instance guard)", _port)
+    raise SystemExit(0)
+finally:
+    _probe.close()
+
 server = start_api_server(
     ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
     L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
@@ -111,6 +127,56 @@ def _signal_handler(sig, frame):
 
 signal.signal(signal.SIGINT, _signal_handler)
 signal.signal(signal.SIGTERM, _signal_handler)
+
+# ── Inbox scanner (repair plan P1) ──────────────────────────────────
+# Every 60s: ingest each file dropped into <repo>/inbox/ (e.g. by
+# scripts/cowork_bridge.sh) as a cowork_memory event, then archive it
+# to inbox/processed/ so nothing is ingested twice.
+
+INBOX_DIR = BASE_DIR.parent / "inbox"
+INBOX_PROCESSED_DIR = INBOX_DIR / "processed"
+INBOX_SCAN_INTERVAL_S = 60
+
+
+def _inbox_scanner() -> None:
+    import asyncio
+    import shutil
+
+    ingest = getattr(L0_capture_mod, "ingest_event", None)
+    if ingest is None:
+        logger.warning("Inbox scanner disabled — L0_capture.ingest_event missing")
+        return
+    # One persistent event loop for this thread's entire lifetime — same
+    # pattern as shared/api_server.py _run_async. asyncio.run() per file
+    # would create-and-close a loop on every call, leaving the shared
+    # QdrantClient's pooled httpx connections bound to a dead loop and
+    # failing later stores with "Event loop is closed".
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        while not stop_event.wait(INBOX_SCAN_INTERVAL_S):
+            try:
+                if not INBOX_DIR.is_dir():
+                    continue
+                INBOX_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+                for f in sorted(INBOX_DIR.iterdir()):
+                    if not f.is_file() or f.name.startswith("."):
+                        continue
+                    content = f.read_text(errors="replace")
+                    loop.run_until_complete(ingest(
+                        event_type="cowork_memory", source=f"inbox:{f.name}",
+                        content=content, actor_id="ruben",
+                    ))
+                    shutil.move(str(f), str(INBOX_PROCESSED_DIR / f.name))
+                    logger.info("Inbox scanner: ingested %s", f.name)
+            except Exception as e:
+                logger.warning("Inbox scanner error: %s", e)
+    finally:
+        loop.close()
+
+
+threading.Thread(target=_inbox_scanner, daemon=True, name="inbox-scanner").start()
+logger.info("Inbox scanner watching %s every %ss", INBOX_DIR, INBOX_SCAN_INTERVAL_S)
 
 stop_event.wait()
 server.shutdown()

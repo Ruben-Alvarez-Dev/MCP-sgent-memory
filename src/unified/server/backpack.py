@@ -146,23 +146,33 @@ def _inbox_scanner() -> None:
     if ingest is None:
         logger.warning("Inbox scanner disabled — L0_capture.ingest_event missing")
         return
-    while not stop_event.wait(INBOX_SCAN_INTERVAL_S):
-        try:
-            if not INBOX_DIR.is_dir():
-                continue
-            INBOX_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-            for f in sorted(INBOX_DIR.iterdir()):
-                if not f.is_file() or f.name.startswith("."):
+    # One persistent event loop for this thread's entire lifetime — same
+    # pattern as shared/api_server.py _run_async. asyncio.run() per file
+    # would create-and-close a loop on every call, leaving the shared
+    # QdrantClient's pooled httpx connections bound to a dead loop and
+    # failing later stores with "Event loop is closed".
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        while not stop_event.wait(INBOX_SCAN_INTERVAL_S):
+            try:
+                if not INBOX_DIR.is_dir():
                     continue
-                content = f.read_text(errors="replace")
-                asyncio.run(ingest(
-                    event_type="cowork_memory", source=f"inbox:{f.name}",
-                    content=content, actor_id="ruben",
-                ))
-                shutil.move(str(f), str(INBOX_PROCESSED_DIR / f.name))
-                logger.info("Inbox scanner: ingested %s", f.name)
-        except Exception as e:
-            logger.warning("Inbox scanner error: %s", e)
+                INBOX_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+                for f in sorted(INBOX_DIR.iterdir()):
+                    if not f.is_file() or f.name.startswith("."):
+                        continue
+                    content = f.read_text(errors="replace")
+                    loop.run_until_complete(ingest(
+                        event_type="cowork_memory", source=f"inbox:{f.name}",
+                        content=content, actor_id="ruben",
+                    ))
+                    shutil.move(str(f), str(INBOX_PROCESSED_DIR / f.name))
+                    logger.info("Inbox scanner: ingested %s", f.name)
+            except Exception as e:
+                logger.warning("Inbox scanner error: %s", e)
+    finally:
+        loop.close()
 
 
 threading.Thread(target=_inbox_scanner, daemon=True, name="inbox-scanner").start()

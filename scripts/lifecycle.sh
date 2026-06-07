@@ -302,6 +302,18 @@ else
 fi
 
 # 6. Qdrant Point Purge (L0/L1 only, never touch L3/L4)
+log "🧬 SQLite Integrity (PRAGMA integrity_check)"
+for db in "$DATA_DIR/conversations.db" "$DATA_DIR/entity_timeline.db" "${PROJECT_ROOT}/src/embedding_cache.db"; do
+    if [ -f "$db" ]; then
+        R=$("${PROJECT_ROOT}/.venv/bin/python3" -c "import sqlite3; print(sqlite3.connect('$db').execute('PRAGMA integrity_check').fetchone()[0])" 2>&1 | tail -1)
+        if [ "$R" = "ok" ]; then
+            echo "  ✅ $(basename "$db"): ok"
+        else
+            echo "  ❌ $(basename "$db"): $R — RESTORE FROM BACKUP (see docs/RUNBOOK.md)"
+        fi
+    fi
+done
+
 log "🗄️  Qdrant Point Purge (L0/L1 stale points)"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"

@@ -173,6 +173,41 @@ log "${B}🧹 Data Lifecycle Management${X}"
 
 TOTAL_FREED=0
 
+# 0. Freshness Probe (repair plan P4) — the alarm that would have caught
+#    finding D1 (capture dead for 11 days) within one day.
+FRESHNESS_MAX_AGE_HOURS="${FRESHNESS_MAX_AGE_HOURS:-24}"
+log "⏱️  Freshness Probe (alarm if capture silent > ${FRESHNESS_MAX_AGE_HOURS}h)"
+PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
+NOW_EPOCH=$(date '+%s')
+FRESH_CUTOFF=$((NOW_EPOCH - FRESHNESS_MAX_AGE_HOURS * 3600))
+
+# Newest entity_events timestamp (epoch; 0 if DB missing/unreadable)
+EE_EPOCH=$("$PYTHON" -c "
+import sqlite3, datetime
+try:
+    ts = sqlite3.connect('file:${DATA_DIR}/entity_timeline.db?mode=ro', uri=True) \
+        .execute('SELECT max(timestamp) FROM entity_events').fetchone()[0]
+    print(int(datetime.datetime.fromisoformat(str(ts).replace('Z', '+00:00')).timestamp()) if ts else 0)
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+
+# Newest mtime under data/L0-sensory/ (epoch; 0 if dir missing/empty)
+L0_EPOCH=$(find "$DATA_DIR/L0-sensory" -type f -exec stat -f %m {} \; 2>/dev/null | sort -n | tail -1)
+L0_EPOCH="${L0_EPOCH:-0}"
+
+if [ "$EE_EPOCH" -lt "$FRESH_CUTOFF" ] && [ "$L0_EPOCH" -lt "$FRESH_CUTOFF" ]; then
+    MSG="CRITICAL: memory capture silent for >${FRESHNESS_MAX_AGE_HOURS}h (entity_events: $(date -r "$EE_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never), L0-sensory: $(date -r "$L0_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never))"
+    mkdir -p "$PROJECT_ROOT/logs"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $MSG" >> "$PROJECT_ROOT/logs/freshness.log"
+    warn "$MSG"
+    if ! $DRY_RUN; then
+        osascript -e 'display notification "Memory capture has been silent for 24h" with title "MCP-agent-memory"' 2>/dev/null || true
+    fi
+else
+    ok "Capture fresh (entity_events: $(date -r "$EE_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never), L0-sensory: $(date -r "$L0_EPOCH" '+%Y-%m-%d %H:%M' 2>/dev/null || echo never))"
+fi
+
 # 1. JSONL Rotation
 log "📝 JSONL Rotation (max ${JSONL_MAX_LINES} lines)"
 JSONL="$DATA_DIR/raw_events.jsonl"

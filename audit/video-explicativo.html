@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>La Mochila Mágica — el vídeo (MCP-agent-memory, para humanos)</title>
+<style>
+  :root{--bg:#0c0e13; --txt:#e8eaf0; --dim:#8b91a3; --ok:#34c98e; --warn:#f0b429; --dead:#f25c54; --accent:#8d7bf5; --code:#46d4c0;}
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden;}
+  #stage{flex:1; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center;}
+  .scene{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:40px; text-align:center;}
+  .big{font-size:90px; line-height:1;}
+  .title{font-size:34px; font-weight:700;}
+  .kicker{font-size:15px; color:var(--accent); letter-spacing:2px; text-transform:uppercase; font-weight:700;}
+  .note{font-size:15px; color:var(--dim); max-width:640px;}
+  /* overlay / controls */
+  #overlay{position:absolute; inset:0; background:rgba(12,14,19,.92); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; z-index:50; text-align:center; padding:30px;}
+  #overlay h1{font-size:40px;}
+  #overlay p{color:var(--dim); max-width:560px;}
+  #overlay button{font-size:20px; padding:14px 38px; border-radius:30px; border:none; background:var(--accent); color:#fff; cursor:pointer; font-weight:700;}
+  #overlay button:hover{transform:scale(1.05);}
+  #bar{flex-shrink:0; display:flex; align-items:center; gap:10px; padding:12px 18px; border-top:1px solid #2c3140; background:#12141b; z-index:60;}
+  #bar button{padding:8px 14px; border-radius:10px; border:1px solid #2c3140; background:#1e2230; color:var(--txt); cursor:pointer; font-size:14px;}
+  #bar button:hover{border-color:var(--accent);}
+  #dots{display:flex; gap:6px; margin:0 8px;}
+  .dot{width:10px; height:10px; border-radius:50%; background:#2c3140; cursor:pointer; transition:all .2s;}
+  .dot.on{background:var(--accent); transform:scale(1.3);}
+  .dot.done{background:#4a4f63;}
+  #subs{position:absolute; left:0; right:0; bottom:18px; display:flex; justify-content:center; z-index:40; pointer-events:none;}
+  #subs span{max-width:760px; background:rgba(12,14,19,.85); border:1px solid #2c3140; padding:10px 18px; border-radius:12px; font-size:17px; color:#e8eaf0;}
+  .toggle.off{opacity:.45; text-decoration:line-through;}
+  /* ── animations ── */
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+  @keyframes pop{0%{transform:scale(0); opacity:0}70%{transform:scale(1.15)}100%{transform:scale(1); opacity:1}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-10px) rotate(-2deg)}40%{transform:translateX(10px) rotate(2deg)}60%{transform:translateX(-8px)}80%{transform:translateX(8px)}}
+  @keyframes flyAcross{0%{transform:translate(0,0) scale(.6); opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(1); opacity:0}}
+  @keyframes riseUp{0%{transform:translateY(40px); opacity:0}100%{transform:translateY(0); opacity:1}}
+  @keyframes zz{0%{transform:translate(0,0); opacity:0}30%{opacity:1}100%{transform:translate(26px,-46px); opacity:0}}
+  @keyframes alarm{0%,100%{background:rgba(242,92,84,0)}50%{background:rgba(242,92,84,.12)}}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+  @keyframes slideL{0%{transform:translateX(60px); opacity:0}100%{transform:translateX(0); opacity:1}}
+  .floaty{animation:floaty 3.4s ease-in-out infinite;}
+  .pop{animation:pop .6s cubic-bezier(.2,1.4,.4,1) both;}
+  .shake{animation:shake .55s ease-in-out infinite;}
+  .rise{animation:riseUp .7s ease both;}
+  .alarmbg{animation:alarm 1s ease-in-out infinite;}
+  .blink{animation:blink 1s steps(1) infinite;}
+  .slideL{animation:slideL .6s ease both;}
+  .pyr{display:flex; flex-direction:column-reverse; align-items:center; gap:8px;}
+  .pyr div{border-radius:10px; padding:9px 0; font-size:14px; font-weight:600; color:#0d1117; text-align:center;}
+  .cards{display:flex; gap:18px; flex-wrap:wrap; justify-content:center;}
+  .card{background:#171a21; border:1.5px solid #2c3140; border-radius:14px; padding:18px 20px; width:215px;}
+  .card .em{font-size:42px;}
+  .card .cn{font-weight:700; margin-top:8px; font-size:15px;}
+  .card .cd{font-size:12.5px; color:var(--dim); margin-top:5px;}
+  .vs{display:flex; gap:26px; align-items:flex-end; justify-content:center;}
+  .colWrap{display:flex; flex-direction:column; align-items:center; gap:8px;}
+  .col{width:90px; border-radius:10px 10px 4px 4px;}
+  .num{font-size:26px; font-weight:800;}
+  .lbl{font-size:12.5px; color:var(--dim);}
+  .codefix{font-family:ui-monospace,Menlo,monospace; font-size:14px; text-align:left; background:#171a21; border:1px solid #2c3140; border-radius:12px; padding:16px 20px;}
+  .codefix .del{color:var(--dead);} .codefix .add{color:var(--ok);}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="overlay">
+    <div class="big floaty">🎒</div>
+    <h1>La Mochila Mágica</h1>
+    <p>Un vídeo de ~4 minutos que explica, sin tecnicismos, qué hace el sistema de memoria MCP-agent-memory, qué se rompió y cómo se arregla. Con música, efectos y algún chiste cuestionable.</p>
+    <button onclick="start()">▶ &nbsp;Dale al play</button>
+    <p style="font-size:12px">🔊 Sube el volumen — hay narración y banda sonora sintetizada en directo.</p>
+  </div>
+  <div id="subs"></div>
+</div>
+<div id="bar">
+  <button onclick="togglePlay()" id="bPlay">⏸ Pausa</button>
+  <button onclick="go(cur-1)">◀</button>
+  <div id="dots"></div>
+  <button onclick="go(cur+1)">▶</button>
+  <button onclick="restart()">↺ Reiniciar</button>
+  <span style="flex:1"></span>
+  <button class="toggle" id="bMus" onclick="toggleMusic()">🎵 Música</button>
+  <button class="toggle" id="bVoz" onclick="toggleVoice()">🗣 Voz</button>
+</div>
+<script>
+// ════════ AUDIO ENGINE (WebAudio: music + sfx, generated live) ════════
+let AC=null, musicGain=null, musicOn=true, voiceOn=true, musicTimer=null;
+function audioInit(){
+  AC = new (window.AudioContext||window.webkitAudioContext)();
+  musicGain = AC.createGain(); musicGain.gain.value = 0.16; musicGain.connect(AC.destination);
+}
+function note(freq, t, dur, type="sine", vol=0.5, dest=null){
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type; o.frequency.value=freq;
+  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+0.03);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(dest||AC.destination); o.start(t); o.stop(t+dur+0.05);
+}
+// Background music: gentle lo-fi arpeggio loop (Am – F – C – G)
+const CHORDS=[[220,261.6,329.6],[174.6,220,261.6],[130.8,164.8,196],[196,246.9,293.7]];
+let chordIdx=0;
+function musicLoop(){
+  if(!AC || !musicOn) return;
+  const t=AC.currentTime+0.05, ch=CHORDS[chordIdx%4]; chordIdx++;
+  ch.forEach((f,i)=>{ note(f, t+i*0.45, 1.6, "triangle", 0.18, musicGain); note(f/2, t, 2.0, "sine", 0.12, musicGain); });
+  note(ch[0]*2, t+1.35, 0.5, "triangle", 0.10, musicGain);
+}
+function startMusic(){ if(musicTimer) return; musicLoop(); musicTimer=setInterval(musicLoop, 1900); }
+function stopMusic(){ clearInterval(musicTimer); musicTimer=null; }
+// SFX
+function sfx(kind){
+  if(!AC) return; const t=AC.currentTime;
+  if(kind==="whoosh"){ const n=AC.createBufferSource(), buf=AC.createBuffer(1,AC.sampleRate*0.4,AC.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length);
+    const f=AC.createBiquadFilter(); f.type="bandpass"; f.frequency.setValueAtTime(300,t); f.frequency.exponentialRampToValueAtTime(3000,t+0.35);
+    const g=AC.createGain(); g.gain.value=0.25; n.buffer=buf; n.connect(f); f.connect(g); g.connect(AC.destination); n.start(t); }
+  else if(kind==="ding"){ note(880,t,0.5,"sine",0.3); note(1320,t+0.07,0.6,"sine",0.18); }
+  else if(kind==="buzz"){ note(110,t,0.5,"sawtooth",0.3); note(104,t,0.5,"sawtooth",0.3); }
+  else if(kind==="crash"){ note(82,t,0.8,"sawtooth",0.4); note(78,t,0.8,"square",0.25); sfx("whoosh"); }
+  else if(kind==="pop"){ note(520,t,0.12,"square",0.2); note(780,t+0.05,0.1,"square",0.15); }
+  else if(kind==="tada"){ [523.3,659.3,784,1046.5].forEach((f,i)=>note(f,t+i*0.12,0.5,"triangle",0.25)); }
+}
+// Narración (speechSynthesis, voz es-ES si existe)
+let voice=null;
+function pickVoice(){
+  const vs=speechSynthesis.getVoices();
+  voice = vs.find(v=>/es[-_]ES/i.test(v.lang) && /M[oó]nica|Marisol|Paulina|Spanish/i.test(v.name))
+       || vs.find(v=>/^es/i.test(v.lang)) || null;
+}
+if (window.speechSynthesis){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; }
+let curUtter=null;
+function speak(text, onEnd){
+  if(!voiceOn || !window.speechSynthesis){ return false; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  if(voice) u.voice=voice; u.lang="es-ES"; u.rate=1.02; u.pitch=1.0;
+  u.onend=onEnd; u.onerror=onEnd; curUtter=u;
+  speechSynthesis.speak(u); return true;
+}
+// ════════ SCENE HELPERS ════════
+const stage=document.getElementById("stage"), subs=document.getElementById("subs");
+function S(html){ const d=document.createElement("div"); d.className="scene"; d.innerHTML=html; return d; }
+function spawnFliers(d, n, from, to, emoji, dur=2.6){
+  for(let i=0;i<n;i++){
+    const e=document.createElement("div");
+    e.textContent=emoji[i%emoji.length];
+    const jx=(Math.random()-0.5)*120, jy=(Math.random()-0.5)*90;
+    e.style.cssText=`position:absolute; left:${from[0]}%; top:${from[1]}%; font-size:22px; --dx:${(to[0]-from[0])*9+jx}px; --dy:${(to[1]-from[1])*5.5+jy}px; animation:flyAcross ${dur}s linear ${i*0.45}s infinite;`;
+    d.appendChild(e);
+  }
+}
+function countUp(el, target, ms=1800){
+  const t0=performance.now();
+  (function tick(now){ const p=Math.min(1,(now-t0)/ms);
+    el.textContent=Math.round(target*p).toLocaleString("es-ES");
+    if(p<1 && playing) requestAnimationFrame(tick); else el.textContent=target.toLocaleString("es-ES");
+  })(t0);
+}
+// ════════ SCENES ════════
+const scenes=[
+{ id:"intro", minDur:14, sfx:"ding",
+  narr:"Esta es la historia de un asistente de inteligencia artificial con un problema muy humano: cada vez que cierras la sesión, lo olvida absolutamente todo. Memoria de pez. Para arreglarlo, se le construyó una mochila mágica: una memoria que nunca se apaga.",
+  build(){ return S(`
+    <div class="kicker">Episodio único · auditoría 07-06-2026</div>
+    <div class="big floaty">🐠</div>
+    <div class="title">Tu IA tiene memoria de pez</div>
+    <div class="note">…y este sistema existe para arreglarlo. Spoiler: funciona. Casi todo.</div>
+    <div class="big pop" style="font-size:64px; animation-delay:.8s">🎒</div>`); }},
+{ id:"capture", minDur:16, sfx:"whoosh",
+  narr:"Cada vez que escribes, cada herramienta que se usa, cada fichero que se toca... ¡zas! La mochila lo apunta sola, sin que nadie se lo pida. Lo apunta todo. Incluso cosas tan apasionantes como: bash, DONE. Sí. También lo aburrido.",
+  build(){ const d=S(`
+    <div class="kicker">Flujo 1 · La captura</div>
+    <div style="display:flex; gap:140px; align-items:center;">
+      <div class="big">💻</div><div class="big floaty">🎒</div>
+    </div>
+    <div class="title">La libreta que lo apunta TODO</div>
+    <div class="note">9.090 apuntes y subiendo. Una secretaria incansable que trabaja gratis dentro de tu Mac. El sindicato aún no se ha enterado.</div>`);
+    spawnFliers(d, 7, [38,42], [60,42], ["📝","⌨️","🛠","📄"]); return d; }},
+{ id:"layers", minDur:18, sfx:"pop",
+  narr:"La mochila organiza los recuerdos en capas, como tu propio cerebro. Abajo, los apuntes en bruto del día. Encima, los episodios. Más arriba, el conocimiento destilado. Y en la cima, la narrativa: la historia completa del proyecto. Subir de capa es pasar de: hoy comí un bocadillo... a: me encanta la cocina mediterránea.",
+  build(){ return S(`
+    <div class="kicker">La arquitectura · 5 capas</div>
+    <div class="title">De apuntes a sabiduría</div>
+    <div class="pyr">
+      <div class="rise" style="width:420px; background:#5b9cf5; animation-delay:.1s">L0–L1 · Apuntes del día (lo que pasa, tal cual)</div>
+      <div class="rise" style="width:330px; background:#46d4c0; animation-delay:.5s">L2 · Episodios (resúmenes de cada rato de trabajo)</div>
+      <div class="rise" style="width:245px; background:#f0b429; animation-delay:.9s">L3 · Conocimiento (hechos y decisiones)</div>
+      <div class="rise" style="width:160px; background:#8d7bf5; animation-delay:1.3s">L4 · Narrativa 📖</div>
+    </div>
+    <div class="note">Bocadillo → episodio gastronómico → "me gusta la cocina mediterránea". Así aprende.</div>`); }},
+{ id:"sleep", minDur:15, sfx:"ding",
+  narr:"¿Y cómo suben los recuerdos de capa? Durmiendo. Cuando dejas de trabajar, el sistema aprovecha para ordenar, resumir y consolidar. Igual que tu cerebro convierte el día en recuerdos mientras duermes. A esto lo llamamos: la consolidación. O en términos técnicos: la siesta.",
+  build(){ const d=S(`
+    <div class="kicker">Flujo 2 · La consolidación</div>
+    <div class="big floaty">🌙</div>
+    <div class="title">El sistema también duerme</div>
+    <div class="note">Sesión inactiva → siesta → los apuntes del día se convierten en recuerdos de verdad. La siesta más productiva de la industria.</div>`);
+    for(let i=0;i<3;i++){ const z=document.createElement("div"); z.textContent="z"; z.style.cssText=`position:absolute; left:54%; top:30%; font-size:${20+i*8}px; color:#8d7bf5; animation:zz 2.4s ease ${i*0.7}s infinite;`; d.appendChild(z);} return d; }},
+{ id:"bug", minDur:20, sfx:"crash",
+  narr:"Pero el veintisiete de mayo, durante una limpieza de código, se borraron sin querer dos pequeñas funciones. ¿El resultado? Cada vez que el sistema intenta dormir... ¡crash! Lleva once días sin pegar ojo. Trescientos setenta y cuatro intentos de siesta. Trescientos setenta y cuatro fallos. Y como cualquiera que lleva once días sin dormir: sigue en pie, pero no aprende nada nuevo.",
+  build(){ const d=S(`
+    <div class="kicker" style="color:var(--dead)">El hallazgo crítico · F-01</div>
+    <div class="big shake">🚨</div>
+    <div class="title">Houston, tenemos un insomnio</div>
+    <div class="codefix">
+      <div class="del">− def _load_state(): …   ← borrada en la limpieza</div>
+      <div class="del">− def _save_state(): …   ← esta también</div>
+      <div>&nbsp;&nbsp;state = _load_state()  <span class="blink" style="color:var(--dead)">💥 NameError</span></div>
+    </div>
+    <div class="note">374 intentos de siesta desde el 27 de mayo. 374 crashes. Nadie se enteró porque el sistema se traga los errores con una sonrisa.</div>`);
+    d.classList.add("alarmbg"); return d; }},
+{ id:"impact", minDur:16, sfx:"buzz",
+  narr:"El impacto, en números: cinco mil doscientas noventa y ocho notas apiladas en la memoria de trabajo, esperando. Y arriba: veintinueve episodios, cinco conocimientos y dos narrativas. Congelados desde mayo. Es una bandeja de entrada infinita... sin nadie que archive.",
+  build(){ const d=S(`
+    <div class="kicker">El impacto medido</div>
+    <div class="title">📚 La bandeja de entrada infinita</div>
+    <div class="vs">
+      <div class="colWrap"><div class="num" id="n1" style="color:var(--info, #5b9cf5)">0</div><div class="col rise" style="height:170px; background:#5b9cf5"></div><div class="lbl">apuntes (L1)</div></div>
+      <div class="colWrap"><div class="num" style="color:var(--code)">29</div><div class="col rise" style="height:26px; background:#46d4c0; animation-delay:.3s"></div><div class="lbl">episodios</div></div>
+      <div class="colWrap"><div class="num" style="color:var(--warn)">5</div><div class="col rise" style="height:12px; background:#f0b429; animation-delay:.5s"></div><div class="lbl">conocimientos</div></div>
+      <div class="colWrap"><div class="num" style="color:var(--accent)">2</div><div class="col rise" style="height:7px; background:#8d7bf5; animation-delay:.7s"></div><div class="lbl">narrativas</div></div>
+    </div>
+    <div class="note">El sistema registra… pero ya no aprende. Como apuntar la vida entera y no releerla jamás.</div>`);
+    setTimeout(()=>{ const el=d.querySelector("#n1"); if(el) countUp(el, 5298); }, 400); return d; }},
+{ id:"fast", minDur:15, sfx:"ding",
+  narr:"¿La buena noticia? La parte que busca recuerdos sigue siendo un rayo: catorce milisegundos. Doscientas veces más rápido de lo que necesita. El bibliotecario es buenísimo. El problema es que la biblioteca se está llenando de post-its sin clasificar.",
+  build(){ const d=S(`
+    <div class="kicker">Flujo 3 · La recuperación</div>
+    <div class="big pop">⚡</div>
+    <div class="title">El bibliotecario relámpago</div>
+    <div class="cards">
+      <div class="card slideL"><div class="em">🏃</div><div class="cn">14 ms</div><div class="cd">tiempo medio en encontrar y entregar contexto</div></div>
+      <div class="card slideL" style="animation-delay:.25s"><div class="em">🎯</div><div class="cn">Siempre a tiempo</div><div class="cd">llega antes de que el asistente empiece a responder: el "momento justo"</div></div>
+      <div class="card slideL" style="animation-delay:.5s"><div class="em">🗒</div><div class="cn">Pero…</div><div class="cd">solo puede servir post-its crudos mientras la siesta siga rota</div></div>
+    </div>`); return d; }},
+{ id:"gremlins", minDur:19, sfx:"pop",
+  narr:"En la auditoría aparecieron tres gremlins más. Uno: el portero etiqueta casi todos los recuerdos como: sistema... aunque lleguen bien etiquetados de origen. Dos: el vigilante nocturno vigila con mucha dedicación... una puerta que no existe. Y tres: cuando llegan muchos eventos a la vez, alguno se pierde por el camino. Nada mortal. Pero todo suma.",
+  build(){ return S(`
+    <div class="kicker">Hallazgos secundarios</div>
+    <div class="title">👹 Tres gremlins más</div>
+    <div class="cards">
+      <div class="card pop"><div class="em">🏷</div><div class="cn">El etiquetador vago</div><div class="cd">marca casi todo como "system" aunque venga bien etiquetado (F-02)</div></div>
+      <div class="card pop" style="animation-delay:.3s"><div class="em">💂</div><div class="cn">El vigilante despistado</div><div class="cd">protege con celo una puerta que no existe; las reales, sin vigilar (F-03)</div></div>
+      <div class="card pop" style="animation-delay:.6s"><div class="em">🕳</div><div class="cn">El colador de ráfagas</div><div class="cd">con mucho tráfico a la vez, ~7% de los apuntes se cae al suelo (F-04)</div></div>
+    </div>`); }},
+{ id:"fix", minDur:17, sfx:"tada",
+  narr:"¿Y la solución? Sorprendentemente pequeña: restaurar siete líneas de código que siguen vivas en otra copia del proyecto, reiniciar... y dejar que el sistema duerma la siesta más grande de su vida para ponerse al día. Quince minutos de trabajo. Y una moraleja eterna: nunca despliegues sin pruebas. Ni un viernes.",
+  build(){ return S(`
+    <div class="kicker" style="color:var(--ok)">El plan</div>
+    <div class="big pop">🔧</div>
+    <div class="title">El arreglo: 7 líneas y una siesta épica</div>
+    <div class="codefix">
+      <div class="add">+ def _load_state(): …   ← restaurada (15 min)</div>
+      <div class="add">+ def _save_state(): …   ← restaurada</div>
+      <div>&nbsp;&nbsp;state = _load_state()  <span style="color:var(--ok)">✓ y a dormir</span></div>
+    </div>
+    <div class="note">Después: 5.298 apuntes consolidándose en episodios, conocimiento y narrativa. Moraleja: el código sin smoke-test es como el gazpacho sin probar la sal.</div>`); }},
+{ id:"outro", minDur:14, sfx:"tada",
+  narr:"Y así, la mochila volverá a hacer lo que mejor sabe: recordar, para que tú no tengas que hacerlo. La auditoría completa, el informe de pruebas y el mapa interactivo están en la carpeta audit. Música: un sintetizador con insomnio. Efectos especiales: hojas de estilo en cascada. Gracias por ver.",
+  build(){ const d=S(`
+    <div class="big floaty">🎬</div>
+    <div class="title">Fin</div>
+    <div class="note" style="line-height:2">
+      Auditoría completa → <b>audit/AUDIT.md</b><br>
+      Pruebas y defectos → <b>audit/TESTING.md</b><br>
+      Mapa interactivo (ES/EN) → <b>audit/flow-map.html</b><br><br>
+      <span style="font-size:12px">Reparto: 1 bug crítico, 3 gremlins, 5.298 post-its. Ningún dato real resultó dañado durante la auditoría (hay snapshot).</span>
+    </div>`);
+    spawnFliers(d, 6, [50,80], [50,10], ["🎉","✨","🎊"], 3.2); return d; }},
+];
+// ════════ PLAYER ════════
+let cur=-1, playing=false, sceneTimer=null, started=false;
+const dotsEl=document.getElementById("dots");
+scenes.forEach((s,i)=>{ const d=document.createElement("div"); d.className="dot"; d.onclick=()=>go(i); dotsEl.appendChild(d); });
+function renderDots(){ [...dotsEl.children].forEach((d,i)=>{ d.className="dot"+(i===cur?" on":(i<cur?" done":"")); }); }
+function clearStage(){ [...stage.querySelectorAll(".scene")].forEach(e=>e.remove()); }
+function go(i){
+  if(i<0 || i>=scenes.length){ if(i>=scenes.length){ playing=false; updPlayBtn(); } return; }
+  clearTimeout(sceneTimer); speechSynthesis && speechSynthesis.cancel();
+  cur=i; renderDots(); clearStage();
+  const sc=scenes[i];
+  stage.insertBefore(sc.build(), subs);
+  subs.innerHTML=`<span>${sc.narr}</span>`;
+  if(sc.sfx) sfx(sc.sfx);
+  if(!playing) return;
+  let ttsDone=false, timerDone=false;
+  const tryAdvance=()=>{ if(playing && ttsDone && timerDone && cur===i) go(i+1); };
+  const spoke = speak(sc.narr, ()=>{ ttsDone=true; tryAdvance(); });
+  if(!spoke) ttsDone=true;
+  sceneTimer=setTimeout(()=>{ timerDone=true; tryAdvance(); }, sc.minDur*1000);
+}
+function start(){
+  if(started) return; started=true;
+  document.getElementById("overlay").style.display="none";
+  audioInit(); if(musicOn) startMusic();
+  playing=true; updPlayBtn(); go(0);
+}
+function togglePlay(){
+  if(!started){ start(); return; }
+  playing=!playing; updPlayBtn();
+  if(playing){ if(musicOn) startMusic(); go(cur<0?0:cur); }
+  else { stopMusic(); speechSynthesis && speechSynthesis.cancel(); clearTimeout(sceneTimer); }
+}
+function updPlayBtn(){ document.getElementById("bPlay").textContent = playing ? "⏸ Pausa" : "▶ Play"; }
+function restart(){ playing=true; updPlayBtn(); if(musicOn) startMusic(); go(0); }
+function toggleMusic(){ musicOn=!musicOn; document.getElementById("bMus").classList.toggle("off",!musicOn); if(musicOn && playing) startMusic(); else stopMusic(); }
+function toggleVoice(){ voiceOn=!voiceOn; document.getElementById("bVoz").classList.toggle("off",!voiceOn); if(!voiceOn && speechSynthesis) speechSynthesis.cancel(); }
+document.addEventListener("keydown",e=>{ if(e.key===" "){ e.preventDefault(); togglePlay(); } if(e.key==="ArrowRight") go(cur+1); if(e.key==="ArrowLeft") go(cur-1); });
+</script>
+</body>
+</html>

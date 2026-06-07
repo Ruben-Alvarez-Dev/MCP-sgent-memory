@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP-agent-memory — Flow & Code Permeability Map (Audit 2026-06-07)</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e2230; --line:#2c3140;
+    --txt:#e8eaf0; --dim:#8b91a3; --ok:#34c98e; --warn:#f0b429; --dead:#f25c54; --info:#5b9cf5;
+    --accent:#8d7bf5; --code:#46d4c0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden;}
+  header{padding:14px 20px 10px; border-bottom:1px solid var(--line); flex-shrink:0; display:flex; align-items:flex-start; gap:16px;}
+  .headTxt{flex:1;}
+  header h1{font-size:17px; font-weight:600;}
+  header p{color:var(--dim); font-size:12px; margin-top:2px;}
+  .legend{display:flex; gap:14px; margin-top:8px; font-size:11px; color:var(--dim); flex-wrap:wrap;}
+  .legend span::before{content:"●"; margin-right:4px;}
+  .lg-ok::before{color:var(--ok);} .lg-warn::before{color:var(--warn);} .lg-dead::before{color:var(--dead);} .lg-info::before{color:var(--info);} .lg-code::before{color:var(--code);}
+  .langSwitch{display:flex; border:1px solid var(--line); border-radius:18px; overflow:hidden; flex-shrink:0; margin-top:2px;}
+  .langSwitch button{padding:6px 16px; background:var(--panel); color:var(--dim); border:none; cursor:pointer; font-size:13px; font-weight:600;}
+  .langSwitch button.on{background:var(--accent); color:#fff;}
+  .tabs{display:flex; gap:6px; padding:10px 20px; border-bottom:1px solid var(--line); flex-shrink:0; flex-wrap:wrap; align-items:center;}
+  .tab{padding:6px 14px; border:1px solid var(--line); border-radius:18px; background:var(--panel); color:var(--dim); cursor:pointer; font-size:13px; user-select:none; transition:all .15s;}
+  .tab:hover{border-color:var(--accent); color:var(--txt);}
+  .tab.active{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;}
+  .tab.perm.active{background:var(--code); border-color:var(--code); color:#06211d;}
+  .stepper{margin-left:auto; display:flex; gap:6px; align-items:center;}
+  .stepper button{padding:5px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--txt); cursor:pointer; font-size:13px;}
+  .stepper button:hover{border-color:var(--accent);}
+  .stepper button:disabled{opacity:.35; cursor:default;}
+  #stepLabel{font-size:12px; color:var(--dim); min-width:90px; text-align:center;}
+  main{flex:1; display:flex; overflow:hidden;}
+  #mapWrap{flex:1; overflow:auto; position:relative; padding:18px;}
+  #map{position:relative; min-width:980px;}
+  svg#edges{position:absolute; top:0; left:0; pointer-events:none; overflow:visible;}
+  .node{position:absolute; width:200px; background:var(--panel); border:1.5px solid var(--line); border-radius:10px; padding:9px 11px; cursor:pointer; transition:all .15s;}
+  .node:hover{border-color:var(--accent); transform:translateY(-1px);}
+  .node .nm{font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px;}
+  .node .sub{font-size:10.5px; color:var(--dim); margin-top:3px;}
+  .node .cz{font-size:9.5px; color:var(--code); margin-top:4px; opacity:.8;}
+  .dot{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+  .st-ok .dot{background:var(--ok);} .st-warn .dot{background:var(--warn);} .st-dead .dot{background:var(--dead);} .st-info .dot{background:var(--info);}
+  .st-dead{border-color:rgba(242,92,84,.5);}
+  .st-warn{border-color:rgba(240,180,41,.4);}
+  .node.dimmed{opacity:.22;}
+  .node.lit{border-color:var(--accent); box-shadow:0 0 0 3px rgba(141,123,245,.25); opacity:1;}
+  .node.current{border-color:#fff; box-shadow:0 0 0 3px rgba(141,123,245,.6);}
+  .node.codeLit{border-color:var(--code); box-shadow:0 0 0 3px rgba(70,212,192,.35); opacity:1;}
+  .lane{position:absolute; font-size:10px; letter-spacing:1.5px; color:var(--dim); text-transform:uppercase;}
+  #panel{width:420px; border-left:1px solid var(--line); background:var(--panel); overflow-y:auto; padding:16px; flex-shrink:0;}
+  #panel h2{font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+  #panel .badge{font-size:10px; padding:2px 8px; border-radius:10px; font-weight:700; letter-spacing:.5px;}
+  .b-ok{background:rgba(52,201,142,.15); color:var(--ok);} .b-warn{background:rgba(240,180,41,.15); color:var(--warn);}
+  .b-dead{background:rgba(242,92,84,.15); color:var(--dead);} .b-info{background:rgba(91,156,245,.15); color:var(--info);}
+  .b-code{background:rgba(70,212,192,.15); color:var(--code);}
+  #panel h3{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; margin:14px 0 5px;}
+  #panel p, #panel li{font-size:12.5px; color:#c9cdd9;}
+  #panel ul{padding-left:16px;}
+  #panel code{background:var(--panel2); padding:1px 5px; border-radius:4px; font-size:11px; color:#a8c7fa;}
+  #panel .finding{margin-top:8px; padding:8px 10px; border-radius:8px; background:var(--panel2); border-left:3px solid var(--dead); font-size:12px;}
+  #panel .finding.warn{border-left-color:var(--warn);}
+  #panel .finding b{font-size:11px;}
+  .stepCard{margin-top:10px; padding:10px 12px; background:var(--panel2); border-radius:8px; border-left:3px solid var(--accent);}
+  .stepCard.perm{border-left-color:var(--code);}
+  .stepCard .t{font-size:12px; font-weight:600; color:var(--accent);}
+  .stepCard.perm .t{color:var(--code);}
+  .stepCard .d{font-size:12.5px; margin-top:4px; color:#c9cdd9;}
+  .hint{color:var(--dim); font-size:12px; margin-top:10px;}
+  .chip{display:block; width:100%; text-align:left; margin-top:6px; padding:7px 10px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; cursor:pointer; transition:all .12s; color:var(--txt); font-size:12px;}
+  .chip:hover{border-color:var(--code);}
+  .chip.sel{border-color:var(--code); box-shadow:0 0 0 2px rgba(70,212,192,.25);}
+  .chip .fn{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; color:var(--code); font-weight:600;}
+  .chip .loc{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; color:var(--dim); margin-top:1px;}
+  .chip .role{font-size:11.5px; color:#c9cdd9; margin-top:3px;}
+  .chip .mixTag{display:inline-block; margin-left:6px; font-size:9px; padding:1px 6px; border-radius:8px; background:rgba(70,212,192,.15); color:var(--code); font-weight:700;}
+  .chip .mixTag.hot{background:rgba(242,92,84,.15); color:var(--dead);}
+  .mixBox{margin-top:8px; padding:9px 11px; border-radius:8px; background:rgba(70,212,192,.07); border-left:3px solid var(--code); font-size:12px; color:#c9cdd9;}
+  .touched{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px;}
+  .touched span{font-size:10.5px; padding:2px 8px; border-radius:9px; background:var(--panel2); border:1px solid var(--line); color:var(--dim);}
+  .backBtn{margin-top:12px; padding:6px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel2); color:var(--txt); cursor:pointer; font-size:12px;}
+  .backBtn:hover{border-color:var(--accent);}
+</style>
+</head>
+<body>
+<header>
+  <div class="headTxt">
+    <h1 id="hTitle"></h1>
+    <p id="hSub"></p>
+    <div class="legend">
+      <span class="lg-ok" id="lgOk"></span><span class="lg-warn" id="lgWarn"></span><span class="lg-dead" id="lgDead"></span><span class="lg-info" id="lgInfo"></span><span class="lg-code" id="lgCode"></span>
+    </div>
+  </div>
+  <div class="langSwitch">
+    <button id="btnEs" onclick="setLang('es')">ES</button>
+    <button id="btnEn" onclick="setLang('en')">EN</button>
+  </div>
+</header>
+<div class="tabs">
+  <div class="tab active" data-flow="all"></div>
+  <div class="tab" data-flow="capture"></div>
+  <div class="tab" data-flow="consolidation"></div>
+  <div class="tab" data-flow="retrieval"></div>
+  <div class="tab" data-flow="conversation"></div>
+  <div class="tab" data-flow="entities"></div>
+  <div class="tab perm" data-flow="permeability"></div>
+  <div class="stepper">
+    <button id="prev" disabled>◀</button>
+    <span id="stepLabel">—</span>
+    <button id="next" disabled>▶</button>
+  </div>
+</div>
+<main>
+  <div id="mapWrap"><div id="map">
+    <svg id="edges"></svg>
+  </div></div>
+  <aside id="panel">
+    <h2 id="pTitle"></h2>
+    <div id="pBody"></div>
+  </aside>
+</main>
+<script>
+// ─── i18n ────────────────────────────────────────────────────────────────────
+// Bilingual fields are 2-element arrays: [English, Español]. L() resolves them.
+let lang = localStorage.getItem("fm_lang") || "es";
+const L = v => Array.isArray(v) ? v[lang === "en" ? 0 : 1] : v;
+const UI = {
+  title:["MCP-agent-memory — Information Flow & Code Permeability Map","MCP-agent-memory — Mapa de Flujos de Información y Permeabilidad de Código"],
+  sub:["Live deployment audit · 2026-06-07 · click a node → its code zones · click a code zone → every node it permeates lights up teal","Auditoría del despliegue vivo · 07-06-2026 · clic en un nodo → sus zonas de código · clic en una zona → se iluminan en teal todos los nodos que permea"],
+  lgOk:["Working","Funciona"], lgWarn:["Degraded","Degradado"], lgDead:["Dead / broken","Muerto / roto"], lgInfo:["Store / model","Almacén / modelo"], lgCode:["Code zone illumination / mixing point","Iluminación de zona de código / punto de mezcla"],
+  tabs:{all:["Full map","Mapa completo"], capture:["1 · Capture","1 · Captura"], consolidation:["2 · Consolidation ✗","2 · Consolidación ✗"], retrieval:["3 · Retrieval","3 · Recuperación"], conversation:["4 · Conversations","4 · Conversaciones"], entities:["5 · Entities","5 · Entidades"], permeability:["6 · Permeability ⚠","6 · Permeabilidad ⚠"]},
+  prev:["◀ Prev","◀ Atrás"], next:["Next ▶","Sig. ▶"], step:["step","paso"],
+  badges:{ok:["WORKING","FUNCIONA"], warn:["DEGRADED","DEGRADADO"], dead:["BROKEN","ROTO"], info:["STORE","ALMACÉN"], code:["CODE ZONE","ZONA DE CÓDIGO"]},
+  whatHow:["What / How","Qué / Cómo"], when:["When","Cuándo"], why:["Por qué","Por qué"],
+  findings:["Audit findings","Hallazgos de auditoría"], findingsHere:["Findings here","Hallazgos aquí"],
+  codeZones:["Code zones (click to trace permeability)","Zonas de código (clic para trazar permeabilidad)"],
+  codeAtStep:["Code zone at this step","Zona de código de este paso"],
+  whatCode:["What this code does","Qué hace este código"],
+  permeates:["Permeates these stages (lit teal on the map)","Permea estas etapas (iluminadas en teal en el mapa)"],
+  contamination:["Contamination","Contaminación"], mixing:["Mixing / permeability","Mezcla / permeabilidad"],
+  clean:["Permeability assessment","Evaluación de permeabilidad"],
+  cleanTxt:["No cross-flow contamination identified — data stays within its lane here.","No se identifica contaminación entre flujos — aquí los datos no se salen de su carril."],
+  back:["← Back to","← Volver a"],
+  node:["Node","Nodo"],
+  walkHint:["Teal = every stage this step's code permeates. Use Prev / Next to keep walking.","Teal = todas las etapas que permea el código de este paso. Usa Atrás / Sig. para seguir el recorrido."],
+  mixTag:["MIXING","MEZCLA"], hotTag:["CONTAMINATION","CONTAMINACIÓN"],
+  zones:["code zone","zona de código"], zonesPl:["code zones","zonas de código"],
+  welcomeTitle:["Welcome","Bienvenido"],
+  lanes:[["SOURCES","FUENTES"],["DAEMON :8890","DAEMON :8890"],["PROCESSING","PROCESAMIENTO"],["STORES","ALMACENES"],["MODELS / OPS","MODELOS / OPS"]],
+  flowNames:{capture:["Flow 1 · Capture","Flujo 1 · Captura"], consolidation:["Flow 2 · Consolidation","Flujo 2 · Consolidación"], retrieval:["Flow 3 · Retrieval","Flujo 3 · Recuperación"], conversation:["Flow 4 · Conversations","Flujo 4 · Conversaciones"], entities:["Flow 5 · Entities","Flujo 5 · Entidades"], permeability:["Flow 6 · Permeability","Flujo 6 · Permeabilidad"]},
+  welcome:[`<p style="margin-top:10px">Audited flow map of the Backpack memory system, with the <b>code layer</b>: every stage lists the exact functions (file:lines, verified against the live snapshot) that implement it.</p>
+    <h3>How to use</h3>
+    <ul>
+      <li><b>Click a node</b> → details + its <b style="color:var(--code)">code zones</b>.</li>
+      <li><b>Click a code zone</b> → all nodes that code permeates light up teal; mixing/contamination notes appear.</li>
+      <li><b>Tab 6 · Permeability</b> → guided walk through the points where data mixes, leaks or gets contaminated.</li>
+      <li><b>Prev / Next</b> → walk any flow stage by stage.</li>
+    </ul>
+    <h3>Headline findings</h3>
+    <div class="finding"><b>F-01 CRITICAL</b> — Consolidation dead since May 27: <code>_load_state()</code> deleted; 8 orphan call sites.</div>
+    <div class="finding"><b>F-02 HIGH</b> — <code>type_map</code> silently degrades 3 plugin event types to <code>system</code>.</div>
+    <div class="finding warn"><b>F-04 MED</b> — one shared asyncio loop couples all flows; 7.5% loss under bursts.</div>
+    <p class="hint">Full details: <code>audit/AUDIT.md</code> · <code>audit/TESTING.md</code></p>`,
+   `<p style="margin-top:10px">Mapa de flujos auditado del sistema de memoria Backpack, con la <b>capa de código</b>: cada etapa lista las funciones exactas (fichero:líneas, verificadas contra el snapshot vivo) que la implementan.</p>
+    <h3>Cómo usarlo</h3>
+    <ul>
+      <li><b>Clic en un nodo</b> → detalle + sus <b style="color:var(--code)">zonas de código</b>.</li>
+      <li><b>Clic en una zona de código</b> → se iluminan en teal todos los nodos que ese código permea; aparecen las notas de mezcla/contaminación.</li>
+      <li><b>Pestaña 6 · Permeabilidad</b> → recorrido guiado por los puntos donde los datos se mezclan, fugan o contaminan.</li>
+      <li><b>Atrás / Sig.</b> → recorre cualquier flujo etapa por etapa.</li>
+    </ul>
+    <h3>Hallazgos principales</h3>
+    <div class="finding"><b>F-01 CRÍTICO</b> — Consolidación muerta desde el 27-may: <code>_load_state()</code> borrada; 8 llamadas huérfanas.</div>
+    <div class="finding"><b>F-02 ALTO</b> — <code>type_map</code> degrada en silencio 3 tipos de evento del plugin a <code>system</code>.</div>
+    <div class="finding warn"><b>F-04 MED</b> — un único loop asyncio compartido acopla todos los flujos; 7,5% de pérdida bajo ráfagas.</div>
+    <p class="hint">Detalle completo: <code>audit/AUDIT.md</code> · <code>audit/TESTING.md</code></p>`],
+};
+// ─── Code units (verified against audit/live-snapshot, 2026-06-07) ──────────
+const PLUGIN = "~/.config/opencode/plugins/backpack-orchestrator.ts";
+const units = {
+  hooks_prompt:{fn:"chat.message hook", file:PLUGIN, lines:"359–385", nodes:["plugin","api","ingest"],
+    role:["On every user message: POST ingest-event {user_prompt} + heartbeat tick. Fire-and-forget.","En cada mensaje del usuario: POST ingest-event {user_prompt} + tick de heartbeat. Fire-and-forget."], mix:null},
+  hooks_tool:{fn:"tool.execute.after hook", file:PLUGIN, lines:"459–475", nodes:["plugin","api","ingest"],
+    role:["On every tool call: POST ingest-event {tool_call} with a one-line summary of the result.","En cada llamada a herramienta: POST ingest-event {tool_call} con un resumen de una línea del resultado."],
+    mix:["Summaries like 'bash: DONE' / 'edit: Edit applied successfully.' enter memory as content (F-06). actor_id is always 'system' — authorship is lost at the source.","Resúmenes como 'bash: DONE' / 'edit: Edit applied successfully.' entran en memoria como contenido (F-06). actor_id siempre es 'system' — la autoría se pierde en origen."]},
+  hooks_idle:{fn:"session idle hook", file:PLUGIN, lines:"330–344", nodes:["plugin","heartbeat","consol"],
+    role:["On idle: POST heartbeat-dream {turn_count} → consolidation trigger.","Al quedar inactiva la sesión: POST heartbeat-dream {turn_count} → disparo de consolidación."], mix:null},
+  hooks_ctx:{fn:"fetchContext()", file:PLUGIN, lines:"171–196", nodes:["plugin","ctx","inject"],
+    role:["Per prompt (30 s cooldown, 3 s timeout): POST request-context, stores injection_text for system.transform.","Por prompt (cooldown 30 s, timeout 3 s): POST request-context, guarda injection_text para system.transform."],
+    mix:["On failure it silently re-serves the PREVIOUS injection (stale context can leak into a new topic).","Si falla, re-sirve en silencio la inyección ANTERIOR (contexto caducado puede filtrarse a un tema nuevo)."]},
+  api_handler:{fn:"_ApiHandler.do_POST", file:"src/shared/api_server.py", lines:"211–310", nodes:["api","ingest","heartbeat","ctx","conv"],
+    role:["Routes the 8 endpoints to module functions; wraps handler exceptions into JSON error bodies.","Enruta los 8 endpoints a las funciones de módulo; envuelve las excepciones en cuerpos JSON de error."],
+    mix:["Error-wrapping hides failures from fire-and-forget callers — this is exactly how F-01 stayed invisible for 11 days. Every flow passes through this single chokepoint.","El envoltorio de errores oculta los fallos a los emisores fire-and-forget — exactamente así F-01 fue invisible 11 días. Todos los flujos pasan por este único cuello de botella."]},
+  run_async:{fn:"_run_async()", file:"src/shared/api_server.py", lines:"202–209", nodes:["api","ingest","heartbeat","ctx","conv"],
+    role:["ONE persistent asyncio loop executes every endpoint's coroutine.","UN único loop asyncio persistente ejecuta las corutinas de todos los endpoints."],
+    mix:["Temporal cross-contamination: all flows share one loop, so a slow consolidation or big ingest delays retrieval and vice versa. Root of the 7.5% loss under bursts (F-04).","Contaminación temporal cruzada: todos los flujos comparten un loop, así que una consolidación lenta o una ingesta grande retrasa la recuperación y viceversa. Raíz del 7,5% de pérdida bajo ráfagas (F-04)."]},
+  verify_mem:{fn:"_verify_memories()", file:"src/shared/api_server.py", lines:"42–199", nodes:["api","qdrantL1"],
+    role:["Updates verification_status / verified_at payloads directly in Qdrant.","Actualiza los payloads verification_status / verified_at directamente en Qdrant."],
+    mix:["The transport layer writes directly into the store, bypassing module ownership — a layering leak (works, but erodes boundaries).","La capa de transporte escribe directamente en el almacén, saltándose la propiedad de los módulos — fuga de capas (funciona, pero erosiona fronteras)."]},
+  sanitize:{fn:"validate_ingest_event / validate_request_context / sanitize_text", file:"src/shared/sanitize.py", lines:"274, 659, 697, 714", nodes:["api","ingest","ctx","conv"],
+    role:["Shared boundary defense: control/invisible-char stripping, HTML strip, whitelist, 100 KB cap. Fuzz-verified solid.","Defensa de frontera compartida: limpieza de caracteres de control/invisibles, HTML, whitelist, tope 100 KB. Verificada sólida por fuzzing."],
+    mix:["Single gate for ALL flows (good). Seam with F-02: the whitelist ACCEPTS tool_call/user_prompt/file_edited, which type_map then silently drops — two layers disagree about the taxonomy.","Puerta única para TODOS los flujos (bien). Costura con F-02: la whitelist ACEPTA tool_call/user_prompt/file_edited, que type_map luego descarta en silencio — dos capas en desacuerdo sobre la taxonomía."]},
+  ingest_fn:{fn:"ingest_event()", file:"src/L0_capture/server/main.py", lines:"76–94", nodes:["ingest","jsonl","qdrantL1"],
+    role:["Validate → type-map → JSONL append → (if >20 chars) MemoryItem → embed → Qdrant L1. Importance 0.3 (diffs 0.6–0.7).","Validar → type_map → append JSONL → (si >20 chars) MemoryItem → embedding → Qdrant L1. Importancia 0,3 (diffs 0,6–0,7)."], mix:null},
+  type_map:{fn:"type_map dict", file:"src/L0_capture/server/main.py", lines:"79–81", nodes:["ingest"],
+    role:["Maps event_type string → RawEventType enum; .get(x, SYSTEM) fallback.","Mapea el string event_type → enum RawEventType; fallback .get(x, SYSTEM)."],
+    mix:["F-02 contamination of the taxonomy: tool_call / user_prompt / file_edited are MISSING → 100% of plugin traffic becomes 'system'. The true type survives only in attributes.event_subtype.","Contaminación F-02 de la taxonomía: FALTAN tool_call / user_prompt / file_edited → el 100% del tráfico del plugin se convierte en 'system'. El tipo real solo sobrevive en attributes.event_subtype."]},
+  append_jsonl:{fn:"_append_raw_jsonl()", file:"src/L0_capture/server/main.py", lines:"52–58", nodes:["ingest","jsonl"],
+    role:["Append-only write of the raw event to events.jsonl (L0 ground truth).","Escritura append-only del evento crudo en events.jsonl (verdad base L0)."],
+    mix:["events.jsonl mixes real, synthetic (synth-session-*, April) and audit test events in one stream (F-08) — replay/consolidation sources must filter by source/session.","events.jsonl mezcla eventos reales, sintéticos (synth-session-*, abril) y de test de auditoría en un solo stream (F-08) — replay/consolidación deben filtrar por source/session."]},
+  store_mem:{fn:"_store_memory()", file:"src/L0_capture/server/main.py", lines:"32–50", nodes:["ingest","qdrantL1","models"],
+    role:["Embeds content (bge-m3) and upserts the MemoryItem into Qdrant layer=1.","Genera el embedding (bge-m3) y hace upsert del MemoryItem en Qdrant layer=1."], mix:null},
+  memorize:{fn:"memorize()", file:"src/L0_capture/server/main.py", lines:"60–74", nodes:["mcpClients","ingest","qdrantL1"],
+    role:["Manual high-importance save (decisions, learnings) via MCP tool.","Guardado manual de alta importancia (decisiones, aprendizajes) vía herramienta MCP."], mix:null},
+  hb_capture:{fn:"L0 heartbeat()", file:"src/L0_capture/server/main.py", lines:"98–119", nodes:["api","models"],
+    role:["Per-turn agent heartbeat + optional embedding prefetch for likely next queries.","Heartbeat por turno + prefetch opcional de embeddings para próximas consultas probables."], mix:null},
+  load_state:{fn:"_load_state() / _save_state() — DELETED", file:"src/L0_to_L4_consolidation/server/main.py", lines:"call sites 341, 355, 367, 385, 394, 449, 452, 494", nodes:["heartbeat","consol","state"],
+    role:["Should read/write state.json (promotion bookkeeping). Definitions removed by the May 27 refactor; intact in the workspace copy (lines 30–36).","Debería leer/escribir state.json (contabilidad de promociones). Definiciones borradas por el refactor del 27-may; intactas en la copia del workspace (líneas 30–36)."],
+    mix:["F-01: 8 call sites, 0 definitions → NameError kills heartbeat(), consolidate(), dream(), force_promote(). The dead valve of the whole system.","F-01: 8 llamadas, 0 definiciones → NameError mata heartbeat(), consolidate(), dream() y force_promote(). La válvula muerta de todo el sistema."]},
+  promote12:{fn:"_promote_l1_l2()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"117–161", nodes:["consol","qdrantL1","models"],
+    role:["Every 10 turns: scroll L1, filter noise, group by scope (≥2 items), summarize → episode (L2).","Cada 10 turnos: scroll de L1, filtrar ruido, agrupar por scope (≥2 ítems), resumir → episodio (L2)."],
+    mix:["Groups STRICTLY by (scope_type, scope_id) — but F-02 collapses scope variety ('system' scope for plugin events), so unrelated events would merge into the same episodes once revived.","Agrupa ESTRICTAMENTE por (scope_type, scope_id) — pero F-02 colapsa la variedad de scopes (scope 'system' para eventos del plugin), así que eventos sin relación se fusionarían en los mismos episodios al revivirla."]},
+  promote23:{fn:"_promote_l2_l3()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"163–196", nodes:["consol","qdrantL1","models"],
+    role:["Hourly: episodes → semantic facts with entity extraction (_extract_entities).","Cada hora: episodios → hechos semánticos con extracción de entidades (_extract_entities)."], mix:null},
+  promote34:{fn:"_promote_l3_l4()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"198–232", nodes:["consol","qdrantL1","models"],
+    role:["Daily: semantic facts → narrative synthesis (L4).","Cada día: hechos semánticos → síntesis narrativa (L4)."], mix:null},
+  verify_stale:{fn:"_verify_stale()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"234–337", nodes:["consol","qdrantL1"],
+    role:["Freshness pass: marks verified/stale by change_speed half-lives (realtime 1 h → immutable ∞).","Pasada de frescura: marca verified/stale según semividas de change_speed (realtime 1 h → inmutable ∞)."], mix:null},
+  noise:{fn:"_is_noise() / _extract_signal()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"55–69", nodes:["consol"],
+    role:["Discards junk (NOISE_PREFIXES: 'bash:', 'edit: Edit applied successfully.', …) before summarizing.","Descarta basura (NOISE_PREFIXES: 'bash:', 'edit: Edit applied successfully.', …) antes de resumir."],
+    mix:["Correct filter, UNREACHABLE code (F-01). Decontamination exists but is dead — junk flows into L1 unfiltered (F-06). Note: it filters at consolidation, never at ingest, so L1 stays polluted by design.","Filtro correcto, código INALCANZABLE (F-01). La descontaminación existe pero está muerta — la basura entra en L1 sin filtrar (F-06). Ojo: filtra en consolidación, nunca en ingesta, así que L1 queda contaminada por diseño."]},
+  summarize:{fn:"_summarize() / _try_llm_summarize()", file:"src/L0_to_L4_consolidation/server/main.py", lines:"92–116", nodes:["consol","models"],
+    role:["qwen2.5-7b summary with deterministic _structured_summary fallback.","Resumen con qwen2.5-7b y fallback determinista _structured_summary."],
+    mix:["LLM summaries blend multiple raw items into one text — by design a mixing point; quality gate is the noise filter upstream.","Los resúmenes LLM funden varios ítems crudos en un texto — punto de mezcla por diseño; la puerta de calidad es el filtro de ruido aguas arriba."]},
+  dream:{fn:"dream() / _dream_impl", file:"src/L0_to_L4_consolidation/server/main.py", lines:"390–458", nodes:["consol","models","qdrantL1"],
+    role:["7-day cross-layer synthesis: scrolls L1–L4 (50 items each), LLM-dreams a narrative, embeds, upserts.","Síntesis trans-capa cada 7 días: scroll de L1–L4 (50 ítems por capa), 'sueña' una narrativa con el LLM, embedding, upsert."],
+    mix:["Deliberately mixes ALL layers into one text — the highest-permeability operation in the system. Background task state is in-memory only (lost on restart).","Mezcla deliberadamente TODAS las capas en un texto — la operación de mayor permeabilidad del sistema. El estado de la tarea en background vive solo en memoria (se pierde al reiniciar)."]},
+  req_ctx:{fn:"request_context()", file:"src/L5_routing/server/main.py", lines:"28–37", nodes:["ctx"],
+    role:["Validates query, maps intent → session_type (dev/docs), calls smart_retrieve, builds injection_text.","Valida la query, mapea intent → session_type (dev/docs), llama a smart_retrieve y construye injection_text."], mix:null},
+  retrieve:{fn:"retrieve() / _retrieve_parallel()", file:"src/shared/retrieval/__init__.py", lines:"170–228", nodes:["ctx","qdrantL1"],
+    role:["Parallel per-layer Qdrant queries (L1–L4 + conversations + facts) under profile weights and top-k.","Consultas Qdrant paralelas por capa (L1–L4 + conversaciones + hechos) con pesos y top-k del perfil."], mix:null},
+  l3dec_retr:{fn:"_retrieve_L3_decisions()", file:"src/shared/retrieval/__init__.py", lines:"281–308", nodes:["ctx"],
+    role:["Loads decision .md files, keyword-matches against query entities.","Carga los .md de decisiones y los casa por palabras clave con las entidades de la query."],
+    mix:["Unscored source mixing: filesystem hits get a FIXED score 0.6 and are fused with real vector scores — a keyword match can outrank a better semantic hit.","Mezcla de fuentes sin puntuar: los hits de fichero reciben score FIJO 0,6 y se funden con scores vectoriales reales — un match de keywords puede superar a un hit semántico mejor."]},
+  rank_fuse:{fn:"_rank_and_fuse()", file:"src/shared/retrieval/__init__.py", lines:"309–350", nodes:["ctx"],
+    role:["score = level_weight × vector × 0.5 + recency × 0.2 + freshness × 0.3; merges everything into one ranked list.","score = peso_capa × vector × 0,5 + recencia × 0,2 + frescura × 0,3; lo funde todo en una lista ordenada."],
+    mix:["THE mixing chamber: items from every layer and source fuse here. With L2–L4 starved (F-01) and L1 noisy (F-02/F-06), the blend skews toward raw, mistyped, junk-laden working memory.","LA cámara de mezcla: aquí se funden ítems de todas las capas y fuentes. Con L2–L4 desnutridas (F-01) y L1 ruidosa (F-02/F-06), la mezcla se sesga hacia memoria de trabajo cruda, mal tipada y con basura."]},
+  pack:{fn:"_pack_context()", file:"src/shared/retrieval/__init__.py", lines:"425–485", nodes:["ctx","inject"],
+    role:["Budgets: rules 8k / structural 16k / dynamic rest; 2,048-token cap per item; builds injection_text.","Presupuestos: reglas 8k / estructural 16k / resto dinámico; tope 2.048 tokens por ítem; construye injection_text."], mix:null},
+  scoring:{fn:"_recency_score() / _freshness_score()", file:"src/shared/retrieval/__init__.py", lines:"351–424", nodes:["ctx"],
+    role:["Exponential decay by age and change_speed half-lives.","Decaimiento exponencial por edad y semividas de change_speed."],
+    mix:["Depends on verification_status payloads maintained by _verify_stale — which is dead (F-01), so freshness data is silently aging since May 27.","Depende de los payloads verification_status que mantiene _verify_stale — que está muerto (F-01), así que los datos de frescura envejecen en silencio desde el 27-may."]},
+  embed_api:{fn:"get_embedding() / safe_embed()", file:"src/shared/embedding.py", lines:"645, 737–755", nodes:["ingest","consol","ctx","conv","models"],
+    role:["Shared embedding API: HTTP → bge-m3 :8081, LRU + SQLite cache, zero-vector fallback.","API de embeddings compartida: HTTP → bge-m3 :8081, caché LRU + SQLite, fallback de vector-cero."],
+    mix:["Permeates EVERY flow. safe_embed inserts ZERO-VECTORS on failure → permanently poisoned points stored indistinguishably next to real ones (no marker, never re-embedded). Silent contamination vector #1.","Permea TODOS los flujos. safe_embed inserta VECTORES-CERO al fallar → puntos envenenados permanentes, indistinguibles de los reales (sin marca, nunca re-embebidos). Vector de contaminación silenciosa nº 1."]},
+  embed_cache:{fn:"cache_get() / cache_set()", file:"src/shared/embedding_cache.py", lines:"42–78", nodes:["models"],
+    role:["Persistent SHA256-keyed vector cache (embedding_cache.db), thread-locked.","Caché persistente de vectores con clave SHA256 (embedding_cache.db), con lock de hilos."],
+    mix:["Shared across all flows (fine), but zero-vectors are cacheable too — a transient outage can freeze poison into the cache.","Compartida por todos los flujos (correcto), pero los vectores-cero también se cachean — una caída transitoria puede congelar el veneno en la caché."]},
+  qdrant_cli:{fn:"class QdrantClient (3× retry)", file:"src/shared/qdrant_client.py", lines:"47–310", nodes:["ingest","consol","ctx","conv","qdrantL1"],
+    role:["Single HTTP client for search/scroll/upsert/count with retry + payload key validation.","Cliente HTTP único para search/scroll/upsert/count con reintentos + validación de claves de payload."],
+    mix:["ONE collection (L0_L4_memory) holds ALL tiers — only the 'layer' payload field separates them. A mis-tagged write changes a memory's tier. Test/audit/synthetic data lands in the same production collection as real memories (F-08).","UNA colección (L0_L4_memory) alberga TODOS los niveles — solo el campo 'layer' del payload los separa. Una escritura mal etiquetada cambia de nivel una memoria. Datos de test/auditoría/sintéticos conviven con memorias reales en la misma colección de producción (F-08)."]},
+  conv_save:{fn:"save_conversation()", file:"src/L2_conversations/server/main.py", lines:"36–93", nodes:["conv","sqlite","qdrantL1"],
+    role:["SQLite first (authoritative), then best-effort Qdrant summary embedding (UUID5 thread key).","Primero SQLite (autoritativo), luego embedding del resumen en Qdrant best-effort (clave UUID5 del hilo)."], mix:null},
+  conv_db:{fn:"save_thread() / search_fts()", file:"src/shared/conversation_db.py", lines:"137–196, 255–320", nodes:["conv","sqlite"],
+    role:["Transactional thread+messages upsert; FTS5 search with agent_scope filter.","Upsert transaccional de hilo+mensajes; búsqueda FTS5 con filtro agent_scope."], mix:null},
+  backpack_load:{fn:"backpack.py module loader", file:"src/unified/server/backpack.py", lines:"39–97", nodes:["api"],
+    role:["importlib-loads 4 modules (L0_capture, consolidation, L5_routing, L2_conversations); starts api_server.","Carga 4 módulos vía importlib (L0_capture, consolidación, L5_routing, L2_conversations); arranca api_server."],
+    mix:["Loads consolidation successfully despite the missing functions — import succeeds, crash happens at call time. A startup smoke-test here would have caught F-01 on day one.","Carga consolidación con éxito pese a las funciones ausentes — el import pasa, el crash llega al llamar. Un smoke-test de arranque aquí habría cazado F-01 el primer día."]},
+  entity_code:{fn:"EntityRegistry / EntityTimeline / RelationManager", file:"src/shared/entity_registry.py:52 · entity_timeline.py:24", lines:"—", nodes:["entities","mcpClients"],
+    role:["SQLite-backed registry (45 entities), per-entity event timeline (9,850), relations (41), FTS5.","Registro sobre SQLite (45 entidades), timeline de eventos por entidad (9.850), relaciones (41), FTS5."], mix:null},
+  gov_code:{fn:"compute_health() / cleanup endpoints", file:"src/governance/server.py", lines:"59–99, 153–192", nodes:["governance","entities"],
+    role:["Health scoring; cleanup marking with 30-day retention; permanent delete.","Puntuación de salud; marcado de limpieza con retención de 30 días; borrado permanente."],
+    mix:["This module exists ONLY in the live deployment — absent from the workspace repo (F-07). A workspace-based deploy would silently delete governance.","Este módulo existe SOLO en el despliegue vivo — ausente del repo del workspace (F-07). Un deploy desde el workspace borraría governance en silencio."]},
+  watchdog_code:{fn:"restart_service calls", file:"scripts/watchdog.sh", lines:"73–75, 104–117", nodes:["watchdog","api"],
+    role:["Health-check + launchctl kickstart of qdrant / llama-embedding / 'gateway'.","Health-check + kickstart launchctl de qdrant / llama-embedding / 'gateway'."],
+    mix:["F-03: restarts 'com.agent-memory.gateway' — a ghost from the abandoned gateway.py module. backpack-api and llama-llm are unwatched.","F-03: reinicia 'com.agent-memory.gateway' — un fantasma del módulo abandonado gateway.py. backpack-api y llama-llm quedan sin vigilancia."]},
+};
+// ─── Nodes ───────────────────────────────────────────────────────────────────
+const X = c => 20 + c*245, Y = r => 46 + r*94;
+const nodes = {
+  plugin:    {x:X(0), y:Y(0), st:"warn", nm:"OpenCode plugin", sub:["backpack-orchestrator.ts · hooks","backpack-orchestrator.ts · hooks"],
+    what:["Auto-trigger layer. Hooks every prompt, tool call, file edit, idle and compaction; fires HTTP calls. Injects retrieved context and gates write/edit tools.","Capa de auto-disparo. Engancha cada prompt, llamada a herramienta, edición, inactividad y compactación; lanza llamadas HTTP. Inyecta el contexto recuperado y bloquea write/edit sin contexto."],
+    when:["Every prompt / tool / edit; context fetch 30 s cooldown, 3 s timeout.","Cada prompt / herramienta / edición; fetch de contexto con cooldown 30 s y timeout 3 s."],
+    why:["Zero-config capture — the LLM never needs to remember to save.","Captura sin configuración — el LLM nunca necesita acordarse de guardar."],
+    code:["hooks_prompt","hooks_tool","hooks_idle","hooks_ctx"],
+    findings:[["warn",["F-06 — junk content, actor_id always 'system'.","F-06 — contenido basura, actor_id siempre 'system'."]],["warn",["F-04 — fire-and-forget, no retry: timed-out POSTs are lost events.","F-04 — fire-and-forget sin retry: los POST con timeout son eventos perdidos."]]]},
+  mcpClients:{x:X(0), y:Y(1), st:"ok", nm:"MCP clients", sub:["Claude Code / Cowork · stdio","Claude Code / Cowork · stdio"],
+    what:["Agents call 53 tools on unified/server/main.py over stdio (etc/mcp.json).","Los agentes llaman a 53 herramientas de unified/server/main.py por stdio (etc/mcp.json)."],
+    when:["Per agent session.","Por sesión de agente."], why:["Direct tool access for recall, decisions, reasoning.","Acceso directo a herramientas de recuerdo, decisiones y razonamiento."],
+    code:["memorize","entity_code"], findings:[]},
+  browseros: {x:X(0), y:Y(2), st:"ok", nm:"browseros-hook.sh", sub:["bin/ · external shell sender","bin/ · emisor shell externo"],
+    what:["Shell wrapper to ingest events / fetch context from outside the editor.","Wrapper de shell para ingestar eventos / pedir contexto desde fuera del editor."],
+    when:["Manual / external.","Manual / externo."], why:["Generic entry point.","Punto de entrada genérico."],
+    code:[], findings:[]},
+  api:       {x:X(1), y:Y(0.5), st:"warn", nm:"Backpack HTTP API", sub:[":8890 · api_server.py · 8 endpoints",":8890 · api_server.py · 8 endpoints"],
+    what:["Standalone daemon (survives MCP disconnects). stdlib http.server + ONE persistent asyncio loop dispatching to 4 modules.","Daemon independiente (sobrevive a desconexiones MCP). http.server de stdlib + UN loop asyncio persistente que despacha a 4 módulos."],
+    when:["Always on (launchd backpack-api).","Siempre activo (launchd backpack-api)."],
+    why:["Capture must outlive any editor session.","La captura debe sobrevivir a cualquier sesión del editor."],
+    code:["api_handler","run_async","verify_mem","sanitize","backpack_load","hb_capture"],
+    findings:[["warn",["F-04 — single loop chokes under bursts (3/40 lost).","F-04 — el loop único se ahoga bajo ráfagas (3/40 perdidas)."]],["warn",["F-05 — 500 instead of 400; negative budget accepted.","F-05 — 500 en vez de 400; presupuesto negativo aceptado."]],["warn",["Error-wrapping hid F-01 for 11 days.","El envoltorio de errores ocultó F-01 durante 11 días."]]]},
+  ingest:    {x:X(2), y:Y(0), st:"warn", nm:"L0 capture · ingest_event", sub:["validate → type_map → store","validar → type_map → almacenar"],
+    what:["Sanitize → type-map → JSONL append → embed + Qdrant L1 (if > 20 chars).","Sanitizar → type_map → append JSONL → embedding + Qdrant L1 (si > 20 chars)."],
+    when:["Every captured event. 9,090+ JSONL events; 5,298 L1 points.","Cada evento capturado. 9.090+ eventos JSONL; 5.298 puntos L1."],
+    why:["L0 = immutable audit trail; L1 = searchable working memory.","L0 = traza de auditoría inmutable; L1 = memoria de trabajo buscable."],
+    code:["ingest_fn","type_map","append_jsonl","store_mem","sanitize"],
+    findings:[["dead",["F-02 HIGH — type_map silently degrades the 3 plugin types to 'system'.","F-02 ALTO — type_map degrada en silencio los 3 tipos del plugin a 'system'."]]]},
+  jsonl:     {x:X(3), y:Y(0), st:"info", nm:"events.jsonl (L0)", sub:["data/L0-sensory · 9,090 events","data/L0-sensory · 9.090 eventos"],
+    what:["Append-only raw log, rotated by lifecycle.sh (10,000 lines).","Log crudo append-only, rotado por lifecycle.sh (10.000 líneas)."],
+    when:["Every ingest.","Cada ingesta."], why:["Ground truth / replay source.","Verdad base / fuente de replay."],
+    code:["append_jsonl"],
+    findings:[["warn",["F-08 — real + synthetic + audit-test events share one stream.","F-08 — eventos reales + sintéticos + de test comparten un mismo stream."]]]},
+  qdrantL1:  {x:X(3), y:Y(1), st:"info", nm:"Qdrant L0_L4_memory", sub:["L1: 5,298 · L2: 29 · L3: 5 · L4: 2","L1: 5.298 · L2: 29 · L3: 5 · L4: 2"],
+    what:["ONE collection for all tiers; 'layer' payload field is the only separation. 1024-dim bge-m3 + BM25, cosine.","UNA colección para todos los niveles; el campo 'layer' del payload es la única separación. bge-m3 1024-dim + BM25, coseno."],
+    when:["Written by ingest (L1) and consolidation (L2–L4).","Escrita por ingesta (L1) y consolidación (L2–L4)."],
+    why:["One vector store for the whole hierarchy.","Un único almacén vectorial para toda la jerarquía."],
+    code:["qdrant_cli","store_mem","verify_mem"],
+    findings:[["dead",["5,298 : 29 L1/L2 ratio = measured signature of the consolidation stall (F-01).","Ratio L1/L2 de 5.298 : 29 = firma medida del estancamiento de consolidación (F-01)."]]]},
+  heartbeat: {x:X(1), y:Y(2), st:"dead", nm:"heartbeat-dream", sub:["/api/heartbeat-dream · idle trigger","/api/heartbeat-dream · disparo por inactividad"],
+    what:["Idle hook → consolidation.heartbeat(turn_count) → promotion chain + stale verification.","Hook de inactividad → consolidation.heartbeat(turn_count) → cadena de promociones + verificación de caducidad."],
+    when:["On idle + thresholds. 374 calls since May 27 — every one crashed.","Al quedar inactiva + umbrales. 374 llamadas desde el 27-may — todas crashearon."],
+    why:["'Sleep cycle': compress working memory while the user is away.","'Ciclo de sueño': comprimir la memoria de trabajo mientras el usuario no está."],
+    code:["hooks_idle","load_state"],
+    findings:[["dead",["F-01 CRITICAL — NameError on first line: _load_state is not defined.","F-01 CRÍTICO — NameError en la primera línea: _load_state no está definida."]]]},
+  consol:    {x:X(2), y:Y(2), st:"dead", nm:"Consolidation L1→L4", sub:["promotions · dream · noise filter","promociones · dream · filtro de ruido"],
+    what:["L1→L2 every 10 turns (≥2 per scope, summarize); L2→L3 hourly (entities); L3→L4 daily (narrative); dream 7-day. Noise filter + stale verification.","L1→L2 cada 10 turnos (≥2 por scope, resumir); L2→L3 cada hora (entidades); L3→L4 diaria (narrativa); dream cada 7 días. Filtro de ruido + verificación de caducidad."],
+    when:["DEAD since 2026-05-27 22:48.","MUERTA desde 27-05-2026 22:48."],
+    why:["Long-term memory formation — without it the system records but never learns.","Formación de memoria a largo plazo — sin ella el sistema registra pero nunca aprende."],
+    code:["load_state","promote12","promote23","promote34","verify_stale","noise","summarize","dream"],
+    findings:[["dead",["F-01 CRITICAL — refactor deleted _load_state/_save_state, kept 8 call sites. Reproduced live.","F-01 CRÍTICO — el refactor borró _load_state/_save_state y dejó 8 llamadas. Reproducido en vivo."]],["warn",["Noise filter correct but unreachable.","Filtro de ruido correcto pero inalcanzable."]]]},
+  state:     {x:X(3), y:Y(2), st:"dead", nm:"state.json (L4)", sub:["data/L4-narrative · frozen May 27","data/L4-narrative · congelado 27-may"],
+    what:["Promotion bookkeeping: last_promote_*, turn_count, totals. Saved only when a promotion succeeds.","Contabilidad de promociones: last_promote_*, turn_count, totales. Solo se guarda si una promoción tiene éxito."],
+    when:["Last write 2026-05-27 22:48.","Última escritura 27-05-2026 22:48."], why:["Threshold tracking across restarts.","Seguimiento de umbrales entre reinicios."],
+    code:["load_state"],
+    findings:[["dead",["Frozen 11 days — downstream proof of F-01.","Congelado 11 días — prueba aguas abajo de F-01."]]]},
+  ctx:       {x:X(1), y:Y(3.5), st:"ok", nm:"L5 routing · request-context", sub:["smart_retrieve · p95 = 38 ms","smart_retrieve · p95 = 38 ms"],
+    what:["Intent → profile (dev/docs). Parallel multi-layer query, score fusion, token-budgeted packing.","Intent → perfil (dev/docs). Consulta multi-capa paralela, fusión de scores, empaquetado con presupuesto de tokens."],
+    when:["Every prompt (30 s cooldown). p50 14 ms / p95 38 ms.","Cada prompt (cooldown 30 s). p50 14 ms / p95 38 ms."],
+    why:["'The right moment': context arrives inside the turn that needs it.","'El momento justo': el contexto llega dentro del mismo turno que lo necesita."],
+    code:["req_ctx","retrieve","l3dec_retr","rank_fuse","scoring","pack","sanitize"],
+    findings:[["warn",["Serves an increasingly shallow memory while L2–L4 starve (F-01).","Sirve una memoria cada vez más superficial mientras L2–L4 se desnutren (F-01)."]]]},
+  inject:    {x:X(0), y:Y(3.5), st:"ok", nm:"Context injection", sub:["system.transform + write/edit gate","system.transform + puerta write/edit"],
+    what:["injection_text prepended to the system prompt; write/edit blocked until context attempted.","injection_text antepuesto al system prompt; write/edit bloqueados hasta intentar el fetch de contexto."],
+    when:["Per prompt.","Por prompt."], why:["Guarantees the agent acts informed.","Garantiza que el agente actúa informado."],
+    code:["hooks_ctx","pack"], findings:[]},
+  conv:      {x:X(2), y:Y(4.5), st:"ok", nm:"L2 conversations", sub:["save/search · SQLite + Qdrant","guardar/buscar · SQLite + Qdrant"],
+    what:["Dual write: SQLite authoritative + Qdrant semantic mirror; merged search.","Doble escritura: SQLite autoritativo + espejo semántico en Qdrant; búsqueda fusionada."],
+    when:["On compaction or explicit call. 71 threads.","En compactación o llamada explícita. 71 hilos."],
+    why:["Session continuity across compactions/restarts.","Continuidad de sesión a través de compactaciones/reinicios."],
+    code:["conv_save","conv_db","sanitize"], findings:[]},
+  sqlite:    {x:X(3), y:Y(4.5), st:"info", nm:"conversations.db", sub:["SQLite + FTS5 · 71 threads","SQLite + FTS5 · 71 hilos"],
+    what:["Authoritative conversation store.","Almacén autoritativo de conversaciones."], when:["Every save.","Cada guardado."], why:["Exact recall + full-text search.","Recuerdo exacto + búsqueda de texto completo."],
+    code:["conv_db"], findings:[]},
+  models:    {x:X(4), y:Y(0.5), st:"ok", nm:"Models", sub:["bge-m3 :8081 · qwen2.5-7b :9000","bge-m3 :8081 · qwen2.5-7b :9000"],
+    what:["bge-m3 embeds every ingest/query (2-tier cache, zero-vector fallback). qwen2.5-7b summarizes consolidation/dream.","bge-m3 embebe cada ingesta/consulta (caché de 2 niveles, fallback vector-cero). qwen2.5-7b resume consolidación/dream."],
+    when:["Embeddings constantly; LLM idle while consolidation is dead.","Embeddings constantemente; LLM ocioso mientras la consolidación está muerta."],
+    why:["Local, private inference.","Inferencia local y privada."],
+    code:["embed_api","embed_cache","summarize"],
+    findings:[["warn",["qwen2.5-7b burns RAM for unreachable code paths (F-01).","qwen2.5-7b quema RAM para rutas de código inalcanzables (F-01)."]]]},
+  entities:  {x:X(2), y:Y(5.5), st:"ok", nm:"Entity system", sub:["45 entities · 9,850 timeline events","45 entidades · 9.850 eventos de timeline"],
+    what:["Registry + timeline + relations (SQLite, FTS5); vault Markdown bridge.","Registro + timeline + relaciones (SQLite, FTS5); puente Markdown al vault."],
+    when:["Explicit MCP tool calls.","Llamadas MCP explícitas."], why:["Who/what knowledge graph with history.","Grafo de conocimiento quién/qué con historia."],
+    code:["entity_code"], findings:[]},
+  governance:{x:X(3), y:Y(5.5), st:"ok", nm:"Governance", sub:["health score · 30-day cleanup","puntuación de salud · limpieza 30 días"],
+    what:["FastAPI UI over the entity DB: scoring, cleanup retention, delete.","UI FastAPI sobre la BD de entidades: scoring, retención de limpieza, borrado."],
+    when:["On demand.","Bajo demanda."], why:["Memory hygiene.","Higiene de la memoria."],
+    code:["gov_code"],
+    findings:[["warn",["Module exists ONLY in the live deployment (F-07).","El módulo existe SOLO en el despliegue vivo (F-07)."]]]},
+  watchdog:  {x:X(4), y:Y(2), st:"dead", nm:"Watchdog / lifecycle", sub:["cron scripts · misconfigured","scripts cron · mal configurado"],
+    what:["watchdog.sh restarts unhealthy services; lifecycle.sh rotates JSONL + Qdrant snapshots.","watchdog.sh reinicia servicios enfermos; lifecycle.sh rota JSONL + snapshots de Qdrant."],
+    when:["Intended cron 5 min / weekly.","Previsto cron 5 min / semanal."], why:["Self-healing.","Auto-recuperación."],
+    code:["watchdog_code"],
+    findings:[["dead",["F-03 MED — watches ghost 'gateway'; backpack-api and llama-llm unwatched.","F-03 MED — vigila al fantasma 'gateway'; backpack-api y llama-llm sin vigilancia."]]]},
+  sidecars:  {x:X(4), y:Y(4), st:"dead", nm:"Sidecars (external)", sub:["Engram :3100 · deep-memory MCP","Engram :3100 · deep-memory MCP"],
+    what:["Engram: Go node store (plugin degrades silently if down). deep-memory: third-party MCP needing sqlite-vec.","Engram: almacén de nodos en Go (el plugin degrada en silencio si cae). deep-memory: MCP de terceros que requiere sqlite-vec."],
+    when:["—","—"], why:["Auxiliary memories.","Memorias auxiliares."],
+    code:[],
+    findings:[["dead",["F-09 — Engram down; deep-memory broken.","F-09 — Engram caído; deep-memory roto."]]]},
+};
+// ─── Edges ───────────────────────────────────────────────────────────────────
+const edges = [
+  ["plugin","api"],["mcpClients","api"],["browseros","api"],
+  ["api","ingest"],["ingest","jsonl"],["ingest","qdrantL1"],["ingest","models"],
+  ["plugin","heartbeat"],["heartbeat","consol"],["consol","state"],["consol","qdrantL1"],["consol","models"],
+  ["plugin","ctx"],["ctx","qdrantL1"],["ctx","models"],["ctx","inject"],
+  ["plugin","conv"],["conv","sqlite"],["conv","qdrantL1"],
+  ["mcpClients","entities"],["entities","governance"],
+  ["watchdog","api"],["plugin","sidecars"],
+];
+// ─── Flows ───────────────────────────────────────────────────────────────────
+const flows = {
+  capture: {nodes:["plugin","api","ingest","jsonl","qdrantL1","models"], steps:[
+    {n:"plugin", u:"hooks_tool", t:["1 · Hook fires","1 · El hook dispara"], d:["Prompt / tool / edit → the hook builds {event_type, source:'plugin', content} and POSTs. Fire-and-forget, no retry (F-04). Code: chat.message :359–385, tool.execute.after :459–475.","Prompt / herramienta / edición → el hook construye {event_type, source:'plugin', content} y hace POST. Fire-and-forget, sin retry (F-04). Código: chat.message :359–385, tool.execute.after :459–475."]},
+    {n:"api", u:"run_async", t:["2 · HTTP intake","2 · Entrada HTTP"], d:["_ApiHandler.do_POST routes to L0_capture through the ONE shared asyncio loop (_run_async :202). Under 40-parallel, 7.5% timed out here.","_ApiHandler.do_POST enruta a L0_capture a través del ÚNICO loop asyncio compartido (_run_async :202). Con 40 en paralelo, el 7,5% expiró aquí."]},
+    {n:"ingest", u:"type_map", t:["3 · Validate + type_map","3 · Validación + type_map"], d:["validate_ingest_event (sanitize.py:659) is solid. Then type_map (:79) drops the 3 plugin types to 'system' — F-02, the taxonomy contamination point.","validate_ingest_event (sanitize.py:659) es sólida. Después type_map (:79) degrada los 3 tipos del plugin a 'system' — F-02, el punto de contaminación de la taxonomía."]},
+    {n:"jsonl", u:"append_jsonl", t:["4 · L0 append","4 · Append en L0"], d:["_append_raw_jsonl (:52) writes the immutable audit line. Real, synthetic and test events share this stream (F-08).","_append_raw_jsonl (:52) escribe la línea de auditoría inmutable. Eventos reales, sintéticos y de test comparten este stream (F-08)."]},
+    {n:"models", u:"embed_api", t:["5 · Embed","5 · Embedding"], d:["get_embedding (embedding.py:645): cache lookup → bge-m3 :8081. If the server is down, safe_embed (:737) silently stores a ZERO-VECTOR — poison that never gets re-embedded.","get_embedding (embedding.py:645): consulta caché → bge-m3 :8081. Si el servidor cae, safe_embed (:737) almacena en silencio un VECTOR-CERO — veneno que nunca se re-embebe."]},
+    {n:"qdrantL1", u:"store_mem", t:["6 · L1 upsert","6 · Upsert en L1"], d:["_store_memory (:32) upserts into the single shared collection, layer=1. 5,298 items wait here for a consolidation that never comes.","_store_memory (:32) hace upsert en la colección compartida única, layer=1. 5.298 ítems esperan aquí una consolidación que nunca llega."]},
+  ]},
+  consolidation: {nodes:["plugin","heartbeat","consol","state","qdrantL1","models"], steps:[
+    {n:"plugin", u:"hooks_idle", t:["1 · Idle detected","1 · Inactividad detectada"], d:["Session idle hook (:330–344) fires /api/heartbeat-dream with turn_count — the intended 'right moment' for memory formation.","El hook de inactividad (:330–344) lanza /api/heartbeat-dream con turn_count — el 'momento justo' previsto para formar memoria."]},
+    {n:"heartbeat", u:"load_state", t:["2 · heartbeat() crashes","2 · heartbeat() crashea"], d:["consolidation.heartbeat (:339) executes state = _load_state() → NameError. The function was deleted on May 27; 8 call sites remain (341–494). 374 calls, 374 crashes (F-01).","consolidation.heartbeat (:339) ejecuta state = _load_state() → NameError. La función se borró el 27-may; quedan 8 llamadas (341–494). 374 llamadas, 374 crashes (F-01)."]},
+    {n:"consol", u:"promote12", t:["3 · Promotions (unreachable)","3 · Promociones (inalcanzables)"], d:["_promote_l1_l2 (:117): noise filter → group by scope ≥2 → summarize. _promote_l2_l3 (:163): hourly entity extraction. _promote_l3_l4 (:198): daily narrative. All dead code right now.","_promote_l1_l2 (:117): filtro de ruido → agrupar por scope ≥2 → resumir. _promote_l2_l3 (:163): extracción de entidades cada hora. _promote_l3_l4 (:198): narrativa diaria. Todo código muerto ahora mismo."]},
+    {n:"models", u:"summarize", t:["4 · LLM summaries (idle)","4 · Resúmenes LLM (ociosos)"], d:["_summarize (:108) would call qwen2.5-7b with _structured_summary fallback. Currently never reached.","_summarize (:108) llamaría a qwen2.5-7b con fallback _structured_summary. Actualmente nunca se alcanza."]},
+    {n:"qdrantL1", u:"qdrant_cli", t:["5 · Upper layers starving","5 · Capas superiores desnutridas"], d:["L2: 29, L3: 5, L4: 2 — all ≤ May 27, vs 5,298 in L1. Same collection, separated only by the 'layer' field.","L2: 29, L3: 5, L4: 2 — todo ≤ 27-may, frente a 5.298 en L1. Misma colección, separada solo por el campo 'layer'."]},
+    {n:"state", u:"load_state", t:["6 · State frozen","6 · Estado congelado"], d:["state.json untouched since 2026-05-27 22:48 (total_consolidated: 7). Fix: restore the 7-line definitions from the workspace copy, restart, drain backlog.","state.json intacto desde 27-05-2026 22:48 (total_consolidated: 7). Arreglo: restaurar las definiciones de 7 líneas desde la copia del workspace, reiniciar, drenar el backlog."]},
+  ]},
+  retrieval: {nodes:["plugin","ctx","qdrantL1","models","inject"], steps:[
+    {n:"plugin", u:"hooks_ctx", t:["1 · Prompt intercepted","1 · Prompt interceptado"], d:["fetchContext (:171) — 30 s cooldown, 3 s timeout, 2,000-token budget. On failure it re-serves the previous injection (stale-context risk).","fetchContext (:171) — cooldown 30 s, timeout 3 s, presupuesto 2.000 tokens. Si falla, re-sirve la inyección anterior (riesgo de contexto caducado)."]},
+    {n:"ctx", u:"req_ctx", t:["2 · Smart routing","2 · Enrutado inteligente"], d:["request_context (L5:28) validates and maps intent → profile, then retrieve()/_retrieve_parallel (retrieval:170–228) fans out per layer.","request_context (L5:28) valida y mapea intent → perfil; después retrieve()/_retrieve_parallel (retrieval:170–228) se despliega por capa."]},
+    {n:"models", u:"embed_api", t:["3 · Query embedding","3 · Embedding de la query"], d:["Same shared get_embedding path as capture — the cache is why p50 is 14 ms.","La misma ruta compartida get_embedding que la captura — la caché explica el p50 de 14 ms."]},
+    {n:"qdrantL1", u:"rank_fuse", t:["4 · Score + fuse","4 · Puntuar + fusionar"], d:["_rank_and_fuse (:309) — the mixing chamber. Vector hits + fixed-score 0.6 decision files (_retrieve_L3_decisions :281) + freshness data maintained by a dead verifier (F-01).","_rank_and_fuse (:309) — la cámara de mezcla. Hits vectoriales + ficheros de decisión con score fijo 0,6 (_retrieve_L3_decisions :281) + datos de frescura mantenidos por un verificador muerto (F-01)."]},
+    {n:"inject", u:"pack", t:["5 · Injection — on time","5 · Inyección — a tiempo"], d:["_pack_context (:425): rules 8k / structural 16k / dynamic; 2,048-token per-item cap. p95 = 38 ms, far inside the 3 s timeout. Plus the write/edit gate.","_pack_context (:425): reglas 8k / estructural 16k / dinámico; tope 2.048 tokens por ítem. p95 = 38 ms, muy dentro del timeout de 3 s. Más la puerta write/edit."]},
+  ]},
+  conversation: {nodes:["plugin","api","conv","sqlite","qdrantL1"], steps:[
+    {n:"plugin", u:"hooks_ctx", t:["1 · Compaction hook","1 · Hook de compactación"], d:["Before compaction wipes history, the plugin saves the thread.","Antes de que la compactación borre el historial, el plugin guarda el hilo."]},
+    {n:"api", u:"api_handler", t:["2 · /api/save-conversation","2 · /api/save-conversation"], d:["validate_save_conversation (sanitize:714) → dispatch to L2_conversations.","validate_save_conversation (sanitize:714) → despacho a L2_conversations."]},
+    {n:"conv", u:"conv_save", t:["3 · Dual write","3 · Doble escritura"], d:["save_conversation (:36): SQLite first (authoritative), Qdrant second (best-effort — failure only logs).","save_conversation (:36): primero SQLite (autoritativo), después Qdrant (best-effort — el fallo solo se loguea)."]},
+    {n:"sqlite", u:"conv_db", t:["4 · Exact store","4 · Almacén exacto"], d:["save_thread (conversation_db:137): transactional upsert + FTS5 triggers. 71 threads; roundtrip test passed.","save_thread (conversation_db:137): upsert transaccional + triggers FTS5. 71 hilos; test de ida y vuelta superado."]},
+    {n:"qdrantL1", u:"qdrant_cli", t:["5 · Semantic mirror","5 · Espejo semántico"], d:["UUID5(thread_id) point in L2_conversations collection — future sessions find this thread by meaning.","Punto UUID5(thread_id) en la colección L2_conversations — futuras sesiones encuentran este hilo por significado."]},
+  ]},
+  entities: {nodes:["mcpClients","entities","governance"], steps:[
+    {n:"mcpClients", u:"entity_code", t:["1 · Explicit tools","1 · Herramientas explícitas"], d:["entity_register / timeline_append / relation_connect — deliberate calls, never auto-captured.","entity_register / timeline_append / relation_connect — llamadas deliberadas, nunca auto-capturadas."]},
+    {n:"entities", u:"entity_code", t:["2 · Graph + timeline","2 · Grafo + timeline"], d:["45 entities, 41 relations, 9,850 events in entity_timeline.db (FTS5). Vault bridge mirrors to Markdown.","45 entidades, 41 relaciones, 9.850 eventos en entity_timeline.db (FTS5). El puente al vault replica en Markdown."]},
+    {n:"governance", u:"gov_code", t:["3 · Hygiene","3 · Higiene"], d:["compute_health (:59); cleanup marking with 30-day retention before delete. Live-only module (F-07).","compute_health (:59); marcado de limpieza con retención de 30 días antes de borrar. Módulo solo-vivo (F-07)."]},
+  ]},
+  permeability: {nodes:["api","ingest","ctx","conv","consol","heartbeat","models","qdrantL1","state","jsonl","plugin","inject"], steps:[
+    {n:"api", u:"sanitize", t:["P1 · The shared gate (clean)","P1 · La puerta compartida (limpia)"], d:["All four flows pass ONE sanitization layer — fuzz-verified. Single point of defense, single point of failure. Its whitelist disagrees with type_map about the taxonomy: the F-02 seam lives between these two zones.","Los cuatro flujos pasan por UNA capa de sanitización — verificada por fuzzing. Punto único de defensa, punto único de fallo. Su whitelist discrepa de type_map sobre la taxonomía: la costura F-02 vive entre estas dos zonas."]},
+    {n:"ingest", u:"type_map", t:["P2 · Taxonomy leak","P2 · Fuga de taxonomía"], d:["type_map's silent .get() fallback contaminates event identity: 3 distinct behaviors collapse into 'system'. Downstream scope-grouping in _promote_l1_l2 would then merge unrelated events into shared episodes.","El fallback silencioso .get() de type_map contamina la identidad de los eventos: 3 comportamientos distintos colapsan en 'system'. Aguas abajo, la agrupación por scope de _promote_l1_l2 fusionaría eventos sin relación en episodios compartidos."]},
+    {n:"models", u:"embed_api", t:["P3 · Zero-vector poison","P3 · Veneno de vectores-cero"], d:["safe_embed permeates EVERY flow (capture, consolidation, retrieval, conversations). On embedding-server failure it stores unmarked zero-vectors — permanent, invisible contamination of the vector space. The shared cache can freeze that poison.","safe_embed permea TODOS los flujos (captura, consolidación, recuperación, conversaciones). Si falla el servidor de embeddings, almacena vectores-cero sin marcar — contaminación permanente e invisible del espacio vectorial. La caché compartida puede congelar ese veneno."]},
+    {n:"qdrantL1", u:"qdrant_cli", t:["P4 · One collection, four tiers","P4 · Una colección, cuatro niveles"], d:["All memory tiers + test + synthetic data share L0_L4_memory, separated only by payload fields. Highest data-permeability surface: a mis-tagged write is a tier escape; audit events sit next to real memories.","Todos los niveles de memoria + datos de test + sintéticos comparten L0_L4_memory, separados solo por campos del payload. La mayor superficie de permeabilidad de datos: una escritura mal etiquetada es una fuga de nivel; los eventos de auditoría conviven con memorias reales."]},
+    {n:"ctx", u:"rank_fuse", t:["P5 · The mixing chamber","P5 · La cámara de mezcla"], d:["_rank_and_fuse deliberately blends every source into one ranked pack — including fixed-score filesystem hits and freshness metadata maintained by dead code. Contamination upstream (P2, P3) exits to the LLM here.","_rank_and_fuse funde deliberadamente todas las fuentes en un solo paquete ordenado — incluidos hits de fichero con score fijo y metadatos de frescura mantenidos por código muerto. La contaminación aguas arriba (P2, P3) sale hacia el LLM por aquí."]},
+    {n:"api", u:"run_async", t:["P6 · Temporal coupling","P6 · Acoplamiento temporal"], d:["One asyncio loop serializes all flows: a heavy consolidate would delay retrieval; a burst of ingests drops events (7.5% measured). Flows contaminate each other's LATENCY even when their data stays separate.","Un loop asyncio serializa todos los flujos: una consolidación pesada retrasaría la recuperación; una ráfaga de ingestas pierde eventos (7,5% medido). Los flujos contaminan la LATENCIA de los demás aunque sus datos sigan separados."]},
+    {n:"state", u:"load_state", t:["P7 · The dead valve","P7 · La válvula muerta"], d:["_load_state/_save_state deleted: the only write-path from working memory to long-term layers is severed. Permeability here should exist and doesn't — the inverse failure. Restore 7 lines, restart, drain the 5,298-item backlog.","_load_state/_save_state borradas: la única vía de escritura de la memoria de trabajo a las capas de largo plazo está cortada. Aquí la permeabilidad debería existir y no existe — el fallo inverso. Restaurar 7 líneas, reiniciar, drenar el backlog de 5.298 ítems."]},
+  ]},
+};
+// ─── Render: map ─────────────────────────────────────────────────────────────
+const map = document.getElementById("map"), svg = document.getElementById("edges");
+const laneXs = [X(0),X(1),X(2),X(3),X(4)];
+const laneEls = [];
+UI.lanes.forEach((t,i)=>{const d=document.createElement("div");d.className="lane";d.style.left=laneXs[i]+"px";d.style.top="14px";map.appendChild(d);laneEls.push(d);});
+const els = {};
+for (const [id,n] of Object.entries(nodes)){
+  const d = document.createElement("div");
+  d.className = "node st-"+n.st; d.style.left = n.x+"px"; d.style.top = n.y+"px";
+  d.onclick = () => showNode(id);
+  map.appendChild(d); els[id] = d;
+}
+function renderNodeLabels(){
+  for (const [id,n] of Object.entries(nodes)){
+    const czCount = n.code.length;
+    els[id].innerHTML = `<div class="nm"><span class="dot"></span>${n.nm}</div><div class="sub">${L(n.sub)}</div>` +
+      (czCount ? `<div class="cz">⌁ ${czCount} ${czCount>1?L(UI.zonesPl):L(UI.zones)}</div>` : "");
+  }
+  laneEls.forEach((d,i)=>d.textContent = L(UI.lanes[i]));
+}
+renderNodeLabels();
+let H = 0, W = 0;
+for (const n of Object.values(nodes)){ H = Math.max(H, n.y+96); W = Math.max(W, n.x+220); }
+map.style.height = H+"px"; map.style.width = W+"px"; svg.setAttribute("width",W); svg.setAttribute("height",H);
+function center(id){const n=nodes[id];const el=els[id];return {x:n.x+el.offsetWidth/2, y:n.y+el.offsetHeight/2};}
+const edgeEls = [];
+function drawEdges(){
+  svg.innerHTML = '<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#3d4356"/></marker><marker id="arrLit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#8d7bf5"/></marker></defs>';
+  edgeEls.length = 0;
+  for (const [a,b] of edges){
+    const p1=center(a), p2=center(b);
+    const dx=(p2.x-p1.x)/2;
+    const path=document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d",`M${p1.x},${p1.y} C${p1.x+dx},${p1.y} ${p2.x-dx},${p2.y} ${p2.x},${p2.y}`);
+    path.setAttribute("fill","none"); path.setAttribute("stroke","#3d4356"); path.setAttribute("stroke-width","1.5");
+    path.setAttribute("marker-end","url(#arr)");
+    svg.appendChild(path); edgeEls.push({a,b,path});
+  }
+}
+drawEdges();
+// ─── Panel rendering ─────────────────────────────────────────────────────────
+const badgeCls = {ok:"b-ok", warn:"b-warn", dead:"b-dead", info:"b-info"};
+let selUnit = null, lastNode = null;
+let view = {type:"welcome"};   // welcome | node | unit | step
+function chipsHtml(ids, selected){
+  return ids.map(uid => {
+    const u = units[uid];
+    const hot = u.mix && /F-0[12]/.test(L(u.mix));
+    return `<button class="chip ${uid===selected?'sel':''}" onclick="event.stopPropagation();showUnit('${uid}')">
+      <span class="fn">${u.fn}</span>${u.mix?`<span class="mixTag ${hot?'hot':''}">${hot?L(UI.hotTag):L(UI.mixTag)}</span>`:""}
+      <div class="loc">${u.file}${u.lines && u.lines!=="—" ? " · " + u.lines : ""}</div>
+      <div class="role">${L(u.role)}</div>
+    </button>`;
+  }).join("");
+}
+function clearCodeLit(){ for (const el of Object.values(els)) el.classList.remove("codeLit"); selUnit = null; }
+function showWelcome(){
+  view = {type:"welcome"};
+  document.getElementById("pTitle").textContent = L(UI.welcomeTitle);
+  document.getElementById("pBody").innerHTML = L(UI.welcome);
+}
+function showNode(id){
+  clearCodeLit(); lastNode = id; view = {type:"node", id};
+  const n = nodes[id];
+  document.getElementById("pTitle").innerHTML = `${n.nm} <span class="badge ${badgeCls[n.st]}">${L(UI.badges[n.st])}</span>`;
+  let h = `<h3>${L(UI.whatHow)}</h3><p>${L(n.what)}</p><h3>${L(UI.when)}</h3><p>${L(n.when)}</p><h3>${L(UI.why)}</h3><p>${L(n.why)}</p>`;
+  if (n.findings.length) h += `<h3>${L(UI.findings)}</h3>` + n.findings.map(([s,t])=>`<div class="finding ${s==='warn'?'warn':''}">${L(t)}</div>`).join("");
+  if (n.code.length) h += `<h3>${L(UI.codeZones)}</h3>` + chipsHtml(n.code, null);
+  document.getElementById("pBody").innerHTML = h;
+}
+window.showUnit = function(uid){
+  const u = units[uid];
+  clearCodeLit(); selUnit = uid; view = {type:"unit", id:uid};
+  for (const nid of u.nodes) els[nid] && els[nid].classList.add("codeLit");
+  const hot = u.mix && /F-0[12]/.test(L(u.mix));
+  document.getElementById("pTitle").innerHTML = `<code style="font-size:13px">${u.fn}</code> <span class="badge b-code">${L(UI.badges.code)}</span>`;
+  let h = `<p style="margin-top:8px"><code>${u.file}${u.lines && u.lines!=="—" ? " · " + u.lines : ""}</code></p>
+    <h3>${L(UI.whatCode)}</h3><p>${L(u.role)}</p>
+    <h3>${L(UI.permeates)}</h3>
+    <div class="touched">${u.nodes.map(nid=>`<span>${nodes[nid] ? nodes[nid].nm : nid}</span>`).join("")}</div>`;
+  if (u.mix) h += `<h3>${hot ? L(UI.contamination) : L(UI.mixing)}</h3><div class="mixBox">${L(u.mix)}</div>`;
+  else h += `<h3>${L(UI.clean)}</h3><p>${L(UI.cleanTxt)}</p>`;
+  if (lastNode) h += `<button class="backBtn" onclick="showNode('${lastNode}')">${L(UI.back)} ${nodes[lastNode].nm}</button>`;
+  document.getElementById("pBody").innerHTML = h;
+};
+window.showNode = showNode;
+// ─── Flow walking ────────────────────────────────────────────────────────────
+let curFlow = "all", curStep = -1;
+const prevB = document.getElementById("prev"), nextB = document.getElementById("next"), lbl = document.getElementById("stepLabel");
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  curFlow = t.dataset.flow; curStep = -1; applyFlow();
+});
+function applyFlow(){
+  clearCodeLit();
+  const f = flows[curFlow];
+  for (const [id,el] of Object.entries(els)){
+    el.classList.remove("dimmed","lit","current");
+    if (f && !f.nodes.includes(id)) el.classList.add("dimmed");
+  }
+  for (const e of edgeEls){
+    const inFlow = f && f.nodes.includes(e.a) && f.nodes.includes(e.b);
+    e.path.setAttribute("stroke", !f ? "#3d4356" : inFlow ? (curFlow==="permeability" ? "#46d4c0" : "#8d7bf5") : "#23273344");
+    e.path.setAttribute("stroke-width", inFlow ? "2.2" : "1.5");
+    e.path.setAttribute("marker-end", inFlow ? "url(#arrLit)" : "url(#arr)");
+  }
+  prevB.disabled = !f; nextB.disabled = !f;
+  lbl.textContent = f ? `${L(UI.step)} 0 / ${f.steps.length}` : "—";
+  if (f) stepTo(0); else showWelcome();
+}
+function stepTo(i){
+  const f = flows[curFlow]; if (!f) return;
+  curStep = Math.max(0, Math.min(i, f.steps.length-1));
+  view = {type:"step"};
+  const s = f.steps[curStep];
+  clearCodeLit();
+  for (const [id,el] of Object.entries(els)){
+    el.classList.remove("lit","current");
+    if (f.nodes.includes(id)) el.classList.add("lit");
+  }
+  els[s.n].classList.add("current");
+  if (s.u) for (const nid of units[s.u].nodes) els[nid] && els[nid].classList.add("codeLit");
+  els[s.n].scrollIntoView({block:"nearest", inline:"nearest", behavior:"smooth"});
+  lbl.textContent = `${L(UI.step)} ${curStep+1} / ${f.steps.length}`;
+  prevB.disabled = curStep===0; nextB.disabled = curStep===f.steps.length-1;
+  const n = nodes[s.n];
+  const isPerm = curFlow === "permeability";
+  const u = s.u ? units[s.u] : null;
+  document.getElementById("pTitle").innerHTML = `${L(UI.flowNames[curFlow])} <span class="badge ${badgeCls[n.st]}">${L(UI.badges[n.st])}</span>`;
+  document.getElementById("pBody").innerHTML =
+    `<div class="stepCard ${isPerm?'perm':''}"><div class="t">${L(s.t)}</div><div class="d">${L(s.d)}</div></div>` +
+    (u ? `<h3>${L(UI.codeAtStep)}</h3>${chipsHtml([s.u], s.u)}
+          ${u.mix ? `<div class="mixBox">${L(u.mix)}</div>` : ""}` : "") +
+    `<h3>${L(UI.node)}: ${n.nm}</h3><p>${L(n.what)}</p>
+     ${n.findings.length ? `<h3>${L(UI.findingsHere)}</h3>`+n.findings.map(([sv,t])=>`<div class="finding ${sv==='warn'?'warn':''}">${L(t)}</div>`).join("") : ""}
+     <p class="hint">${L(UI.walkHint)}</p>`;
+}
+prevB.onclick = () => stepTo(curStep-1);
+nextB.onclick = () => stepTo(curStep+1);
+window.addEventListener("resize", drawEdges);
+// ─── Language switch ─────────────────────────────────────────────────────────
+function applyLangChrome(){
+  document.documentElement.lang = lang;
+  document.getElementById("hTitle").textContent = L(UI.title);
+  document.getElementById("hSub").textContent = L(UI.sub);
+  document.getElementById("lgOk").textContent = L(UI.lgOk);
+  document.getElementById("lgWarn").textContent = L(UI.lgWarn);
+  document.getElementById("lgDead").textContent = L(UI.lgDead);
+  document.getElementById("lgInfo").textContent = L(UI.lgInfo);
+  document.getElementById("lgCode").textContent = L(UI.lgCode);
+  document.querySelectorAll(".tab").forEach(t => t.textContent = L(UI.tabs[t.dataset.flow]));
+  prevB.textContent = L(UI.prev); nextB.textContent = L(UI.next);
+  document.getElementById("btnEs").classList.toggle("on", lang==="es");
+  document.getElementById("btnEn").classList.toggle("on", lang==="en");
+}
+window.setLang = function(l){
+  if (l === lang) return;
+  lang = l; localStorage.setItem("fm_lang", l);
+  applyLangChrome(); renderNodeLabels(); drawEdges();
+  // Re-render the current view in the new language without losing position.
+  if (view.type === "step" && flows[curFlow]) stepTo(curStep);
+  else if (view.type === "node") showNode(view.id);
+  else if (view.type === "unit") showUnit(view.id);
+  else showWelcome();
+  if (flows[curFlow]) lbl.textContent = `${L(UI.step)} ${curStep+1} / ${flows[curFlow].steps.length}`;
+  else lbl.textContent = "—";
+};
+// ─── Init ────────────────────────────────────────────────────────────────────
+applyLangChrome();
+showWelcome();
+</script>
+</body>
+</html>

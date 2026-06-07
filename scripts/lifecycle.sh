@@ -53,7 +53,7 @@ if $STATUS_ONLY; then
     echo ""
     
     # JSONL
-    JSONL="$DATA_DIR/raw_events.jsonl"
+    JSONL="$DATA_DIR/L0-sensory/events.jsonl"
     if [ -f "$JSONL" ]; then
         LINES=$(wc -l < "$JSONL" | tr -d ' ')
         SIZE=$(du -sh "$JSONL" | cut -f1 | tr -d ' ')
@@ -334,8 +334,11 @@ for col in ['L0_L4_memory', 'L3_facts', 'L2_conversations']:
             layer = payload.get('layer', '')
             created = payload.get('created_at', '')
             
-            # Never purge L3 or L4
-            if layer in ('L3_SEMANTIC', 'L4_CONSOLIDATED'):
+            # Purge ONLY L0/L1 (working memory). Payload layer is an integer
+            # (1..4) in current schema; legacy string values kept for safety.
+            # F-12 fix: the old check compared against strings that never
+            # matched the integer schema, leaving L2/L3/L4 unprotected.
+            if layer not in (0, 1, 'L0_RAW', 'L1_WORKING'):
                 continue
             
             # Check age
@@ -347,7 +350,7 @@ for col in ['L0_L4_memory', 'L3_facts', 'L2_conversations']:
                 continue
             
             age_days = (now - ct) / 86400
-            max_age = l0_max if layer == 'L0_RAW' else l1_max
+            max_age = l0_max if layer in (0, 'L0_RAW') else l1_max
             
             if age_days > max_age:
                 ids_to_delete.append(p.get('id', ''))

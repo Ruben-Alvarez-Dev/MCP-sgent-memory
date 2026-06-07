@@ -118,8 +118,8 @@ def check_llama_server(url: str = "http://127.0.0.1:8081") -> ServiceStatus:
     return _check_http("llama-server", f"{url}/health")
 
 
-def check_gateway(url: str = "http://127.0.0.1:3050") -> ServiceStatus:
-    """Check 1MCP gateway."""
+def check_gateway(url: str = "http://127.0.0.1:8890/api/health") -> ServiceStatus:
+    """Check the Backpack HTTP API daemon (service key kept as 'gateway' for watchdog compatibility)."""
     status = _check_http("gateway", url)
     
     # 1MCP returns 404 for / but IS healthy if it responds
@@ -202,12 +202,13 @@ def check_launchd() -> ServiceStatus:
         core_services = [
             "com.agent-memory.qdrant",
             "com.agent-memory.llama-embedding",
-            "com.agent-memory.gateway",
+            "com.agent-memory.llama-llm",
+            "com.agent-memory.backpack-api",
         ]
         services = {}
         for line in result.stdout.splitlines():
             parts = line.split()
-            if len(parts) >= 3 and "memory-server" in parts[2]:
+            if len(parts) >= 3 and "com.agent-memory" in parts[2]:
                 pid = parts[0] if parts[0] != "-" else "not running"
                 exit_code = parts[1]
                 services[parts[2]] = {"pid": pid, "exit": exit_code}
@@ -240,7 +241,7 @@ def run_health_check(qdrant_url: str | None = None,
     """Run all health checks and return a report."""
     qdrant_url = qdrant_url or os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
     llama_url = llama_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
-    gateway_url = gateway_url or "http://127.0.0.1:3050"
+    gateway_url = gateway_url or "http://127.0.0.1:8890/api/health"
     base_dir = base_dir or os.getenv("MEMORY_SERVER_DIR")
 
     report = HealthReport()

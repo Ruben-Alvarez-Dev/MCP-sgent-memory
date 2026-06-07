@@ -1,8 +1,13 @@
-"""L0_to_L4_consolidation — Consolidation & Dream Daemon."""
+"""L0_to_L4_consolidation — Consolidation & Dream Daemon.
+
+Consolidation chain: L1 (working) → L2 (episodic) → L3 (semantic) → L4 (narrative).
+Quality gates at every promotion level. Graceful degradation without LLM.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.config import Config
 from shared.qdrant_client import QdrantClient
@@ -24,40 +30,115 @@ DREAM_PATH = Path(config.L4_narrative_path) if config.L4_narrative_path else Pat
 _state_path = DREAM_PATH / "state.json"
 _state_path.parent.mkdir(parents=True, exist_ok=True)
 
-mcp = FastMCP("L0_to_L4_consolidation")
-
 
 def _load_state() -> dict:
     if _state_path.exists():
         return json.loads(_state_path.read_text())
     return {"last_promote_l1_l2": 0, "last_promote_l2_l3": 0, "last_promote_l3_l4": 0, "last_dream": 0, "turn_count": 0, "total_consolidated": 0, "total_dreams": 0}
 
-def _save_state(state: dict) -> None:
-    _state_path.write_text(json.dumps(state, indent=2))
 
-async def _summarize(texts: list[str], prompt: str = "") -> str:
-    content = "\n---\n".join(texts[:20])
-    if not prompt:
-        prompt = "Synthesize the following memories into a concise summary.\n\n"
+def _save_state(state: dict) -> None:
+    # Atomic write: a crash mid-write can never corrupt or truncate state.json.
+    tmp = _state_path.with_name(_state_path.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.replace(_state_path)
+
+mcp = FastMCP("L0_to_L4_consolidation")
+
+NOISE_PREFIXES = (
+    "bash: total ",
+    "bash: drwx",
+    "bash: -rw",
+    "bash: lrwx",
+    "edit: Edit applied successfully.",
+    "write: Wrote file successfully.",
+    "glob: ",
+    "grep: Found ",
+    "todowrite:",
+    "read: <path>",
+)
+NOISE_CONTAINS = (
+    ': ""',
+    ": None",
+    "Edit applied successfully",
+    "Wrote file successfully",
+)
+
+
+def _is_noise(content: str) -> bool:
+    if not content or len(content.strip()) < 20:
+        return True
+    if any(content.startswith(p) for p in NOISE_PREFIXES):
+        return True
+    stripped = content.strip()
+    if len(stripped) < 30 and any(nc in stripped for nc in NOISE_CONTAINS):
+        return True
+    return False
+
+
+def _extract_signal(texts: list[str]) -> list[str]:
+    return [t for t in texts if not _is_noise(t)]
+
+
+def _structured_summary(texts: list[str], source_label: str = "items") -> str:
+    signal = _extract_signal(texts)
+    if not signal:
+        return ""
+    lines = [f"Consolidated from {len(signal)} {source_label} (filtered from {len(texts)} total):"]
+    seen = set()
+    for t in signal[:10]:
+        key = t[:80]
+        if key not in seen:
+            seen.add(key)
+            snippet = t[:200].strip()
+            if snippet:
+                lines.append(f"- {snippet}")
+    return "\n".join(lines)
+
+
+def _extract_entities(text: str) -> list[str]:
+    camel = re.findall(r"[A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]+)+", text)
+    paths = re.findall(r"(?:/[\w.-]+){2,}", text)
+    return list(set(camel + [p.split("/")[-1] for p in paths[:5]]))[:10]
+
+
+async def _try_llm_summarize(texts: list[str], prompt: str) -> str | None:
+    signal = _extract_signal(texts)
+    if not signal:
+        return None
+    content = "\n---\n".join(signal[:15])
     try:
         llm = get_llm()
         if llm.is_available():
             resp = llm.ask(prompt + content, max_tokens=512, temperature=0.3)
-            if resp.strip():
+            if resp and len(resp.strip()) > 50:
                 return resp.strip()
     except Exception:
         pass
-    return "\n".join(f"[{i+1}] {t[:200]}" for i, t in enumerate(texts[:10]))
+    return None
+
+
+async def _summarize(texts: list[str], prompt: str = "") -> str:
+    if not prompt:
+        prompt = "Synthesize the following into a concise summary. Extract key decisions, entities, and patterns.\n\n"
+    llm_result = await _try_llm_summarize(texts, prompt)
+    if llm_result:
+        return llm_result
+    return _structured_summary(texts)
+
 
 async def _promote_l1_l2(state: dict) -> str | None:
     if state["turn_count"] - state.get("last_promote_l1_l2", 0) < config.consolidation_promote_L1:
         return None
     await qdrant.ensure_collection(sparse=False)
-    working = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 1}}]}, limit=100)
+    working = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 1}}]}, limit=200)
     if not working:
         return None
+    signal_items = [m for m in working if not _is_noise(m.get("content", ""))]
+    if len(signal_items) < 2:
+        return None
     groups: dict[str, list] = {}
-    for m in working:
+    for m in signal_items:
         key = f"{m.get('scope_type', '')}/{m.get('scope_id', '')}"
         groups.setdefault(key, []).append(m)
     batch_points = []
@@ -65,16 +146,32 @@ async def _promote_l1_l2(state: dict) -> str | None:
     for scope_key, items in groups.items():
         if len(items) < 2:
             continue
-        combined = "\n".join(f"- {m['content']}" for m in items[:10])
-        avg_imp = sum(m.get("importance", 0) for m in items) / len(items)
-        ep = MemoryItem(layer=MemoryLayer.EPISODIC, scope_type=items[0].get("scope_type", MemoryScope.AGENT), scope_id=items[0].get("scope_id", "system"), type=MemoryType.EPISODE, content=f"Episode ({len(items)} events):\n{combined}", importance=avg_imp, confidence=0.7)
+        contents = [m.get("content", "") for m in items[:15]]
+        summary = await _summarize(
+            contents,
+            f"You are summarizing a coding session ({scope_key}). Extract what was done, key files, and outcomes.\n\n",
+        )
+        if not summary or len(summary) < 30:
+            continue
+        avg_imp = sum(m.get("importance", 0.5) for m in items) / len(items)
+        ep = MemoryItem(
+            layer=MemoryLayer.EPISODIC,
+            scope_type=items[0].get("scope_type", MemoryScope.AGENT),
+            scope_id=items[0].get("scope_id", "system"),
+            type=MemoryType.EPISODE,
+            content=summary,
+            importance=max(avg_imp, 0.5),
+            confidence=0.7,
+        )
         vector = await safe_embed(ep.content)
         batch_points.append({"id": ep.memory_id, "vector": vector, "payload": ep.model_dump(mode="json")})
         episode_ids.append(ep.memory_id)
     if batch_points:
         await qdrant.upsert_batch(batch_points)
     state["last_promote_l1_l2"] = state.get("turn_count", 0)
-    return f"Created {len(episode_ids)} episodes" if episode_ids else None
+    noise_count = len(working) - len(signal_items)
+    return f"Created {len(episode_ids)} episodes ({noise_count} noise filtered)" if episode_ids else None
+
 
 async def _promote_l2_l3(state: dict, now: float) -> str | None:
     if now - state.get("last_promote_l2_l3", 0) < config.consolidation_promote_L2:
@@ -83,13 +180,33 @@ async def _promote_l2_l3(state: dict, now: float) -> str | None:
     episodes = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 2}}]}, limit=50)
     if not episodes:
         return None
-    summary = await _summarize([e.get("content", "") for e in episodes], "Extract key decisions, entities, and reusable patterns.\n\n")
-    sem = MemoryItem(layer=MemoryLayer.SEMANTIC, scope_type=MemoryScope.AGENT, scope_id="consolidated", type=MemoryType.DECISION, content=f"Consolidated from {len(episodes)} episodes:\n\n{summary}", importance=0.8, confidence=0.75)
+    contents = [e.get("content", "") for e in episodes]
+    all_entities = set()
+    for c in contents:
+        all_entities.update(_extract_entities(c))
+    summary = await _summarize(
+        contents,
+        "Extract key decisions, entities, and reusable patterns from these development episodes. "
+        "Focus on: architecture decisions, gotchas discovered, conventions established, tools used.\n\n",
+    )
+    if not summary or len(summary) < 50:
+        return None
+    entity_tag = f" | Entities: {', '.join(list(all_entities)[:10])}" if all_entities else ""
+    sem = MemoryItem(
+        layer=MemoryLayer.SEMANTIC,
+        scope_type=MemoryScope.AGENT,
+        scope_id="consolidated",
+        type=MemoryType.DECISION,
+        content=f"{summary}{entity_tag}",
+        importance=0.8,
+        confidence=0.75,
+    )
     vector = await safe_embed(summary)
     await qdrant.upsert(sem.memory_id, vector, sem.model_dump(mode="json"))
     state["last_promote_l2_l3"] = now
     state["total_consolidated"] = state.get("total_consolidated", 0) + 1
-    return f"Consolidated {len(episodes)} episodes"
+    return f"Consolidated {len(episodes)} episodes → 1 semantic memory"
+
 
 async def _promote_l3_l4(state: dict, now: float) -> str | None:
     if now - state.get("last_promote_l3_l4", 0) < config.consolidation_promote_L3:
@@ -98,18 +215,34 @@ async def _promote_l3_l4(state: dict, now: float) -> str | None:
     semantic = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 3}}]}, limit=30)
     if not semantic:
         return None
-    narrative = await _summarize([s.get("content", "") for s in semantic], "Write a coherent narrative from these memory fragments.\n\n")
-    item = MemoryItem(layer=MemoryLayer.CONSOLIDATED, scope_type=MemoryScope.AGENT, scope_id="narrative", type=MemoryType.NARRATIVE, content=narrative, importance=0.9, confidence=0.6)
+    contents = [s.get("content", "") for s in semantic]
+    narrative = await _summarize(
+        contents,
+        "Write a coherent narrative synthesis from these memory fragments. "
+        "Weave them into a story: what was built, what was learned, what decisions were made, and why.\n\n",
+    )
+    if not narrative or len(narrative) < 80:
+        return None
+    item = MemoryItem(
+        layer=MemoryLayer.CONSOLIDATED,
+        scope_type=MemoryScope.AGENT,
+        scope_id="narrative",
+        type=MemoryType.NARRATIVE,
+        content=narrative,
+        importance=0.9,
+        confidence=0.6,
+    )
     vector = await safe_embed(narrative)
     await qdrant.upsert(item.memory_id, vector, item.model_dump(mode="json"))
     state["last_promote_l3_l4"] = now
     state["total_consolidated"] = state.get("total_consolidated", 0) + 1
-    return "Created consolidated narrative"
+    return f"Created narrative from {len(semantic)} semantic memories"
 
 
 # ── v1.4: Verification during consolidation ────────────────────────────
 # Based on Reconsolidation (Nader 2000): every recall is a verification opportunity.
 # During consolidation, we also verify stale/never-verified memories.
+
 
 async def _verify_stale() -> str | None:
     """Verify stale and never-verified memories during consolidation.
@@ -191,7 +324,8 @@ async def _verify_stale() -> str | None:
         source = "consolidation_check"
 
         # Update in Qdrant
-        updated = {**payload,
+        updated = {
+            **payload,
             "verification_status": new_status,
             "verified_at": now_iso,
             "verification_source": source,
@@ -221,13 +355,23 @@ async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> Heartbeat
     state["turn_count"] = state.get("turn_count", 0) + turn_count
     now = datetime.now(timezone.utc).timestamp()
     results = []
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
+    for fn in [
+        _promote_l1_l2,
+        lambda s: _promote_l2_l3(s, now),
+        lambda s: _promote_l3_l4(s, now),
+        lambda s: _verify_stale(),
+    ]:
         r = await fn(state)
         if r:
             results.append(r)
     if results:
         _save_state(state)
-    return HeartbeatResult(status="ok", agent_id=agent_id, turn_count=state["turn_count"], message=", ".join(results) if results else "No consolidation due")
+    return HeartbeatResult(
+        status="ok",
+        agent_id=agent_id,
+        turn_count=state["turn_count"],
+        message=", ".join(results) if results else "No consolidation due",
+    )
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
@@ -241,7 +385,13 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
         state["last_promote_l1_l2"] = 0
         state["last_promote_l2_l3"] = 0
         state["last_promote_l3_l4"] = 0
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
+        state["turn_count"] = max(state["turn_count"], config.consolidation_promote_L1 + 1)
+    for fn in [
+        _promote_l1_l2,
+        lambda s: _promote_l2_l3(s, now),
+        lambda s: _promote_l3_l4(s, now),
+        lambda s: _verify_stale(),
+    ]:
         r = await fn(state)
         if r:
             results.append(r)
@@ -256,19 +406,57 @@ async def dream() -> dict:
 
     state = _load_state()
     now = datetime.now(timezone.utc).timestamp()
-    # Allow re-running by checking if explicitly forced (last_dream = 0 resets cooldown)
     if now - state.get("last_dream", 0) < config.consolidation_promote_L4:
-        # Reset so next call works
-        return {"status": "skipped", "reason": "not due yet (cooldown " + str(int(config.consolidation_promote_L4 - (now - state.get("last_dream", 0)))) + "s remaining)", "total_dreams": state.get("total_dreams", 0), "hint": "set last_dream=0 in state file to force"}
+        return {
+            "status": "skipped",
+            "reason": "not due yet (cooldown "
+            + str(int(config.consolidation_promote_L4 - (now - state.get("last_dream", 0))))
+            + "s remaining)",
+            "total_dreams": state.get("total_dreams", 0),
+            "hint": "set last_dream=0 in state file to force",
+        }
 
     async def _dream_impl():
         all_mem = []
         for layer in [MemoryLayer.WORKING, MemoryLayer.EPISODIC, MemoryLayer.SEMANTIC, MemoryLayer.CONSOLIDATED]:
-            all_mem.extend(await qdrant.scroll({"must": [{"key": "layer", "match": {"value": layer.value}}]}, limit=30))
+            all_mem.extend(await qdrant.scroll({"must": [{"key": "layer", "match": {"value": layer.value}}]}, limit=50))
         if not all_mem:
             return DreamResult(status="No memories to dream about", total_dreams=state.get("total_dreams", 0))
-        dream_text = await _summarize([m.get("content", "") for m in all_mem[:15]], "You are dreaming. Find deep patterns and insights.\n\n")
-        item = MemoryItem(layer=MemoryLayer.CONSOLIDATED, scope_type=MemoryScope.AGENT, scope_id="dream", type=MemoryType.DREAM, content=f"Dream:\n\n{dream_text}", importance=0.5, confidence=0.4)
+
+        contents = [m.get("content", "") for m in all_mem]
+        signal = _extract_signal(contents)
+        if not signal:
+            return DreamResult(
+                status="Only noise found, nothing to dream about", total_dreams=state.get("total_dreams", 0)
+            )
+
+        all_entities = set()
+        for c in signal:
+            all_entities.update(_extract_entities(c))
+
+        dream_prompt = (
+            "You are dreaming. Review ALL memories across layers. "
+            "Find deep patterns, contradictions, and insights that span multiple sessions. "
+            "What themes recur? What was abandoned? What deserves more attention?\n\n"
+        )
+        dream_text = await _summarize(signal, dream_prompt)
+        if not dream_text or len(dream_text) < 50:
+            dream_text = _structured_summary(signal, "memories")
+            if not dream_text:
+                return DreamResult(
+                    status="No meaningful content to dream about", total_dreams=state.get("total_dreams", 0)
+                )
+
+        entity_note = f"\n\nEntities across dreams: {', '.join(list(all_entities)[:20])}" if all_entities else ""
+        item = MemoryItem(
+            layer=MemoryLayer.CONSOLIDATED,
+            scope_type=MemoryScope.AGENT,
+            scope_id="dream",
+            type=MemoryType.DREAM,
+            content=f"Dream cycle synthesis:{entity_note}\n\n{dream_text}",
+            importance=0.5,
+            confidence=0.4,
+        )
         vector = await safe_embed(dream_text)
         await qdrant.upsert(item.memory_id, vector, item.model_dump(mode="json"))
         s = _load_state()
@@ -285,6 +473,7 @@ async def dream() -> dict:
 async def dream_status(task_id: str) -> dict:
     """Check status of a background dream task."""
     from shared.task_queue import get_tracker, TaskStatus
+
     info = get_tracker().get_status(task_id)
     if not info:
         return {"status": "not_found", "task_id": task_id}

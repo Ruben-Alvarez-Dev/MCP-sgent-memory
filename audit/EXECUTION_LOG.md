@@ -51,8 +51,16 @@ Executed per `REMEDIATION_PLAN.md`. All gates machine-verified live.
 - **NEW FINDING F-12 (CRITICAL, latent):** lifecycle's Qdrant purge compared the integer `layer` payload against legacy strings (`'L3_SEMANTIC'`), so L2/L3/L4 were unprotected and everything older than 30 days was deletable. Had lifecycle ever been scheduled, it would have erased consolidated memory monthly. Fixed before scheduling; dry-run gate shows 0 purgable with protections active. Its JSONL rotation also pointed at a nonexistent file (`raw_events.jsonl`) — repointed to `L0-sensory/events.jsonl`.
 - Live repo commit `b6b1191`.
 
+## Phase 2-ter — Auxiliary-collection zero-vector sweep ✅ (2026-06-07, later session)
+- **Live re-check found the F-11 census incomplete:** it only covered `L0_L4_memory`. Auxiliary collections were never scanned.
+- Re-census (live): `L0_L4_memory` 5,372 pts **0 zero-vectors** — the 13 "toxic" items had already been re-embedded organically since the morning run (`toxic-embeddings.json` is now obsolete; chunk-before-embed backlog item can be dropped). But `L2_conversations` **16/22 (72.7%)** and `L3_facts` **1/10** were zero — same chronic `safe_embed` fallback pattern.
+- Backup of affected points (payload+vector): `audit/zero-vector-aux-backup.json`.
+- Re-embed one-by-one via `POST :8081/v1/embeddings` (newlines stripped — llama-embedding splits on `\n`), vectors written via `PUT /collections/{c}/points/vectors?wait=true` (note: Qdrant 404s on POST to that path).
+- **Result: 17/17 re-embedded, 0 failures. Final census: 0 zero-vectors across all three collections.**
+- Retrieval probe on a repaired L2 point: self-hit score 1.000, neighbors 0.856/0.829 — episodic search over conversations works again.
+
 ## Pending
-- Phase 6 (separate session): repo unification + deploy smoke gate, L1 consumed-marker (dedup), chunk-before-embed for the 13 toxic items, `safe_embed` pending-tag semantics, dedicated USER_PROMPT enum, restore-drill runbook, SQLite `PRAGMA integrity_check` in lifecycle.
+- Phase 6 (separate session): repo unification + deploy smoke gate, L1 consumed-marker (dedup), `safe_embed` pending-tag semantics, dedicated USER_PROMPT enum, restore-drill runbook, SQLite `PRAGMA integrity_check` in lifecycle. (Chunk-before-embed for the 13 toxic items: no longer needed — see Phase 2-ter.)
 
 ## Notable live-fire lessons fed back into the plan
 1. Synchronous heavy consolidation through the API takes the whole daemon down (F-04 in production) — consolidation must run out-of-band or queued until Phase 6 re-architecture.

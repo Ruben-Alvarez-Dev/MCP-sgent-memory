@@ -184,7 +184,7 @@ Exit criteria: clean `git status`; `health_check` all-green on this machine; REA
 | Item | Detail | Owner |
 |------|--------|-------|
 | 1.1 | `openspec/` init: `project.md`, `AGENTS.md` (encodes team norms: no fakes outside tests, SOLID+hexagonal, approval-gated surgical changes, spec-before-code), baseline `specs/` written from current reality (the audits are the source material) | A |
-| 1.2 | ADR-0001 current-state & triage record · ADR-0002 versioning (single 2.x SemVer line; hive renumbered v3.0) · ADR-0003 OpenSpec adoption · ADR-0004 LLM backend decision · ADR-0005 single daemon entrypoint · ADR-0006 embedding integrity policy (no zero-vectors, cache keyed by model+dim) | A |
+| 1.2 | ADR-0001 current-state & triage record · ADR-0002 versioning (single 2.x SemVer line; hive renumbered v3.0) · ADR-0003 OpenSpec adoption · ADR-0005 single daemon entrypoint · (done 2026-07-12: ADR-0004 backends, ADR-0006 model policy, **ADR-0007 hexagonal/SOLID/DRY enterprise architecture** — includes import-linter contract in CI) | A |
 | 1.3 | Root `CHANGELOG.md` (reconstructed), `CONTRIBUTING.md`, `.editorconfig`, pre-commit config, commitlint | A |
 | 1.4 | CI: GitHub Actions with gates 1-5 (§3.4) | T |
 | 1.5 | **Recover the plugin**: locate `backpack-orchestrator.ts` (OpenCode config dir on the studio Mac) → commit under `adapters/opencode/` with `package.json` + Vitest smoke tests; if unrecoverable, open change to rewrite from SPEC-backpack-v1.2.md | A+T |
@@ -216,7 +216,11 @@ Exit criteria: all P0s closed with regression tests; coverage gate ≥60%; tag v
 
 ### Phase 3 — Full conversation serialization (ROADMAP v1.5.1) → **v2.3.0** · ~2-3 sessions
 
-Spec-first: `conversation-record` JSON Schema (timestamp, role, agent, tool+output, user, machine, environment, full content, summary — never truncated, no TTL). Then: FastAPI migration of the sidecar (`/v1`, validation, generated OpenAPI), full-thread capture path plugin→sidecar→SQLite (source of truth)→Qdrant (index, degradable), read-back API (filter by date/project/agent/tool), backfill from `raw_events.jsonl` where possible. Depends on Phase 2 (honest status, migrations). Owners: B (API), D (storage), T (contract tests), A (spec review).
+Opens with the ADR-0007 structural changes: `composition-root` (single entrypoint/wiring, removes `main_http.py`/`gateway.py`) and `hexagonal-shared-split` (`shared/` → `domain/ports/adapters/app/runtime`, import shims, strangler + boy-scout rule thereafter). Then spec-first: `conversation-record` JSON Schema (timestamp, role, agent, tool+output, user, machine, environment, full content, summary — never truncated, no TTL). Then: FastAPI migration of the sidecar (`/v1`, validation, generated OpenAPI) as an `adapters/http_sidecar` implementation, full-thread capture path plugin→sidecar→SQLite (source of truth)→Qdrant (index, degradable), read-back API (filter by date/project/agent/tool), backfill from `raw_events.jsonl` where possible. Depends on Phase 2 (honest status, migrations). Owners: A (architecture changes), B (API), D (storage), T (contract tests).
+
+### Phase 3-bis — Control plane: auto-started Web + TUI (ADR-0008) → **v2.3.5** · ~2-3 sessions
+
+Change `control-plane-ui` (proposal committed): `ConfigService` + `MetricsCollector` ports, `/v1/config|profiles|metrics(+SSE)|threads` endpoints, Web SPA (Vite+Tailwind) served by the daemon at `:8890/ui`, TUI (Textual, `amem`), launchd `KeepAlive` auto-start, degraded read-only mode at T0. All parameters/configs/profiles managed through one validated, audited path; metrics/charts over real counters only. Depends on Phase 3 FastAPI `/v1`. Owners: F (SPA), B (API), T (Playwright + Textual pilot E2E), A (review).
 
 ### Phase 4 — Timeline backbone (ROADMAP v1.6.1) → **v2.4.0** · ~3 sessions
 

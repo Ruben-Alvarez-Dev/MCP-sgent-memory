@@ -1,5 +1,7 @@
 # Spec — model-stack (current truth after changes ollama-backend + adaptive-model-tier)
 
+Status: current | Last-verified: 2026-07-12
+
 > Normative source: ADR-0004, ADR-0006. Schema: `hardware-profile.schema.json` (v1.0).
 
 ## Capability: adaptive model resolution

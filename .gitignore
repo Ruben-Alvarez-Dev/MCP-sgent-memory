@@ -17,7 +17,8 @@ bin/
 lib/
 models/*.gguf
 !models/.gitkeep
-vault/
+/src/vault/
+/data/vault/
 tools.db
 *.dmg
 *.pid

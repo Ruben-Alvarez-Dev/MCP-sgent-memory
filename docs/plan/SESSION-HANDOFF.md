@@ -28,8 +28,8 @@
 
 ## Branch workflow (Rubén's rule: never push to main directly)
 
-- All of today's work lives on **`change/phase0-foundation`** (13 local commits). `main` stays at `c16c2c0` untouched.
-- **Push BLOCKED (verified 2026-07-12)**: this machine's git credentials are GitHub user `manu-alvarez`, denied write on `Ruben-Alvarez-Dev/MCP-agent-memory` (HTTP 403). Fix one of: add `manu-alvarez` as collaborator with write; or `gh auth login` / update credentials to Ruben-Alvarez-Dev on this box; or switch remote to SSH with an authorized key. Then: `git push -u origin change/phase0-foundation`.
+- All of today's work lives on **`change/phase0-foundation`**, pushed to the fork remote `fork` = `manu-alvarez/MCP-agent-memory` (this machine's GitHub user has no write on upstream — fork+PR flow). `main` stays at `c16c2c0` untouched.
+- **PR #3 open**: https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory/pull/3 (`manu-alvarez:change/phase0-foundation` → `Ruben-Alvarez-Dev:main`). DO NOT merge until v2.2.0 exit criteria; each session pushes to `fork` (`git push fork change/phase0-foundation`) and the PR updates automatically. Merge is Rubén's call.
 - Next sessions: work ON this branch; new OpenSpec changes may branch `change/<id>` from it and merge back. Merge/PR of `change/phase0-foundation` → `main` only when Rubén says so (target: Phase 2 exit / v2.2.0, with CI green).
 
 ## Open items / decisions pending

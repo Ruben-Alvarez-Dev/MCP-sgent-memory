@@ -119,3 +119,25 @@ jobs:
       # conftest.py fail instead of skip when CI=1).
       - name: Run tests/app (services best-effort; still skips without an embedding server)
         run: PYTHONPATH=src pytest tests/app -q
+
+  # OpenCode plugin adapter — recovered TS code with a real Vitest suite
+  # (adapters/opencode/) that has no CI coverage. Bun is required: the
+  # package's lockfile is bun.lock and vitest.config.ts targets OpenCode's
+  # Bun runtime.
+  opencode-adapter:
+    name: OpenCode adapter tests (Vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        working-directory: adapters/opencode
+        run: bun install --frozen-lockfile
+
+      - name: Run Vitest suite
+        working-directory: adapters/opencode
+        run: bun run test

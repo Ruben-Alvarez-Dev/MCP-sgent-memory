@@ -1,19 +1,24 @@
 {
     "mcpServers": {
         "MCP-agent-memory": {
-            "command": "/Users/ruben/MCP-servers/MCP-agent-memory/.venv/bin/python3",
+            "command": "/Users/manu/MCP-servers/MCP-agent-memory/.venv/bin/python3",
             "args": [
                 "-u",
-                "/Users/ruben/MCP-servers/MCP-agent-memory/src/unified/server/main.py"
+                "/Users/manu/MCP-servers/MCP-agent-memory/src/unified/server/main.py"
             ],
             "env": {
-                "PYTHONPATH": "/Users/ruben/MCP-servers/MCP-agent-memory/src",
-                "MEMORY_SERVER_DIR": "/Users/ruben/MCP-servers/MCP-agent-memory",
+                "PYTHONPATH": "/Users/manu/MCP-servers/MCP-agent-memory/src",
+                "MEMORY_SERVER_DIR": "/Users/manu/MCP-servers/MCP-agent-memory",
                 "QDRANT_URL": "http://127.0.0.1:6333",
-                "EMBEDDING_BACKEND": "llama_server",
-                "LLAMA_SERVER_URL": "http://127.0.0.1:8081",
+                "EMBEDDING_BACKEND": "http",
+                "EMBEDDING_ENDPOINT": "http://127.0.0.1:11434/v1/embeddings",
                 "EMBEDDING_MODEL": "bge-m3",
-                "EMBEDDING_DIM": "1024"
+                "EMBEDDING_DIM": "1024",
+                "LLM_BACKEND": "ollama",
+                "LLM_MODEL": "qwen2.5:7b",
+                "SMALL_LLM_MODEL": "qwen3.5:2b",
+                "OLLAMA_URL": "http://127.0.0.1:11434",
+                "MODEL_TIER": "auto"
             }
         }
     }

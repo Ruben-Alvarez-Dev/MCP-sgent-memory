@@ -29,8 +29,10 @@ mcp = FastMCP("L0_to_L4_consolidation")
 
 def _load_state() -> dict:
     if _state_path.exists():
-        return json.loads(_state_path.read_text())
-    return {"last_promote_l1_l2": 0, "last_promote_l2_l3": 0, "last_promote_l3_l4": 0, "last_dream": 0, "turn_count": 0, "total_consolidated": 0, "total_dreams": 0}
+        state = json.loads(_state_path.read_text())
+        state.setdefault("schema_version", "1.0")
+        return state
+    return {"schema_version": "1.0", "last_promote_l1_l2": 0, "last_promote_l2_l3": 0, "last_promote_l3_l4": 0, "last_dream": 0, "turn_count": 0, "total_consolidated": 0, "total_dreams": 0}
 
 def _save_state(state: dict) -> None:
     _state_path.write_text(json.dumps(state, indent=2))

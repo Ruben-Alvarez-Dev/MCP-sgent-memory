@@ -20,12 +20,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 INSTALL_DIR="${1:-$SCRIPT_DIR/..}"
 INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)"
 
+# Defined before the trap registrations below: write_status() references
+# these in its output, and the script runs under `set -u` — if a trap fired
+# in the window between registration and color definitions, referencing an
+# unset color variable would abort with "unbound variable" before the
+# real exit code could be persisted, defeating the guarantee this exists for.
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
+
 # ── Always persist status, even on abort under `set -euo pipefail` ──
 # Registered as early as possible (right after INSTALL_DIR is known) so the
-# color/helper definitions below are also covered if they ever abort.
+# helper definitions below are also covered if they ever abort.
 ERRORS=0; WARNINGS=0
 STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
+STATUS_WRITTEN=0
 write_status() {
+    # Idempotency guard: a second, different terminating signal (e.g. a
+    # supervisor escalating SIGINT -> SIGTERM) can interrupt this function
+    # while it's still mid-write (blocked in the `cat` below) and re-enter it
+    # from scratch via its own trap. Without this guard the status file gets
+    # written twice and the second signal's exit code silently wins over the
+    # first one's. Must be the very first thing this function does.
+    if [ "$STATUS_WRITTEN" -eq 1 ]; then
+        return
+    fi
+    STATUS_WRITTEN=1
     # Exit code to report: explicit $1 (signal traps) or the captured $? (EXIT trap).
     local ec="${1:-$?}"
     # Never let a failed status-file write (unwritable dir, disk full) swallow
@@ -50,14 +68,19 @@ EOF
     exit "$ec"
 }
 trap 'write_status $?' EXIT
-# SIGINT/SIGTERM: clear the EXIT trap first (avoid double-fire), persist
-# status, and exit with the conventional interrupted-by-signal code — the
-# EXIT trap's captured $? does not reliably reflect a foreground process
-# killed by a signal.
-trap 'trap - EXIT; write_status 130' INT
-trap 'trap - EXIT; write_status 143' TERM
-
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
+# SIGINT/SIGTERM: ignore (not reset-to-default) INT/TERM first, then clear
+# EXIT, persist status, and exit with the conventional interrupted-by-signal
+# code. Using `trap '' INT TERM` rather than `trap - INT TERM` matters: a
+# reset-to-default would let a second signal arriving mid-write kill the
+# process outright via the kernel's default action, which still discards the
+# first signal's exit code (same symptom as the reentrancy bug, different
+# mechanism). Ignoring it instead guarantees a second signal of either kind
+# is silently dropped so the first invocation always runs to completion and
+# its exit code is the one that's reported. The EXIT trap's captured $? does
+# not reliably reflect a foreground process killed by a signal, hence the
+# explicit 130/143.
+trap "trap '' INT TERM; trap - EXIT; write_status 130" INT
+trap "trap '' INT TERM; trap - EXIT; write_status 143" TERM
 pass() { echo -e "  ${GREEN}✓${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
 warn() { echo -e "  ${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }

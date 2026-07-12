@@ -167,68 +167,47 @@ L5 SELECTIVE    → Context routing and assembly
 
 ## Directory Structure
 
+Tracked in git:
+
 ```
-MCP-servers/agent-memory/
-├── bin/                          # Executables: qdrant, llama-server
-├── etc/                          # Config: .env, qdrant.yaml, mcp.json
-├── data/                         # ALL persistent memory
-│   ├── L0-sensory/              # events.jsonl
-│   ├── L1-working/              # agents/
-│   ├── L2-episodic/             # conversations.db
-│   ├── L3-semantic/             # decisions/, facts/
-│   ├── L4-narrative/            # consolidation-state.json
-│   ├── L5-selective/            # reminders/
-│   ├── Lx-deliberative/         # sessions/, plans/
-│   └── Lx-persistent/           # bilingual vault
-│       ├── ES/                  # Spanish (user writes in Obsidian)
-│       │   ├── Conocimiento/
-│       │   ├── Decisiones/
-│       │   ├── Notas/
-│       │   ├── Inbox/
-│       │   ├── Episodios/
-│       │   └── Entidades/
-│       ├── EN/                  # English (system copy)
-│       │   ├── knowledge/
-│       │   ├── decisions/
-│       │   ├── notes/
-│       │   ├── inbox/
-│       │   ├── episodes/
-│       │   └── entities/
-│       └── .system/             # counter.json
-├── qdrant/                      # Vector storage
-├── engine/                      # Compiled llama.cpp
-├── models/                      # GGUF: embeddings/, reasoning/
-├── logs/
-├── src/
-│   ├── shared/                 # Core library (pip install -e .)
-│   │   ├── config.py           # Environment configuration
-│   │   ├── embedding.py        # BGE-M3 via llama.cpp
-│   │   ├── qdrant_client.py    # Qdrant vector operations
-│   │   ├── sanitize.py         # Input validation & XSS protection
-│   │   ├── retrieval/          # Hybrid retrieval + ranking
-│   │   ├── vault_manager/      # Obsidian vault atomic writes
-│   │   ├── conversation_db.py  # SQLite + FTS5 thread storage
-│   │   ├── timeline.py         # Event timeline
-│   │   ├── llm/                # LLM integration (llama.cpp)
-│   │   ├── diff_sandbox.py     # Code change sandbox
-│   │   ├── observe.py          # File system observer
-│   │   └── vault_constants.py  # Folder mappings
-│   ├── unified/server/main.py  # Unified MCP server entrypoint
-│   ├── L0_capture/             # Auto-capture: memorize, ingest, heartbeat
-│   ├── L0_to_L4_consolidation/ # Memory consolidation & dreaming
-│   ├── L2_conversations/       # Thread storage & search
-│   ├── L3_facts/               # Semantic memory CRUD
-│   ├── L3_decisions/           # Vault decisions + Obsidian notes
-│   ├── L5_routing/             # Context retrieval + reminders
-│   └── Lx_reasoning/           # Sequential thinking + plans
-├── install/                    # Bootstrap + app-install scripts
-├── tests/                      # 164 tests (core/ + app/)
-│   ├── core/                   # No external services needed
-│   └── app/                    # Requires Qdrant + embedding server
-├── install/
-├── backups/
-└── .venv/
+MCP-agent-memory/
+├── src/                          # Python source — installable as `agent-memory-core`
+│   ├── shared/                   # Core library: config.py, embedding.py, qdrant_client.py,
+│   │                             #   sanitize.py, conversation_db.py, timeline.py, model_tier.py,
+│   │                             #   llm/, retrieval/, vault_manager/, workspace/, compliance/
+│   ├── unified/server/           # Unified MCP + HTTP entrypoint (main.py, main_http.py,
+│   │                             #   gateway.py, backpack.py)
+│   ├── L0_capture/server/        # Auto-capture: memorize, ingest, heartbeat
+│   ├── L0_to_L4_consolidation/server/  # Memory consolidation & dreaming
+│   ├── L2_conversations/server/  # Thread storage & search
+│   ├── L3_facts/server/          # Semantic memory CRUD
+│   ├── L3_decisions/server/      # Vault decisions + Obsidian notes
+│   ├── L5_routing/server/        # Context retrieval + reminders
+│   └── Lx_reasoning/server/      # Sequential thinking + plans
+├── tests/
+│   ├── core/                     # No external services needed — 209 passed, 6 skipped
+│   └── app/                      # Requires Qdrant + embedding server (skips otherwise)
+├── install/                      # bootstrap.sh, app-install.sh, config.sh, deps.sh, detect.sh,
+│                                 #   services.sh, sync.sh, update.sh, verify.sh, version.sh,
+│                                 #   backup.sh, pull-models.sh
+├── scripts/                      # configure.sh, generate-mcp-config.sh, lifecycle.sh,
+│                                 #   start-qdrant.sh, watchdog.sh
+├── bin/                          # vault_processor.py, vault_watcher.sh
+├── bench/                        # e2e_bench.py, flow_verification.py
+├── config/                       # .env.example, mcp.json (the real .env is git-ignored)
+├── deps/vendor/                  # Vendored wheels (arm64) for offline install
+├── openspec/                     # AGENTS.md protocol, changes/, specs/
+├── docs/                         # adr/, architecture/, plan/, research/, archive/
+├── data/Lx-persistent/           # Vault skeleton (.gitkeep placeholders + README.md)
+├── install.sh                    # Top-level installer entrypoint
+├── run-daemon.sh
+└── pyproject.toml                # `agent-memory-core` package definition
 ```
+
+Created at install/run time (git-ignored, not tracked in the repo): `.venv/`, `engine/` (compiled
+llama.cpp), `models/*.gguf`, `bin/qdrant`, `logs/`, `storage/` (Qdrant data), and the rest of
+`data/` (`L0-sensory/`, `L1-working/`, `L2-episodic/`, `L3-semantic/`, `L4-narrative/`,
+`L5-selective/`, `Lx-deliberative/`).
 
 ---
 
@@ -263,7 +242,11 @@ L{layer}_{TYPE}_{YYYYMMDDTHHMMSS}_{NNNNN}_{lang}.md
 
 ### Auto-Serialization Daemon
 
-The vault processor (`vault_processor.py`) runs as a launchd service with WatchPaths monitoring. When you save a note in Obsidian (ES), it automatically:
+The vault processor (`bin/vault_processor.py`) is invoked by `bin/vault_watcher.sh`, a shell
+wrapper meant to be triggered by a file-watch mechanism on the vault directory (`fswatch`, a cron
+poll, or manual invocation). It is **not** currently registered as a `launchd` service — that
+auto-start integration is planned for a later phase (see `docs/adr/0008-control-plane-tui-and-web.md`)
+and is not implemented yet. When triggered after you save a note in Obsidian (ES), it automatically:
 
 1. Detects file changes
 2. Extracts content and metadata
@@ -322,21 +305,18 @@ Or install from source as a Python package:
 pip install -e .   # installs agent-memory-core with all dependencies
 ```
 
-### Post-Install: Enable the Backpack Plugin
+### Note on the `backpack-orchestrator` Plugin
 
-For OpenCode users, copy the plugin:
-
-```bash
-cp plugins/backpack-orchestrator.ts ~/.config/opencode/plugins/
-```
-
-Then restart OpenCode. The plugin auto-connects to the HTTP API on localhost:8890.
+The architecture diagram above references a `backpack-orchestrator` OpenCode plugin that
+auto-triggers the HTTP API sidecar (`localhost:8890`). That plugin is **not shipped in this
+repository** — there is no `plugins/` directory here. It lives in a separate client-side project;
+this repo only exposes the MCP tools and the HTTP API it calls.
 
 ---
 
 ## Configuration
 
-### Environment Variables (`etc/.env`)
+### Environment Variables (`config/.env`)
 
 ```env
 QDRANT_URL=http://127.0.0.1:6333
@@ -402,7 +382,11 @@ The MCP server exposes a lightweight HTTP API on port 8890 for plugin-to-server 
 ## Testing
 
 ```bash
-PYTHONPATH=src python -m pytest tests/ -v
+# Core suite — no external services needed (209 passed, 6 skipped)
+PYTHONPATH=src .venv/bin/python -m pytest tests/core -q
+
+# Full suite — tests/app also requires Qdrant + embedding server running
+PYTHONPATH=src .venv/bin/python -m pytest tests/ -v
 ```
 
 ---
@@ -434,7 +418,8 @@ PYTHONPATH=src python -m pytest tests/ -v
 - Bilingual vault (ES/EN) with auto-translation
 - Compiled llama.cpp engine (no Homebrew dependencies)
 - Modular installer with engine compilation
-- Launchd services for vault processor and Qdrant watchdog
+- Shell-based watcher scripts for vault processor and Qdrant (launchd auto-start is planned,
+  not yet implemented — see `docs/adr/0008-control-plane-tui-and-web.md`)
 
 ---
 

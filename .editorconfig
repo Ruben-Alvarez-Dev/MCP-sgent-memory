@@ -1,0 +1,40 @@
+# EditorConfig — https://editorconfig.org
+# Matches the conventions ruff (pyproject.toml [tool.ruff]) and the existing
+# repo already assume: 4-space Python, 2-space shell/YAML/JSON, LF, UTF-8.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_size = 4
+max_line_length = 120
+
+[*.{sh,bash}]
+indent_size = 2
+
+[*.{ts,tsx,js,jsx,mjs,cjs}]
+indent_size = 2
+
+[*.{json,jsonc}]
+indent_size = 4
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.toml]
+indent_size = 4
+
+[*.md]
+# Preserve Markdown hard line breaks (trailing double space).
+trim_trailing_whitespace = false
+max_line_length = off
+
+[Makefile]
+indent_style = tab

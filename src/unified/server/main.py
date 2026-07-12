@@ -132,6 +132,16 @@ async def _ensure_initialized() -> None:
         if p:
             p.mkdir(parents=True, exist_ok=True)
 
+    # 5. Resolve hardware tier + role→model map (adaptive-model-tier).
+    #    model_tier logs tier + role_models at INFO on first resolution.
+    try:
+        from shared import model_tier
+        model_tier.resolve()
+    except Exception as e:  # never block startup on a probe failure
+        logging.getLogger("agent-memory.model_tier").warning(
+            "Startup tier resolution failed: %s", e
+        )
+
     logger.info("Initialization complete")
 
 
@@ -175,11 +185,30 @@ async def health_check() -> dict:
         )
         checks["disk_mb"] = round(total / 1024 / 1024, 1)
 
+    # Model tier (spec model-stack: health_check always re-probes)
+    try:
+        from shared import model_tier
+        profile = model_tier.force_refresh()
+        checks["tier"] = profile.tier
+        checks["tier_reason"] = profile.tier_reason
+        checks["degraded"] = profile.tier == "T0"
+    except Exception as e:
+        checks["tier"] = f"error: {e}"
+        checks["degraded"] = True
+
     checks["modules_loaded"] = len(_loaded)
     checks["modules_failed"] = len(_failed)
     checks["tools_total"] = len(mcp._tool_manager._tools)
-    checks["status"] = "ok" if not _failed else "degraded"
+    checks["status"] = "ok" if not (_failed or checks.get("degraded")) else "degraded"
     return checks
+
+
+@mcp.tool()
+async def model_tier_status() -> dict:
+    """Report the resolved hardware tier and role→model map (fresh probe)."""
+    await _ensure_initialized()
+    from shared import model_tier
+    return model_tier.status()
 
 
 def main() -> None:

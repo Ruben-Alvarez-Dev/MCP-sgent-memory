@@ -231,6 +231,29 @@ class QdrantClient:
             )
         await self._retry(_do)
 
+    async def set_payload(
+        self,
+        point_id: str,
+        payload: dict[str, Any],
+        wait: bool = True,
+    ) -> None:
+        """Merge payload keys into an existing point WITHOUT touching its vector.
+
+        Use this for metadata-only updates (e.g. verification status) — a full
+        upsert would require re-sending the dense vector.
+        """
+        _validate_payload_keys(payload, point_id)
+
+        async def _do():
+            client = await self._get_client()
+            resp = await client.post(
+                f"{self.url}/collections/{self.collection}/points/payload"
+                f"{'?wait=true' if wait else ''}",
+                json={"points": [point_id], "payload": payload},
+            )
+            resp.raise_for_status()
+        await self._retry(_do)
+
     async def get(self, point_id: str) -> Optional[dict]:
         """Get a point by ID, or None if not found."""
         try:

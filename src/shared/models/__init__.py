@@ -279,6 +279,7 @@ class HeartbeatStatus(BaseModel):
 class RawEvent(BaseModel):
     """L0 raw event — append-only, immutable audit trail."""
 
+    schema_version: str = "1.0"
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     type: RawEventType

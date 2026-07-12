@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory/openspec/specs/l0-capture/raw-event.schema.json",
+  "title": "RawEvent",
+  "description": "L0 raw event — append-only, immutable audit trail. Produced by src/shared/models/__init__.py:RawEvent and appended as one JSON line per event by src/L0_capture/server/main.py:_append_raw_jsonl to the file at Config.L0_events_jsonl (default data/L0-sensory/events.jsonl).",
+  "type": "object",
+  "required": ["schema_version", "event_id", "timestamp", "type", "source", "actor_id", "session_id", "scope", "attributes", "context"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "description": "Added in Phase 1 item 1.6; older JSONL lines predating this change do not carry it."
+    },
+    "event_id": { "type": "string", "description": "uuid4, default_factory-generated" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "type": {
+      "enum": ["terminal", "file_access", "git_event", "agent_action", "ide_event", "port_change", "system"],
+      "description": "RawEventType enum value"
+    },
+    "source": { "type": "string", "description": "terminal | ide | filesystem | docker | agent | osquery" },
+    "actor_id": { "type": "string", "default": "system" },
+    "session_id": { "type": "string" },
+    "scope": { "type": "string" },
+    "attributes": { "type": "object", "description": "Event-type-specific payload (free-form)" },
+    "context": { "type": "object", "description": "Ambient context at capture time (free-form)" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+# Pre-commit hooks for MCP-agent-memory.
+#
+# Gate 5 (docs/plan/IMPROVEMENT-PLAN.md §3.4): local pre-push hook running
+# `ruff check` + `ruff format --check`, <30s. Hooks run on `git push`, not on
+# every commit, to keep local commits fast.
+#
+# Install once per clone:
+#   .venv/bin/pip install pre-commit
+#   .venv/bin/pre-commit install --hook-type pre-push
+#
+# Run manually against the whole tree:
+#   .venv/bin/pre-commit run --all-files --hook-stage push
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        args: [--exit-non-zero-on-fix]
+        stages: [pre-push]
+      - id: ruff-format
+        name: ruff format --check
+        args: [--check]
+        stages: [pre-push]
+
+default_language_version:
+  python: python3.12

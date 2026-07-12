@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory/openspec/specs/memory-model/memory-item.schema.json",
+  "title": "MemoryItemQdrantPayload",
+  "description": "Qdrant point payload for a MemoryItem (src/shared/models/__init__.py:MemoryItem.model_dump(mode='json')), as written by every upsert/upsert_batch call in src/shared/qdrant_client.py. The 'schema_version' key is NOT a MemoryItem model field — it is stamped onto the payload dict at write time by QdrantClient.upsert/upsert_batch (qdrant_client.py:189,223) via payload.setdefault semantics, so every point ever written through that path carries it even though the domain model stays storage-agnostic. The point's dense vector itself is stored in Qdrant's native vector slot, not in this payload (the 'embedding' key below is a MemoryItem field that is left null in practice).",
+  "type": "object",
+  "required": [
+    "schema_version", "memory_id", "layer", "scope_type", "scope_id", "pool", "type", "content",
+    "source_event_ids", "project_id", "topic_ids", "importance", "confidence", "ttl", "embedding",
+    "metadata", "created_at", "updated_at", "verified_at", "verification_status", "change_speed",
+    "verification_source", "access_count"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "description": "Stamped by QdrantClient.upsert/upsert_batch, not by the MemoryItem model itself."
+    },
+    "memory_id": { "type": "string", "description": "uuid4, default_factory-generated" },
+    "layer": {
+      "enum": [0, 1, 2, 3, 4, 5],
+      "description": "MemoryLayer: 0=RAW 1=WORKING 2=EPISODIC 3=SEMANTIC 4=CONSOLIDATED 5=CONTEXT"
+    },
+    "scope_type": {
+      "enum": ["global-core", "domain", "team", "topic", "personal", "agent", "session"]
+    },
+    "scope_id": { "type": "string" },
+    "pool": { "type": "string", "description": "agent | personal | team | domain | topic" },
+    "type": {
+      "enum": [
+        "step", "fact", "preference",
+        "episode", "conversation", "bug_fix", "config", "code_snippet", "error_trace",
+        "decision", "entity", "relation", "pattern",
+        "summary", "narrative", "dream",
+        "raw_event"
+      ]
+    },
+    "content": { "type": "string" },
+    "source_event_ids": { "type": "array", "items": { "type": "string" } },
+    "project_id": { "type": ["string", "null"] },
+    "topic_ids": { "type": "array", "items": { "type": "string" } },
+    "importance": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "ttl": { "type": ["string", "null"] },
+    "embedding": {
+      "type": ["array", "null"],
+      "items": { "type": "number" },
+      "description": "Always null in practice; the real vector lives in Qdrant's vector slot, set by QdrantClient.upsert's separate vector argument"
+    },
+    "metadata": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "verified_at": { "type": ["string", "null"], "format": "date-time" },
+    "verification_status": {
+      "enum": ["verified", "stale", "never_verified", "unverifiable"]
+    },
+    "change_speed": {
+      "enum": ["never", "slow", "fast", "realtime"]
+    },
+    "verification_source": {
+      "type": ["string", "null"],
+      "description": "file_check | api_call | manual | llm_judge | time_check | immutable | consolidation_check"
+    },
+    "access_count": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": true
+}

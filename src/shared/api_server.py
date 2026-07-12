@@ -216,6 +216,7 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self._json_response(200, {
                 "status": "ok",
                 "endpoints": [
+                    "GET /api/model-tier",
                     "POST /api/ingest-event",
                     "POST /api/heartbeat",
                     "POST /api/heartbeat-dream",
@@ -225,6 +226,14 @@ class _ApiHandler(BaseHTTPRequestHandler):
                     "POST /api/verify-memories",
                 ],
             })
+        elif self.path == "/api/model-tier":
+            # Fresh probe on demand (spec model-stack, trigger 4)
+            try:
+                from shared import model_tier
+                self._json_response(200, model_tier.status())
+            except Exception as e:
+                logger.warning("API error on %s: %s", self.path, e)
+                self._json_response(500, {"error": str(e)})
         else:
             self._json_response(404, {"error": "not found"})
 

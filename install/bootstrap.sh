@@ -20,13 +20,72 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 INSTALL_DIR="${1:-$SCRIPT_DIR/..}"
 INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)"
 
+# Defined before the trap registrations below: write_status() references
+# these in its output, and the script runs under `set -u` — if a trap fired
+# in the window between registration and color definitions, referencing an
+# unset color variable would abort with "unbound variable" before the
+# real exit code could be persisted, defeating the guarantee this exists for.
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
+
+# ── Always persist status, even on abort under `set -euo pipefail` ──
+# Registered as early as possible (right after INSTALL_DIR is known) so the
+# helper definitions below are also covered if they ever abort.
+ERRORS=0; WARNINGS=0
+STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
+STATUS_WRITTEN=0
+write_status() {
+    # Idempotency guard: a second, different terminating signal (e.g. a
+    # supervisor escalating SIGINT -> SIGTERM) can interrupt this function
+    # while it's still mid-write (blocked in the `cat` below) and re-enter it
+    # from scratch via its own trap. Without this guard the status file gets
+    # written twice and the second signal's exit code silently wins over the
+    # first one's. Must be the very first thing this function does.
+    if [ "$STATUS_WRITTEN" -eq 1 ]; then
+        return
+    fi
+    STATUS_WRITTEN=1
+    # Exit code to report: explicit $1 (signal traps) or the captured $? (EXIT trap).
+    local ec="${1:-$?}"
+    # Never let a failed status-file write (unwritable dir, disk full) swallow
+    # the real exit code via errexit — disable -e for just this write.
+    set +e
+    cat > "$STATUS_FILE" << EOF
+BOOTSTRAP_QDRANT=${QDRANT_OK:-false}
+BOOTSTRAP_EMB=${EMB_OK:-false}
+BOOTSTRAP_LLM=${LLM_OK:-false}
+BOOTSTRAP_VENV=${VENV_DIR:-}
+BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
+BOOTSTRAP_ERRORS=${ERRORS:-0}
+BOOTSTRAP_WARNINGS=${WARNINGS:-0}
+EOF
+    local write_rc=$?
+    set -e
+    if [ "$write_rc" -eq 0 ]; then
+        echo -e "  ${CYAN}→${NC} Status saved to $STATUS_FILE"
+    else
+        echo -e "  ${RED}✗${NC} Could not write status file to $STATUS_FILE (exit $write_rc)" >&2
+    fi
+    exit "$ec"
+}
+trap 'write_status $?' EXIT
+# SIGINT/SIGTERM: ignore (not reset-to-default) INT/TERM first, then clear
+# EXIT, persist status, and exit with the conventional interrupted-by-signal
+# code. Using `trap '' INT TERM` rather than `trap - INT TERM` matters: a
+# reset-to-default would let a second signal arriving mid-write kill the
+# process outright via the kernel's default action, which still discards the
+# first signal's exit code (same symptom as the reentrancy bug, different
+# mechanism). Ignoring it instead guarantees a second signal of either kind
+# is silently dropped so the first invocation always runs to completion and
+# its exit code is the one that's reported. The EXIT trap's captured $? does
+# not reliably reflect a foreground process killed by a signal, hence the
+# explicit 130/143.
+trap "trap '' INT TERM; trap - EXIT; write_status 130" INT
+trap "trap '' INT TERM; trap - EXIT; write_status 143" TERM
 pass() { echo -e "  ${GREEN}✓${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
-warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }
 info() { echo -e "  ${CYAN}→${NC} $1"; }
 import_name() { case "$1" in python-dotenv) echo dotenv;; pyyaml) echo yaml;; *) echo "${1//-/_}";; esac; }
-ERRORS=0; WARNINGS=0
 
 # ── Resolve Python ───────────────────────────────────────────────
 resolve_python() {
@@ -272,9 +331,17 @@ else
         if [ ! -d "$LLAMA_SRC" ]; then
             git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_SRC" -q
         fi
-        cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$INSTALL_DIR/build.log" && \
-        cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$INSTALL_DIR/build.log"
-        if [ -f "$LLAMA_SRC/build/bin/llama-server" ]; then
+        # NOTE: each condition is checked with `if !`/`elif !`, the bash idiom
+        # exempt from `set -e` — a bare `cmd1 && cmd2` chain here would let
+        # errexit abort the script on a failing cmd2 before the fail() below
+        # is ever reached, silently swallowing the error.
+        if ! cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$INSTALL_DIR/build.log"; then
+            fail "llama.cpp cmake configure failed (check $INSTALL_DIR/build.log)"
+        elif ! cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$INSTALL_DIR/build.log"; then
+            fail "llama.cpp build failed — compiler error (check $INSTALL_DIR/build.log)"
+        elif [ ! -f "$LLAMA_SRC/build/bin/llama-server" ]; then
+            fail "llama.cpp build failed — binary not produced (check $INSTALL_DIR/build.log)"
+        else
             cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_BIN"
             chmod +x "$LLAMA_BIN"
             pass "llama-server compiled ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
@@ -286,8 +353,6 @@ else
             else
                 fail "llama-server compiled but failed to start"
             fi
-        else
-            fail "cmake not found. Install cmake or provide pre-compiled llama-server."
         fi
     else
         fail "llama-server binary not found and cmake unavailable"
@@ -368,16 +433,4 @@ else
 fi
 echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
 echo ""
-
-# Save infrastructure status for app-install.sh to consume
-STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
-cat > "$STATUS_FILE" << EOF
-BOOTSTRAP_QDRANT=${QDRANT_OK:-false}
-BOOTSTRAP_EMB=${EMB_OK:-false}
-BOOTSTRAP_LLM=${LLM_OK:-false}
-BOOTSTRAP_VENV=$VENV_DIR
-BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
-BOOTSTRAP_ERRORS=$ERRORS
-BOOTSTRAP_WARNINGS=$WARNINGS
-EOF
-pass "Status saved to $STATUS_FILE"
+# Status is persisted by the write_status() EXIT trap (fires here too).

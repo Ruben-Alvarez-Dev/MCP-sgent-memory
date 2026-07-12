@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory/openspec/specs/consolidation/dream-state.schema.json",
+  "title": "DreamConsolidationState",
+  "description": "Consolidation daemon state, read/written by src/L0_to_L4_consolidation/server/main.py:_load_state/_save_state. Persisted at Config.L4_narrative_path/state.json (default data/L4-narrative/state.json). Tracks cooldown timestamps/counters gating L1->L2->L3->L4 promotion and dream cycles.",
+  "type": "object",
+  "required": [
+    "schema_version", "last_promote_l1_l2", "last_promote_l2_l3", "last_promote_l3_l4",
+    "last_dream", "turn_count", "total_consolidated", "total_dreams"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "description": "Added in Phase 1 item 1.6; older on-disk state.json files predating this change do not carry it, and are upgraded in place by _load_state's setdefault on next read."
+    },
+    "last_promote_l1_l2": {
+      "type": "number",
+      "description": "turn_count value at last L1->L2 promotion (compared by count, not wall-clock)"
+    },
+    "last_promote_l2_l3": {
+      "type": "number",
+      "description": "Unix epoch seconds (float) of last L2->L3 promotion"
+    },
+    "last_promote_l3_l4": {
+      "type": "number",
+      "description": "Unix epoch seconds (float) of last L3->L4 promotion"
+    },
+    "last_dream": {
+      "type": "number",
+      "description": "Unix epoch seconds (float) of last dream cycle; 0 forces the cooldown to be considered expired"
+    },
+    "turn_count": { "type": "integer", "minimum": 0 },
+    "total_consolidated": { "type": "integer", "minimum": 0 },
+    "total_dreams": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

@@ -10,9 +10,11 @@ Usage:
     intent = classify_intent(query)    # clasificador determinista (<5ms)
 
 Environment variables:
-    LLM_BACKEND   — Backend type: llama_cpp (default: llama_cpp)
+    LLM_BACKEND   — Backend type: ollama | llama_cpp
+                    (unset: the model-tier resolver picks — prefers ollama)
     LLM_MODEL     — Model name/identifier (backend-specific meaning)
     SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
+    OLLAMA_URL    — Ollama daemon URL (default: http://127.0.0.1:11434)
     LLAMA_SERVER_PORT — llama.cpp server port (default: 8080)
     LLAMA_MODEL   — llama.cpp model filename
 """
@@ -72,8 +74,10 @@ def classify_intent(
 
     # Intent type detection
     if any(kw in q for kw in ["why did we", "why do we use", "why not",
-                               "decidimos", "elegimos", "cambiamos",
-                               "qué decidimos", "por qué usamos"]):
+                                "did we decide", "did we choose", "did we pick",
+                                "what did we", "which did we",
+                                "decidimos", "elegimos", "cambiamos",
+                                "qué decidimos", "por qué usamos"]):
         intent.intent_type = "decision_recall"
         intent.time_window = "historical"
         intent.needs_ranking = True
@@ -160,26 +164,44 @@ def classify_intent(
 
 # ── LLM Backend factory ───────────────────────────────────────────
 
+def _resolve_backend_name(backend: str | None) -> str:
+    """Explicit backend wins; otherwise the model-tier resolver decides.
+
+    Raises LLMUnavailableError when no backend is reachable (tier T0) —
+    callers must handle degradation loudly, never silently.
+    """
+    backend_name = backend or os.getenv("LLM_BACKEND")
+    if backend_name:
+        return backend_name.lower().strip()
+
+    from shared import model_tier  # late import — avoids import cycles
+
+    return model_tier.preferred_llm_backend()
+
+
 def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
 
     Args:
-        backend: Force a specific backend ("llama_cpp").
-                 If None, auto-detects from LLM_BACKEND env var.
+        backend: Force a specific backend ("ollama" | "llama_cpp").
+                 If None, uses LLM_BACKEND env var; if that is unset too,
+                 the model-tier resolver picks (prefers ollama if reachable,
+                 else llama_cpp, else raises LLMUnavailableError — T0).
         **kwargs: Additional arguments passed to the backend constructor.
 
     Returns:
         An initialized LLMBackend instance.
     """
-    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
-    backend_name = backend_name.lower().strip()
+    backend_name = _resolve_backend_name(backend)
 
-    if backend_name == "llama_cpp":
+    if backend_name == "ollama":
+        return _get_ollama(**kwargs)
+    elif backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
     else:
         raise ValueError(
             f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
+            f"Supported: ollama, llama_cpp"
         )
 
 
@@ -189,27 +211,36 @@ def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
     Defaults to a micro-LLM model optimized for speed (qwen3.5:2b).
 
     Args:
-        backend: Force a specific backend. If None, auto-detects.
+        backend: Force a specific backend ("ollama" | "llama_cpp").
+                 If None, same resolution as get_llm().
         **kwargs: Additional arguments (e.g., model="qwen3.5:2b").
 
     Returns:
         An initialized LLMBackend instance for lightweight tasks.
     """
-    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
-    backend_name = backend_name.lower().strip()
+    backend_name = _resolve_backend_name(backend)
 
     # Default micro-LLM model
     default_model = os.getenv("SMALL_LLM_MODEL", "qwen3.5:2b")
     if "model" not in kwargs:
         kwargs["model"] = default_model
 
-    if backend_name == "llama_cpp":
+    if backend_name == "ollama":
+        return _get_ollama(**kwargs)
+    elif backend_name == "llama_cpp":
         return _get_llama_cpp(**kwargs)
     else:
         raise ValueError(
             f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
+            f"Supported: ollama, llama_cpp"
         )
+
+
+def _get_ollama(**kwargs) -> LLMBackend:
+    """Create Ollama backend (external daemon, native API)."""
+    from .ollama import OllamaBackend
+
+    return OllamaBackend(**kwargs)
 
 
 def _get_llama_cpp(**kwargs) -> LLMBackend:
@@ -250,6 +281,11 @@ def list_available_backends() -> dict[str, bool]:
     results = {}
 
     try:
+        results["ollama"] = _get_ollama().is_available()
+    except Exception:
+        results["ollama"] = False
+
+    try:
         llama = _get_llama_cpp()
         results["llama_cpp"] = llama.is_available()
     except Exception:
@@ -286,9 +322,9 @@ def rank_by_relevance(
     try:
         llm = get_small_llm()
         if not llm.is_available():
-            return items  # LLM not available, return unranked
+            return items[:top_k]  # LLM not available: unranked, but honor top_k
     except Exception:
-        return items
+        return items[:top_k]
 
     # Build ranking prompt
     numbered = []
@@ -324,4 +360,4 @@ def rank_by_relevance(
 
         return ranked[:top_k]
     except Exception:
-        return items  # Ranking failed, return unranked
+        return items[:top_k]  # Ranking failed: unranked, but honor top_k

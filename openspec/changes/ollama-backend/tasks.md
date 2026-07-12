@@ -1,0 +1,18 @@
+# Tasks — ollama-backend
+
+Inferred from `proposal.md` §What (no `tasks.md` existed at implementation time — written retroactively, boxes ticked only against cited code/tests).
+
+- [x] 1. `shared/llm/ollama.py`: `OllamaBackend(LLMBackend)` — native `/api/chat` + `/api/generate`, `is_available()` via `/api/tags`, model existence check, `OLLAMA_URL` config, timeouts + typed errors (never swallow)
+      `src/shared/llm/ollama.py:43-59` (class + `__init__`, `OLLAMA_URL` default at `:53`/`:37`), `:130-154` (`chat` → `POST /api/chat`), `:198-222` (`generate` → `POST /api/generate`), `:84-91` (`is_available` → `GET /api/tags`), `:103-115` (`_ensure_model`, existence check against `/api/tags` tags, raises `LLMModelNotFoundError`), `:71-80` (`_connection_failure` → typed `LLMUnavailableError`, notifies `model_tier.notify_backend_failure`), `:265-277` (`_raise_for_status`, 404 → typed `LLMModelNotFoundError`, others → `raise_for_status()`). No bare `except: pass` — only `httpx.HTTPError`/`httpx.TransportError` are caught and re-raised as typed errors.
+- [x] 2. `shared/llm/config.py`: factory accepts `ollama`; when `LLM_BACKEND` unset, consult tier resolver (prefer ollama if reachable, else llama_cpp, else T0 degraded); same for `get_small_llm` (`SMALL_LLM_MODEL`)
+      `src/shared/llm/config.py:167-179` (`_resolve_backend_name`: explicit arg/env wins, else `shared.model_tier.preferred_llm_backend()`), `:182-205` (`get_llm`, `"ollama"` branch at `:197-198`), `:208-236` (`get_small_llm`, `SMALL_LLM_MODEL` env default at `:224`). Resolver preference order verified in `src/shared/model_tier.py:649-668` (`preferred_llm_backend`: ollama → llama_cpp → raises `LLMUnavailableError` at T0).
+- [x] 3. Align `config/.env.example` with real keys (`OLLAMA_URL`, `SMALL_LLM_MODEL`, `MODEL_TIER`)
+      Confirmed via `git show HEAD:config/.env.example`: `LLM_BACKEND=ollama` (line 27), `SMALL_LLM_MODEL=qwen3.5:2b` (line 31), `OLLAMA_URL=http://127.0.0.1:11434` (line 33), `MODEL_TIER=auto` (line 37), `MODEL_TIER_TTL=900` (line 39).
+- [x] 4. Fix latent `_verify_stale` bugs in the uncommitted `L0_to_L4_consolidation/server/main.py` so the file is commit-safe (Qdrant filter syntax, unconditional status overwrite, `vector=None` upsert → payload-only update)
+      `src/L0_to_L4_consolidation/server/main.py:114-199` (`_verify_stale`): `:124-136` valid Qdrant `must`/`should` filter passed to `qdrant.scroll`; `:151-189` `new_status` is conditionally derived per `change_speed`/age (not unconditionally overwritten); `:191-198` uses `qdrant.set_payload(mem_id, {...})` — payload-only merge, no vector re-send (vs. the old `upsert(..., vector=None, ...)` bug). `set_payload` confirmed as a real port method: `src/shared/qdrant_client.py:234`.
+- [x] 5. Unit tests with stubbed httpx transport (no network): chat parse, availability, model-missing error, factory routing
+      `tests/core/test_llm_ollama.py` (204 lines, `httpx.MockTransport` injected — test-only DI, production always uses the real transport per file docstring `:1-5`): `TestOllamaBackendChat` (4 tests: chat/ask/generate/stream), `TestOllamaBackendErrors` (5 tests: missing-model typed error, subtype check, availability up/down, reactive notify-on-failure), `TestFactoryRouting` (4 tests: explicit backend, explicit arg wins, T0 raises, prefers ollama when reachable) — 13 tests. Verified green (see evidence/I01.md).
+
+## Known gap (not blocking, noted for follow-up)
+
+`src/shared/llm/config.py:27` imports `typing.Optional` but never uses it (`ruff` `F401`). Pre-existing, does not affect functional correctness of tasks 1-5; not fixed here per the "no source-file edits" constraint of this retroactive-documentation pass.

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ruben-Alvarez-Dev/MCP-agent-memory/openspec/specs/model-stack/hardware-profile.schema.json",
+  "title": "HardwareProfile",
+  "description": "Machine capability snapshot produced by shared/model_tier.py. Persisted at data/system/hardware-profile.json.",
+  "type": "object",
+  "required": ["schema_version", "probed_at", "os", "arch", "cpu", "logical_cores", "ram_total_gb", "ram_available_gb", "gpu_class", "backends", "tier"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "probed_at": { "type": "string", "format": "date-time" },
+    "hostname": { "type": "string" },
+    "os": { "enum": ["darwin", "linux", "windows"] },
+    "arch": { "enum": ["arm64", "x86_64", "other"] },
+    "cpu": { "type": "string" },
+    "logical_cores": { "type": "integer", "minimum": 1 },
+    "ram_total_gb": { "type": "number", "minimum": 0 },
+    "ram_available_gb": { "type": "number", "minimum": 0 },
+    "gpu_class": {
+      "enum": ["apple_silicon", "discrete", "integrated", "none"],
+      "description": "apple_silicon implies usable Metal for llama.cpp; discrete/integrated on macOS x86 are treated as CPU-only"
+    },
+    "backends": {
+      "type": "object",
+      "required": ["ollama", "llama_server", "llama_cpp_local"],
+      "properties": {
+        "ollama": { "$ref": "#/$defs/backendStatus" },
+        "llama_server": { "$ref": "#/$defs/backendStatus" },
+        "llama_cpp_local": { "$ref": "#/$defs/backendStatus" }
+      }
+    },
+    "models_available": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Model identifiers visible to reachable backends (e.g. ollama tags, local gguf filenames)"
+    },
+    "tier": { "enum": ["T0", "T1", "T2", "T3", "T4"] },
+    "tier_reason": { "type": "string" },
+    "role_models": {
+      "type": "object",
+      "description": "Resolved role → model id map for this tier",
+      "properties": {
+        "embedding": { "type": "string" },
+        "reranker": { "type": "string" },
+        "small": { "type": "string" },
+        "primary": { "type": "string" },
+        "coordinator": { "type": ["string", "null"], "description": "null unless tier == T4" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "backendStatus": {
+      "type": "object",
+      "required": ["reachable"],
+      "properties": {
+        "reachable": { "type": "boolean" },
+        "url": { "type": "string" },
+        "detail": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

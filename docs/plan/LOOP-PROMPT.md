@@ -20,7 +20,8 @@ DISCIPLINA DE TOKENS
 - Reutiliza subagentes vivos (SendMessage) en vez de relanzar contexto.
 
 GATES
-- Nunca push sin aprobación explícita de Rubén. Nunca commit con tests en rojo. Pregunta (en español) SOLO en: fin de fase, fallo tras 2 intentos, ambigüedad de alcance.
+- RAMAS: trabaja SIEMPRE sobre change/phase0-foundation (jamás sobre main); changes nuevos pueden ramificar change/<id> desde ella y mergear de vuelta a ella. Push de la rama de trabajo permitido por hito con evidencia verde; merge/PR a main SOLO con aprobación explícita de Rubén (objetivo: v2.2.0 con CI verde).
+- Nunca commit con tests en rojo. Pregunta (en español) SOLO en: fin de fase, fallo tras 2 intentos, ambigüedad de alcance.
 - Sin dependencias nuevas; loggers agent-memory.*; modelos siempre vía shared/model_tier.py.
 - ARQUITECTURA (ADR-0007, vinculante): hexagonal ports&adapters, SOLID, DRY, normalización enterprise. Toda I/O tras un puerto; duplicación se extrae, no se copia; regla boy-scout: cada módulo tocado migra al layout objetivo (domain/ports/adapters/app/runtime); sin cross-imports entre módulos Lx; abstrae toda frontera de I/O/política, nada de abstracciones especulativas de un solo consumidor.
 

@@ -26,9 +26,15 @@
 - **ADR-0007**: hexagonal/SOLID/DRY enterprise architecture; strangler migration to `domain/ports/adapters/app/runtime` starting Phase 3 (`composition-root`, `hexagonal-shared-split`); boy-scout rule binding.
 - **ADR-0008 + Phase 3-bis**: auto-started control plane — Web SPA at `:8890/ui` (launchd KeepAlive) + Textual TUI (`amem`), config/profiles/metrics via validated `/v1` API only; ROADMAP "Not doing: web dashboard" overridden.
 
+## Branch workflow (Rubén's rule: never push to main directly)
+
+- All of today's work lives on **`change/phase0-foundation`** (13 local commits). `main` stays at `c16c2c0` untouched.
+- **Push BLOCKED (verified 2026-07-12)**: this machine's git credentials are GitHub user `manu-alvarez`, denied write on `Ruben-Alvarez-Dev/MCP-agent-memory` (HTTP 403). Fix one of: add `manu-alvarez` as collaborator with write; or `gh auth login` / update credentials to Ruben-Alvarez-Dev on this box; or switch remote to SSH with an authorized key. Then: `git push -u origin change/phase0-foundation`.
+- Next sessions: work ON this branch; new OpenSpec changes may branch `change/<id>` from it and merge back. Merge/PR of `change/phase0-foundation` → `main` only when Rubén says so (target: Phase 2 exit / v2.2.0, with CI green).
+
 ## Open items / decisions pending
 
-- **Push to origin**: awaiting Rubén's approval (commits are local).
+- **Merge to main**: pending Rubén's call at v2.2.0.
 - `tests/app` silent-skip → becomes failure under `CI=1` (Phase 1.4).
 - `learned-task-routing`: deferred research; instrumentation already collecting data.
 - Known cosmetic: `maybe_refresh` can block the loop a few seconds once per TTL; `ram_available_gb` diff logs INFO each re-probe.

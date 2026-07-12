@@ -23,10 +23,28 @@ INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)"
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 pass() { echo -e "  ${GREEN}✓${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
-warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }
 info() { echo -e "  ${CYAN}→${NC} $1"; }
 import_name() { case "$1" in python-dotenv) echo dotenv;; pyyaml) echo yaml;; *) echo "${1//-/_}";; esac; }
 ERRORS=0; WARNINGS=0
+
+# ── Always persist status, even on abort under `set -euo pipefail` ──
+STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
+write_status() {
+    local ec=$?
+    cat > "$STATUS_FILE" << EOF
+BOOTSTRAP_QDRANT=${QDRANT_OK:-false}
+BOOTSTRAP_EMB=${EMB_OK:-false}
+BOOTSTRAP_LLM=${LLM_OK:-false}
+BOOTSTRAP_VENV=${VENV_DIR:-}
+BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
+BOOTSTRAP_ERRORS=${ERRORS:-0}
+BOOTSTRAP_WARNINGS=${WARNINGS:-0}
+EOF
+    echo -e "  ${CYAN}→${NC} Status saved to $STATUS_FILE"
+    exit "$ec"
+}
+trap write_status EXIT
 
 # ── Resolve Python ───────────────────────────────────────────────
 resolve_python() {
@@ -287,7 +305,7 @@ else
                 fail "llama-server compiled but failed to start"
             fi
         else
-            fail "cmake not found. Install cmake or provide pre-compiled llama-server."
+            fail "llama.cpp build failed — binary not produced (check $INSTALL_DIR/build.log)"
         fi
     else
         fail "llama-server binary not found and cmake unavailable"
@@ -368,16 +386,4 @@ else
 fi
 echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
 echo ""
-
-# Save infrastructure status for app-install.sh to consume
-STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
-cat > "$STATUS_FILE" << EOF
-BOOTSTRAP_QDRANT=${QDRANT_OK:-false}
-BOOTSTRAP_EMB=${EMB_OK:-false}
-BOOTSTRAP_LLM=${LLM_OK:-false}
-BOOTSTRAP_VENV=$VENV_DIR
-BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
-BOOTSTRAP_ERRORS=$ERRORS
-BOOTSTRAP_WARNINGS=$WARNINGS
-EOF
-pass "Status saved to $STATUS_FILE"
+# Status is persisted by the write_status() EXIT trap (fires here too).

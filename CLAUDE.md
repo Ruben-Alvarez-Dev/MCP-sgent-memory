@@ -4,11 +4,13 @@ Persistent multi-layer memory for AI coding agents: Python MCP server (53 tools,
 
 ## Hard rules (Rubén's norms — always apply)
 
+- **VERIFICATION PROTOCOL (binding, overrides everything): `openspec/AGENTS.md`** — nothing mockup/demo/fake; no claim without executable proof; every assumption dual-validated against 2 independent sources; TDD (red→green evidence captured verbatim); work only as numbered iterations `I<NN>` inside approved openspec changes, each with committed evidence file. Unverifiable ⇒ report as UNVERIFIED, never as working.
 - **Spec-driven**: no code without an approved `openspec/changes/<id>/` proposal (bugfixes: lightweight proposal). Specs/docs in English; **reply to Rubén in Spanish**.
 - Conventional Commits, English, granular. **Never push without Rubén's explicit approval.** Never commit with red tests.
 - No mocks/fakes outside `tests/`. Typed exceptions; never `except: pass`. Loggers must use the `agent-memory.*` namespace (others don't reach server.log).
 - No new dependencies in `pyproject.toml` without an ADR. Surgical minimal diffs; don't reformat unrelated code.
 - Model/backend selection is NEVER hardcoded: it flows through `shared/model_tier.py` (tiers T0-T4, adaptive per machine — see ADR-0004/0006 and `openspec/specs/model-stack/`).
+- **Architecture (ADR-0007)**: hexagonal ports & adapters, SOLID, DRY, enterprise normalization. All I/O behind a port; no duplication (extract, don't copy); strangler migration — every module you touch moves to the target layout (`domain/ports/adapters/app/runtime`); no cross-imports between Lx modules; abstraction at every I/O/policy boundary, none on single-consumer internals.
 
 ## This machine
 

@@ -44,12 +44,25 @@ async def check_reminders(agent_id: str = "default") -> ReminderListResult:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def push_reminder(query: str, reason: str = "relevant_to_current_task", agent_id: str = "default") -> ReminderPushResult:
-    """System pushes a context reminder to the LLM."""
+    """System pushes a context reminder to the LLM. Searches ALL memory collections."""
     clean = validate_push_reminder(query, agent_id)
     vector = await async_embed(clean["query"])
-    scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
-    results = await scoped_qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
-    sources = [ContextSource(scope=f"{r.get('payload',{}).get('scope_type','')}/{r.get('payload',{}).get('scope_id','')}",layer=r.get("payload",{}).get("layer",0),mem_type=r.get("payload",{}).get("type",""),score=r.get("score",0),content_preview=r.get("payload",{}).get("content","")[:500]) for r in results]
+
+    all_collections = [
+        f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection,
+        "L3_facts",
+        "L2_conversations",
+    ]
+    all_results = []
+    for coll in all_collections:
+        try:
+            scoped_qdrant = qdrant.with_collection(coll)
+            results = await scoped_qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
+            all_results.extend(results)
+        except Exception:
+            pass
+
+    sources = [ContextSource(scope=f"{r.get('payload',{}).get('scope_type','')}/{r.get('payload',{}).get('scope_id','')}",layer=r.get("payload",{}).get("layer",0),mem_type=r.get("payload",{}).get("type",""),score=r.get("score",0),content_preview=r.get("payload",{}).get("content","")[:500]) for r in all_results]
     summary = "\n".join(f"[{s.layer}][{s.score:.2f}] {s.content_preview}" for s in sources) or "No context found"
     pack = ContextPack(request_id="",query=clean["query"],sources=sources,summary=summary,token_estimate=_estimate_tokens(summary),reason=reason)
     reminder = ContextReminder(pack=pack, reason=reason)
@@ -76,9 +89,16 @@ async def detect_context_shift(current_query: str, previous_query: str = "", age
     new_ctx = ""
     if shifted:
         vec = await async_embed(current_query)
-        scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
-        res = await scoped_qdrant.search(vec, limit=5)
-        new_ctx = f"{len(res)} sources found"
+        all_collections = [config.qdrant_collection, "L3_facts", "L2_conversations"]
+        total_sources = 0
+        for coll in all_collections:
+            try:
+                scoped_qdrant = qdrant.with_collection(coll)
+                res = await scoped_qdrant.search(vec, limit=5)
+                total_sources += len(res)
+            except Exception:
+                pass
+        new_ctx = f"{total_sources} sources found across {len(all_collections)} collections"
     return ContextShiftResult(shift_detected=shifted, similarity=round(sim,4), new_context=new_ctx)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

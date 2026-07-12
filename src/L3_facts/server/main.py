@@ -27,7 +27,7 @@ async def add_memory(content: str, user_id: str = DEFAULT_USER, metadata: str = 
     mid = str(_uuid.uuid4())
     meta = json.loads(metadata) if metadata.strip().startswith("{") else {}
     await qdrant.ensure_collection(sparse=True)
-    await qdrant.upsert(mid, vector, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"metadata":meta,"created_at":datetime.now(timezone.utc).isoformat()}, sparse=sparse)
+    await qdrant.upsert(mid, vector, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"layer":3,"type":"fact","metadata":meta,"created_at":datetime.now(timezone.utc).isoformat()}, sparse=sparse)
     return AddMemoryResult(status="stored", memory_id=mid)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

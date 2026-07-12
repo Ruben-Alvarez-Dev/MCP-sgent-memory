@@ -108,7 +108,15 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
             asyncio.create_task(async_embed_batch(prefetch_queries))
         except Exception:
             pass  # Prefetch is best-effort
-    
+
+    # Periodic model-tier re-probe (cheap: no-op unless MODEL_TIER_TTL expired)
+    try:
+        from shared import model_tier
+        model_tier.maybe_refresh()
+    except ImportError as e:
+        import logging
+        logging.getLogger("agent-memory.model_tier").warning("maybe_refresh unavailable: %s", e)
+
     status = HeartbeatStatus(agent_id=agent_id, session_id=session_id, turn_count=turn_count, status="active")
     hb_dir = Path(config.L1_working_path)
     hb_dir.mkdir(parents=True, exist_ok=True)

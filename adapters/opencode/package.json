@@ -1,0 +1,14 @@
+{
+  "name": "@mcp-agent-memory/adapter-opencode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenCode plugin adapter — recovered from git history (commit 7ea8181, deleted in b49fbe3)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
+  }
+}

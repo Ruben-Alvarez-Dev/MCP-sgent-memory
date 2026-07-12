@@ -35,8 +35,23 @@ jobs:
         # ADR" rule (CLAUDE.md).
         run: pip install pytest-cov
 
-      - name: Coverage gate (fail under 60%)
-        run: PYTHONPATH=src pytest tests/core -q --cov=shared --cov-report=term-missing --cov-fail-under=60
+      - name: Coverage gate (fail under 45%)
+        # Scope = shared + the two Lx_* packages tests/core actually imports
+        # and exercises (L0_capture.server.main via register_tools(),
+        # L5_routing.server.main via request_context signature checks).
+        # L2_conversations/L3_decisions/L3_facts/Lx_reasoning/unified are
+        # never imported by tests/core today, and top-level `vault/` is
+        # markdown content, not a Python package — including any of them
+        # here would silently count as 0% and make this gate lie either way
+        # (fail dishonestly if included at a high threshold, or mask real
+        # gaps if included at a low one).
+        #
+        # Baseline measured 2026-07-12 on this commit: 45.42% (.venv,
+        # Python 3.14.6) and 45.44% (clean Python 3.12 venv, matching this
+        # job's interpreter) — both independently above 45%. Ratchet-only
+        # per docs/plan/IMPROVEMENT-PLAN.md §3.4 gate 4: Phase 2 test-writing
+        # work must raise this threshold over time, never lower it silently.
+        run: PYTHONPATH=src pytest tests/core -q --cov=shared --cov=L0_capture --cov=L5_routing --cov-report=term-missing --cov-fail-under=45
 
   # Gate 3 — plan §3.4 item 3.
   lint:

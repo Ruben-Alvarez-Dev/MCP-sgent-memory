@@ -145,6 +145,44 @@ function isMemoryTool(toolName: string): boolean {
   return false
 }
 
+/**
+ * Extract the commit message subject from a raw `git commit ...` shell
+ * command string, or null if no -m/--message argument is present.
+ *
+ * Handles two shapes:
+ *   1. Heredoc style (mandated by CLAUDE.md for every commit):
+ *        git commit -m "$(cat <<'EOF'
+ *        feat(x): subject
+ *
+ *        body...
+ *        EOF
+ *        )"
+ *      The literal shell text never contains "feat(x): subject" next to -m —
+ *      it contains the heredoc syntax — so this is matched as its own case
+ *      and the heredoc body (between the marker lines) is extracted directly.
+ *   2. Simple style: -m "message" / --message="message", possibly repeated
+ *      (subject + body as two separate -m flags). Only the FIRST -m/--message
+ *      argument's own quoted content is captured (bounded by a backreference
+ *      to its opening quote character), so a second -m never bleeds into it.
+ *
+ * conventionalRegex below only anchors on the first line (no `$`/multiline
+ * flag), so returning the full multi-line body here is safe — validation
+ * still only inspects the subject line.
+ */
+function extractCommitMessage(cmd: string): string | null {
+  const heredocMatch = cmd.match(
+    /git\s+commit\b[\s\S]*?(?:-m\s+|--message[=\s]+)["']?\$\(\s*cat\s+<<-?\s*['"]?(\S+?)['"]?\s*\n([\s\S]*?)\n\s*\1\s*\)/
+  )
+  if (heredocMatch) return heredocMatch[2].trim()
+
+  const simpleMatch = cmd.match(
+    /git\s+commit\b(?:.*?\s+)?(?:-m\s+|--message[=\s]+)(["'])([\s\S]*?)\1/
+  )
+  if (simpleMatch) return simpleMatch[2].trim()
+
+  return null
+}
+
 // ─── Context Injection State ──────────────────────────────────────────────────
 // Shared between chat.message (fetches context) and system.transform (injects it).
 // This is the ONLY state shared between hooks — everything else is stateless.
@@ -377,17 +415,15 @@ export const BackpackOrchestrator: Plugin = async (ctx) => {
       if (input.tool === "bash") {
         const cmd: string = output.args?.command ?? ""
         // Match git commit -m "message" or git commit --message="message"
-        const commitMatch = cmd.match(
-          /git\s+commit\s+(?:.*?\s+)?(?:-m\s+|--message[=\s]+)["']?(.+?)["']?\s*$/
-        )
-        if (commitMatch) {
-          const msg = commitMatch[1].trim()
+        // (including heredoc-style multi-line messages — see extractCommitMessage)
+        const msg = extractCommitMessage(cmd)
+        if (msg !== null) {
           const conventionalRegex =
             /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9._-]+\))?!?: .+/
           if (!conventionalRegex.test(msg)) {
             throw new Error(
               `BLOCKED: Commit message must follow Conventional Commits format.\n` +
-              `Got: "${msg}"\n` +
+              `Got: "${msg.split("\n")[0]}"\n` +
               `Expected: type(scope)?: description\n` +
               `Types: build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test\n` +
               `Example: feat(auth): add login endpoint`

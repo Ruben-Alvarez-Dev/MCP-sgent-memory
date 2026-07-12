@@ -63,7 +63,7 @@ build/
 *~
 
 # ── Engram Local Mirror (copies of ~/.memory/) ──────────────────
-$HOME/
+.memory/
 
 # ── 1mcp-agent (vendored — installed separately) ────────────────
 1mcp-agent/

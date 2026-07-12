@@ -15,12 +15,13 @@ Usage:
         print(chunk.delta, end="")
 
 Environment variables:
-    LLM_BACKEND   — llama_cpp (default: llama_cpp)
+    LLM_BACKEND   — ollama | llama_cpp (unset: model-tier resolver decides)
     LLM_MODEL     — Model identifier
     SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
+    OLLAMA_URL    — Ollama daemon URL (default: http://127.0.0.1:11434)
 """
 
-from .base import LLMBackend, ChatMessage, ChatResponse, ChatChunk, ModelInfo
+from .base import LLMBackend, ChatMessage, ChatResponse, ChatChunk, ModelInfo, LLMUnavailableError, LLMModelNotFoundError
 from .config import get_llm, get_small_llm, classify_intent, QueryIntent, list_available_backends, rank_by_relevance
 
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     "ChatResponse",
     "ChatChunk",
     "ModelInfo",
+    "LLMUnavailableError",
+    "LLMModelNotFoundError",
     "QueryIntent",
     "get_llm",
     "get_small_llm",

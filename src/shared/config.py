@@ -137,7 +137,7 @@ class Config:
             errors.append(f"EMBEDDING_BACKEND must be one of {valid_embed_backends}, got '{self.embedding_backend}'")
 
         # LLM backend
-        valid_llm_backends = {"llama_cpp"}
+        valid_llm_backends = {"llama_cpp", "ollama"}
         if self.llm_backend not in valid_llm_backends:
             errors.append(f"LLM_BACKEND must be one of {valid_llm_backends}, got '{self.llm_backend}'")
 

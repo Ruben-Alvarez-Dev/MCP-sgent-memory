@@ -20,6 +20,18 @@ from dataclasses import dataclass, field
 from typing import AsyncGenerator, Generator
 
 
+class LLMUnavailableError(RuntimeError):
+    """No LLM backend can serve the request (unreachable, not running, T0).
+
+    Raised instead of silently degrading — callers decide how to fall back
+    and the tier resolver uses it to trigger reactive downgrades.
+    """
+
+
+class LLMModelNotFoundError(LLMUnavailableError):
+    """The backend is reachable but the requested model is not loaded/pulled."""
+
+
 @dataclass
 class ChatMessage:
     """A single message in a conversation."""

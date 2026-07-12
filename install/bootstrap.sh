@@ -20,18 +20,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 INSTALL_DIR="${1:-$SCRIPT_DIR/..}"
 INSTALL_DIR="$(cd "$INSTALL_DIR" 2>/dev/null && pwd)"
 
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
-pass() { echo -e "  ${GREEN}✓${NC} $1"; }
-fail() { echo -e "  ${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
-warn() { echo -e "  ${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }
-info() { echo -e "  ${CYAN}→${NC} $1"; }
-import_name() { case "$1" in python-dotenv) echo dotenv;; pyyaml) echo yaml;; *) echo "${1//-/_}";; esac; }
-ERRORS=0; WARNINGS=0
-
 # ── Always persist status, even on abort under `set -euo pipefail` ──
+# Registered as early as possible (right after INSTALL_DIR is known) so the
+# color/helper definitions below are also covered if they ever abort.
+ERRORS=0; WARNINGS=0
 STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
 write_status() {
-    local ec=$?
+    # Exit code to report: explicit $1 (signal traps) or the captured $? (EXIT trap).
+    local ec="${1:-$?}"
+    # Never let a failed status-file write (unwritable dir, disk full) swallow
+    # the real exit code via errexit — disable -e for just this write.
+    set +e
     cat > "$STATUS_FILE" << EOF
 BOOTSTRAP_QDRANT=${QDRANT_OK:-false}
 BOOTSTRAP_EMB=${EMB_OK:-false}
@@ -41,10 +40,29 @@ BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
 BOOTSTRAP_ERRORS=${ERRORS:-0}
 BOOTSTRAP_WARNINGS=${WARNINGS:-0}
 EOF
-    echo -e "  ${CYAN}→${NC} Status saved to $STATUS_FILE"
+    local write_rc=$?
+    set -e
+    if [ "$write_rc" -eq 0 ]; then
+        echo -e "  ${CYAN}→${NC} Status saved to $STATUS_FILE"
+    else
+        echo -e "  ${RED}✗${NC} Could not write status file to $STATUS_FILE (exit $write_rc)" >&2
+    fi
     exit "$ec"
 }
-trap write_status EXIT
+trap 'write_status $?' EXIT
+# SIGINT/SIGTERM: clear the EXIT trap first (avoid double-fire), persist
+# status, and exit with the conventional interrupted-by-signal code — the
+# EXIT trap's captured $? does not reliably reflect a foreground process
+# killed by a signal.
+trap 'trap - EXIT; write_status 130' INT
+trap 'trap - EXIT; write_status 143' TERM
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
+pass() { echo -e "  ${GREEN}✓${NC} $1"; }
+fail() { echo -e "  ${RED}✗${NC} $1"; ERRORS=$((ERRORS+1)); }
+warn() { echo -e "  ${YELLOW}⚠${NC} $1"; WARNINGS=$((WARNINGS+1)); }
+info() { echo -e "  ${CYAN}→${NC} $1"; }
+import_name() { case "$1" in python-dotenv) echo dotenv;; pyyaml) echo yaml;; *) echo "${1//-/_}";; esac; }
 
 # ── Resolve Python ───────────────────────────────────────────────
 resolve_python() {
@@ -290,9 +308,17 @@ else
         if [ ! -d "$LLAMA_SRC" ]; then
             git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_SRC" -q
         fi
-        cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$INSTALL_DIR/build.log" && \
-        cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$INSTALL_DIR/build.log"
-        if [ -f "$LLAMA_SRC/build/bin/llama-server" ]; then
+        # NOTE: each condition is checked with `if !`/`elif !`, the bash idiom
+        # exempt from `set -e` — a bare `cmd1 && cmd2` chain here would let
+        # errexit abort the script on a failing cmd2 before the fail() below
+        # is ever reached, silently swallowing the error.
+        if ! cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$INSTALL_DIR/build.log"; then
+            fail "llama.cpp cmake configure failed (check $INSTALL_DIR/build.log)"
+        elif ! cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$INSTALL_DIR/build.log"; then
+            fail "llama.cpp build failed — compiler error (check $INSTALL_DIR/build.log)"
+        elif [ ! -f "$LLAMA_SRC/build/bin/llama-server" ]; then
+            fail "llama.cpp build failed — binary not produced (check $INSTALL_DIR/build.log)"
+        else
             cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_BIN"
             chmod +x "$LLAMA_BIN"
             pass "llama-server compiled ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
@@ -304,8 +330,6 @@ else
             else
                 fail "llama-server compiled but failed to start"
             fi
-        else
-            fail "llama.cpp build failed — binary not produced (check $INSTALL_DIR/build.log)"
         fi
     else
         fail "llama-server binary not found and cmake unavailable"

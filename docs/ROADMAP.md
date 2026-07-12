@@ -308,7 +308,7 @@ The backpack hyperpowers the agent. The agent does the real work (writing code).
 | Idea | Why Not |
 |------|---------|
 | Multi-user support | This is a single-developer tool, not a SaaS |
-| Web dashboard | The agent is the interface, not a browser |
+| ~~Web dashboard~~ | **OVERRIDDEN 2026-07-12 by Rubén** — Web + TUI control plane, auto-started: see ADR-0008 and IMPROVEMENT-PLAN Phase 3-bis |
 | Cloud storage | All data stays local (privacy-first) |
 | Fine-tuning models | Embedding + vector search is sufficient |
 | Real-time collaboration | Single-agent architecture by design |

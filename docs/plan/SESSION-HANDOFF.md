@@ -20,6 +20,12 @@
 3. **Phase 1** (plan §4): CI + gates, CHANGELOG, CONTRIBUTING, ADR-0001/0002/0003/0005, **recover plugin** `backpack-orchestrator.ts` (search OpenCode config dirs; fallback: rewrite from `docs/architecture/SPEC-backpack-v1.2.md`) into `adapters/opencode/` with Vitest.
 4. **Phase 2** (v2.2.0) changes per plan table — parallelizable: `fix-embedding-truncation` ∥ `vault-integrity` ∥ `honest-l2-status`; then `no-zero-vectors`, `qdrant-write-integrity`, `logging-root-fix`, `sqlite-migrations`, `model-stack-2026`, `reranker-real`, `resilience-suite`.
 
+## Late additions (2026-07-12, after first commit batch — all committed)
+
+- **Binding verification protocol** `openspec/AGENTS.md`: nothing fake/demo/mock, dual validation (2 independent sources) for every assumption, strict TDD with verbatim red→green evidence in `openspec/changes/<id>/evidence/I<NN>.md`, numbered iterations mapped 1:1 to tasks.md. Referenced from CLAUDE.md; LOOP-PROMPT updated to v2.
+- **ADR-0007**: hexagonal/SOLID/DRY enterprise architecture; strangler migration to `domain/ports/adapters/app/runtime` starting Phase 3 (`composition-root`, `hexagonal-shared-split`); boy-scout rule binding.
+- **ADR-0008 + Phase 3-bis**: auto-started control plane — Web SPA at `:8890/ui` (launchd KeepAlive) + Textual TUI (`amem`), config/profiles/metrics via validated `/v1` API only; ROADMAP "Not doing: web dashboard" overridden.
+
 ## Open items / decisions pending
 
 - **Push to origin**: awaiting Rubén's approval (commits are local).

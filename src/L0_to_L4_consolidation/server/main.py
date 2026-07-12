@@ -124,7 +124,7 @@ async def _verify_stale() -> str | None:
     needs_check = await qdrant.scroll(
         {
             "must": [
-                {"key": "layer", "match": {"values": [2, 3, 4]}},
+                {"key": "layer", "match": {"any": [2, 3, 4]}},
             ],
             "should": [
                 {"key": "verification_status", "match": {"value": "never_verified"}},
@@ -185,22 +185,18 @@ async def _verify_stale() -> str | None:
             new_status = "verified"
             source = "immutable"
 
-        # slow: mark verified (file_check is v1.5 territory)
-        # For now, slow facts get verified during consolidation
-        new_status = "verified"
-        source = "consolidation_check"
+        # slow (default): the initial new_status="verified" / source=
+        # "consolidation_check" already apply — file_check is v1.5 territory.
 
-        # Update in Qdrant
-        updated = {**payload,
-            "verification_status": new_status,
-            "verified_at": now_iso,
-            "verification_source": source,
-            "updated_at": now_iso,
-        }
+        # Update in Qdrant — payload-only merge; never re-send the vector
         mem_id = payload.get("memory_id", "")
         if mem_id:
-            vector = payload.get("embedding")
-            await qdrant.upsert(mem_id, vector, updated)
+            await qdrant.set_payload(mem_id, {
+                "verification_status": new_status,
+                "verified_at": now_iso,
+                "verification_source": source,
+                "updated_at": now_iso,
+            })
             if new_status == "stale":
                 stale += 1
             else:
@@ -238,9 +234,9 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
     now = datetime.now(timezone.utc).timestamp()
     results = []
     if force:
-        state["last_promote_l1_l2"] = 0
-        state["last_promote_l2_l3"] = 0
-        state["last_promote_l3_l4"] = 0
+        state["last_promote_l1_l2"] = state.get("turn_count", 10) - config.consolidation_promote_L1 - 1
+        state["last_promote_l2_l3"] = now - config.consolidation_promote_L2 - 1
+        state["last_promote_l3_l4"] = now - config.consolidation_promote_L3 - 1
     for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
         r = await fn(state)
         if r:
@@ -265,6 +261,12 @@ async def dream() -> dict:
         all_mem = []
         for layer in [MemoryLayer.WORKING, MemoryLayer.EPISODIC, MemoryLayer.SEMANTIC, MemoryLayer.CONSOLIDATED]:
             all_mem.extend(await qdrant.scroll({"must": [{"key": "layer", "match": {"value": layer.value}}]}, limit=30))
+        try:
+            facts_qdrant = qdrant.with_collection("L3_facts")
+            facts_mems = await facts_qdrant.scroll(limit=20)
+            all_mem.extend(facts_mems)
+        except Exception:
+            pass
         if not all_mem:
             return DreamResult(status="No memories to dream about", total_dreams=state.get("total_dreams", 0))
         dream_text = await _summarize([m.get("content", "") for m in all_mem[:15]], "You are dreaming. Find deep patterns and insights.\n\n")
@@ -307,8 +309,14 @@ async def get_consolidated(scope: str = "") -> LayerResult:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_semantic(scope: str = "") -> LayerResult:
-    """Get semantic memories (L3)."""
+    """Get semantic memories (L3). Queries L0_L4_memory (layer=3) AND L3_facts collection."""
     mems = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 3}}]}, limit=20)
+    try:
+        facts_qdrant = qdrant.with_collection("L3_facts")
+        facts_mems = await facts_qdrant.scroll(limit=20)
+        mems.extend(facts_mems)
+    except Exception:
+        pass
     return LayerResult(layer="L3_SEMANTIC", count=len(mems), memories=mems)
 
 

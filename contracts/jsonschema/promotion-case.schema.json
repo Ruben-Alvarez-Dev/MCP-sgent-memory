@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jart-os:contracts:promotion-case:1.0.0",
+  "title": "Jart Memory promotion case",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "promotion_case_id",
+    "territory_id",
+    "tenant_id",
+    "source_memory_id",
+    "source_version_id",
+    "requested_target_scope",
+    "status",
+    "requested_by_principal_id",
+    "evidence_hashes",
+    "required_gates",
+    "approvals",
+    "decision",
+    "materialized_version_id",
+    "audit_record_hash",
+    "created_at",
+    "updated_at",
+    "decided_at",
+    "materialized_at",
+    "revoked_at",
+    "policy_version"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/semantic_version" },
+    "promotion_case_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "territory_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "tenant_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "source_memory_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "source_version_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "requested_target_scope": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/memory_scope" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "validating",
+        "pending_triumvirate",
+        "pending_guardian",
+        "approved",
+        "rejected",
+        "materialized",
+        "revoked",
+        "expired"
+      ]
+    },
+    "requested_by_principal_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "evidence_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/sha256" }
+    },
+    "required_gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["provenance", "deduplication", "classification", "redaction", "freshness", "policy", "triumvirate", "guardian"]
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "decision_id", "decided_by_principal_id", "decided_at", "decision_hash"],
+        "properties": {
+          "gate": { "type": "string", "enum": ["triumvirate", "guardian"] },
+          "decision_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+          "decided_by_principal_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+          "decided_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+          "decision_hash": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/sha256" }
+        }
+      }
+    },
+    "decision": { "type": ["string", "null"], "enum": ["approved", "rejected", null] },
+    "materialized_version_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_uuid_v7" },
+    "audit_record_hash": {
+      "oneOf": [
+        { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "updated_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "decided_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_utc_rfc3339" },
+    "materialized_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_utc_rfc3339" },
+    "revoked_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_utc_rfc3339" },
+    "policy_version": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/semantic_version" }
+  }
+}

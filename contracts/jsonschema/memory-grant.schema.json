@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jart-os:contracts:memory-grant:1.0.0",
+  "title": "Jart Memory scoped grant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "grant_id",
+    "territory_id",
+    "tenant_id",
+    "subject_kind",
+    "subject_id",
+    "resource_kind",
+    "resource_id",
+    "scope_ceiling",
+    "capabilities",
+    "purpose",
+    "status",
+    "issued_by_principal_id",
+    "policy_version",
+    "valid_from",
+    "valid_to",
+    "revoked_at"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/semantic_version" },
+    "grant_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "territory_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "tenant_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "subject_kind": { "type": "string", "enum": ["user", "agent_instance", "service", "team", "domain"] },
+    "subject_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "resource_kind": { "type": "string", "enum": ["session", "memory", "promotion", "scope"] },
+    "resource_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "scope_ceiling": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/memory_scope" },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/capability" }
+    },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "status": { "type": "string", "enum": ["active", "revoked", "expired"] },
+    "issued_by_principal_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "policy_version": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/semantic_version" },
+    "valid_from": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "valid_to": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "revoked_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_utc_rfc3339" }
+  }
+}

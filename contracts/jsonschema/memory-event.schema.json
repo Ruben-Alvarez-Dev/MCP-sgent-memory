@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jart-os:contracts:memory-event:1.0.0",
+  "title": "Jart Memory capture event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "idempotency_key",
+    "territory_id",
+    "tenant_id",
+    "user_id",
+    "agent_instance_id",
+    "session_id",
+    "task_id",
+    "session_seq",
+    "event_type",
+    "classification",
+    "occurred_at",
+    "ingested_at",
+    "payload_ref",
+    "payload_hash"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/semantic_version" },
+    "event_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "idempotency_key": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "territory_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "tenant_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "user_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_uuid_v7" },
+    "agent_instance_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/nullable_uuid_v7" },
+    "session_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "task_id": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/uuid_v7" },
+    "session_seq": { "type": "integer", "minimum": 1 },
+    "event_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+    "classification": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/classification" },
+    "occurred_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "ingested_at": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/utc_rfc3339" },
+    "payload_ref": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/content_reference" },
+    "payload_hash": { "$ref": "urn:jart-os:contracts:common:1.0.0#/$defs/sha256" }
+  }
+}

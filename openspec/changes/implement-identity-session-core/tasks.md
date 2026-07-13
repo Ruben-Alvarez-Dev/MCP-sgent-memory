@@ -17,7 +17,7 @@ related_changes: [establish-jart-memory-foundation]
 # Identity and session core iteration plan
 
 - [x] I01 — Validate the approved change package and dependency boundaries.
-- [ ] I02 — Red/Green UUIDv7 and immutable `IdentityContext` invariants.
+- [x] I02 — Red/Green UUIDv7 and immutable `IdentityContext` invariants.
 - [ ] I03 — Red/Green immutable session lifecycle and monotonic sequencing.
 - [ ] I04 — Red/Green deny-by-default isolation matrix.
 - [ ] I05 — Red/Green application use cases over small ports.

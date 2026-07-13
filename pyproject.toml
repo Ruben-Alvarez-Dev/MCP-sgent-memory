@@ -33,7 +33,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["shared*"]
+include = ["shared*", "jart_memory*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,12 +7,14 @@ values are not production identities, memory, credentials, or endpoints.
 from __future__ import annotations
 
 import json
+import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
+import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +27,21 @@ EXPECTED_SCHEMAS = {
     "memory-record.schema.json",
     "memory-grant.schema.json",
     "promotion-case.schema.json",
+}
+REQUIRED_FRONTMATTER = {
+    "id",
+    "title",
+    "type",
+    "status",
+    "version",
+    "owners",
+    "deciders",
+    "created_at",
+    "last_verified_at",
+    "authority",
+    "supersedes",
+    "superseded_by",
+    "related_changes",
 }
 
 TEST_ONLY_UUIDS = {name: f"018f0d6e-7a69-7{name:02x}0-8000-{name:012x}" for name in range(1, 24)}
@@ -242,3 +259,39 @@ def test_contracts_define_no_implicit_shared_default_or_current_authority() -> N
     for filename, schema in schemas.items():
         for node in _walk(schema):
             assert node.get("default") not in prohibited, filename
+
+
+def test_normative_foundation_documents_have_unique_complete_frontmatter() -> None:
+    paths = [
+        REPOSITORY_ROOT / "openspec" / "project.md",
+        *sorted((REPOSITORY_ROOT / "openspec" / "changes" / "establish-jart-memory-foundation").glob("*.md")),
+        *sorted(
+            (REPOSITORY_ROOT / "openspec" / "changes" / "establish-jart-memory-foundation" / "specs").glob("*/spec.md")
+        ),
+        *sorted((REPOSITORY_ROOT / "docs" / "adr").glob("*.md")),
+        REPOSITORY_ROOT / "docs" / "security" / "memory-threat-model.md",
+    ]
+
+    document_ids = set()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("---\n"), path
+        _, raw_frontmatter, _ = text.split("---", 2)
+        frontmatter = yaml.safe_load(raw_frontmatter)
+        assert REQUIRED_FRONTMATTER <= set(frontmatter), path
+        assert frontmatter["id"] not in document_ids, frontmatter["id"]
+        document_ids.add(frontmatter["id"])
+
+
+def test_foundation_gate_uses_a_frozen_toolchain() -> None:
+    lock_file = REPOSITORY_ROOT / "uv.lock"
+    gate = REPOSITORY_ROOT / "tools" / "check-foundation.sh"
+
+    assert lock_file.is_file(), "the Python dependency graph must be committed"
+    assert os.access(gate, os.X_OK), "the foundation gate must be executable"
+    text = gate.read_text(encoding="utf-8")
+    assert 'EXPECTED_UV_VERSION="0.11.28"' in text
+    assert "uv sync --frozen --extra dev" in text
+    assert "uv run --frozen --extra dev pytest tests/contracts -q" in text
+    assert "uv run --frozen --extra dev ruff check tests/contracts" in text
+    assert "uv run --frozen --extra dev ruff format --check tests/contracts" in text

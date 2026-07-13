@@ -25,8 +25,8 @@ related_changes: [establish-jart-memory-foundation]
 - [x] I04 — Add proposed capability specs and JSON Schema contracts through Red →
   Green validation. Gate: schema meta-validation, valid sanitized fixtures, and
   invalid deny-oriented fixtures.
-- [ ] I05 — Add a frozen foundation CI gate. Gate: clean-environment reproduction
-  from the committed lock.
+- [x] I05 — Add a frozen foundation validation entrypoint. Gate:
+  clean-environment reproduction from the committed lock.
 - [ ] I06 — Independent review, granular commits, push, and draft pull request.
   Gate: clean diff, no behavior changes, checks reported truthfully.
 

@@ -262,12 +262,11 @@ def test_contracts_define_no_implicit_shared_default_or_current_authority() -> N
 
 
 def test_normative_foundation_documents_have_unique_complete_frontmatter() -> None:
+    change_directory = REPOSITORY_ROOT / "openspec" / "changes"
     paths = [
         REPOSITORY_ROOT / "openspec" / "project.md",
-        *sorted((REPOSITORY_ROOT / "openspec" / "changes" / "establish-jart-memory-foundation").glob("*.md")),
-        *sorted(
-            (REPOSITORY_ROOT / "openspec" / "changes" / "establish-jart-memory-foundation" / "specs").glob("*/spec.md")
-        ),
+        *sorted(change_directory.glob("*/*.md")),
+        *sorted(change_directory.glob("*/specs/*/spec.md")),
         *sorted((REPOSITORY_ROOT / "docs" / "adr").glob("*.md")),
         REPOSITORY_ROOT / "docs" / "security" / "memory-threat-model.md",
     ]

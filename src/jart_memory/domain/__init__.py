@@ -7,6 +7,7 @@ from .identity import (
     MemoryScope,
     PrincipalKind,
 )
+from .session import IllegalSessionTransitionError, Session, SessionError, SessionState, StaleSessionWriterError
 
 __all__ = [
     "DomainValidationError",
@@ -14,4 +15,9 @@ __all__ = [
     "IdentityInactiveError",
     "MemoryScope",
     "PrincipalKind",
+    "IllegalSessionTransitionError",
+    "Session",
+    "SessionError",
+    "SessionState",
+    "StaleSessionWriterError",
 ]

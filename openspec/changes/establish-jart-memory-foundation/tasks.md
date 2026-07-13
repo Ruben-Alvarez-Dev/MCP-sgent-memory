@@ -27,7 +27,7 @@ related_changes: [establish-jart-memory-foundation]
   invalid deny-oriented fixtures.
 - [x] I05 — Add a frozen foundation validation entrypoint. Gate:
   clean-environment reproduction from the committed lock.
-- [ ] I06 — Independent review, granular commits, push, and draft pull request.
+- [x] I06 — Independent review, granular commits, push, and draft pull request.
   Gate: clean diff, no behavior changes, checks reported truthfully.
 
 Behavior implementation, data migration, and deployment are explicitly deferred to

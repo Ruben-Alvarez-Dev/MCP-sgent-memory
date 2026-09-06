@@ -21,7 +21,7 @@ Environment variables:
 """
 
 from .base import LLMBackend, ChatMessage, ChatResponse, ChatChunk, ModelInfo
-from .config import get_llm, get_small_llm, classify_intent, QueryIntent, list_available_backends, rank_by_relevance
+from .config import get_llm, get_small_llm, classify_intent, QueryIntent, list_available_backends
 
 __all__ = [
     "LLMBackend",
@@ -34,5 +34,4 @@ __all__ = [
     "get_small_llm",
     "classify_intent",
     "list_available_backends",
-    "rank_by_relevance",
 ]

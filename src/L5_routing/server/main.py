@@ -1,13 +1,13 @@
 """vk-cache — Unified Retrieval & Context Assembly (L5)."""
 from __future__ import annotations
-import json, math, os, re
+import json, logging, math, os, re
 from datetime import datetime, timezone
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.memory_db import MemoryDB
+from shared.memory_db import MemoryDB, hash_vector
 from shared.models import ContextPack, ContextReminder, ContextSource
 from shared.embedding import async_embed
 from shared.retrieval import retrieve as smart_retrieve
@@ -27,7 +27,22 @@ _L5_selective_path = Path(config.L5_selective_path) if config.L5_selective_path 
 _L5_selective_path.mkdir(parents=True, exist_ok=True)
 mcp = FastMCP("L5_routing")
 
+logger = logging.getLogger(__name__)
+
 def _estimate_tokens(t): return len(t) // 4
+
+async def _embed_or_hash(text: str) -> tuple[list[float], bool]:
+    """RET-06: deterministic degradation when embeddings are unavailable.
+
+    Returns (vector, embedded?). On any embedding failure the query degrades
+    to the deterministic SHA-256 hash-vector so L5 tools NEVER fail on an
+    embedding outage (KNOWN-BUG-002).
+    """
+    try:
+        return await async_embed(text), True
+    except Exception as e:  # noqa: BLE001 — degradation boundary: ANY embedding failure must degrade, never raise
+        logger.warning('embedding unavailable, hash-vector degradation (RET-06): %s', e)
+        return hash_vector(text, config.embedding_dim), False
 
 _REMINDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _migrated_legacy = False
@@ -112,7 +127,7 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     # rejecting it — strict validation before any sanitization.
     scope = normalize_scope(agent_id)
     clean = validate_push_reminder(query, scope)
-    vector = await async_embed(clean["query"])
+    vector, _embedded = await _embed_or_hash(clean["query"])
     # M2: engine-level scope filter (own + shared) — was per-scope collection name
     results = await store.search(
         vector, limit=5, score_threshold=config.L5_routing_min_score,
@@ -146,14 +161,15 @@ async def detect_context_shift(current_query: str, previous_query: str = "", age
     """Detect if conversation context has shifted domains."""
     if not previous_query: return ContextShiftResult(shift_detected=False)
     try:
-        v1, v2 = await async_embed(current_query), await async_embed(previous_query)
+        v1, _ = await _embed_or_hash(current_query)
+        v2, _ = await _embed_or_hash(previous_query)
         dot = sum(a*b for a,b in zip(v1,v2))
         sim = dot / (math.sqrt(sum(a*a for a in v1)) * math.sqrt(sum(a*a for a in v2))) if v1 and v2 else 0
     except Exception: sim = 0.0
     shifted = sim < 0.7
     new_ctx = ""
     if shifted:
-        vec = await async_embed(current_query)
+        vec, _ = await _embed_or_hash(current_query)
         scope = normalize_scope(agent_id)
         res = await store.search(
             vec, limit=5,

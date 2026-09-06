@@ -327,7 +327,8 @@ class MemoryDB:
             await asyncio.to_thread(_write)
 
     def _get_one(self, point_id: str) -> dict | None:
-        row = self._conn.execute(
+        with self._lock:  # M3: serialize — shared conn is not concurrency-safe
+            row = self._conn.execute(
             "SELECT id, payload FROM points WHERE collection=? AND id=?",
             (self.collection, point_id),
         ).fetchone()
@@ -408,9 +409,10 @@ class MemoryDB:
     async def count(self) -> int:
         def _count():
             try:
-                row = self._conn.execute(
-                    "SELECT COUNT(*) AS c FROM points WHERE collection=?", (self.collection,)
-                ).fetchone()
+                with self._lock:
+                    row = self._conn.execute(
+                        "SELECT COUNT(*) AS c FROM points WHERE collection=?", (self.collection,)
+                    ).fetchone()
             except sqlite3.OperationalError:
                 return 0  # virgin DB (no table yet) — empty, not an error
             return row["c"]
@@ -444,17 +446,96 @@ class MemoryDB:
             )
         return scored
 
-    def _search_sync(self, vector, limit, score_threshold, filter_) -> list[dict]:
+    # ── Sparse fusion (RET-05) ─────────────────────────────
+
+    @staticmethod
+    def _validate_sparse_query(sq: Any) -> dict[int, float] | None:
+        """Validate Qdrant-format sparse query. Fail-closed on malformation."""
+        if sq is None:
+            return None
+        if not isinstance(sq, dict):
+            raise ValueError("sparse_query must be a dict with indices/values")  # noqa: TRY004
+        indices = sq.get("indices")
+        values = sq.get("values")
+        if not isinstance(indices, list) or not isinstance(values, list):
+            raise ValueError("sparse_query.indices/values must be lists")  # noqa: TRY004
+        if len(indices) != len(values):
+            raise ValueError(
+                f"sparse_query length mismatch: {len(indices)} indices vs {len(values)} values"
+            )
+        out: dict[int, float] = {}
+        for i, v in zip(indices, values):
+            # ValueError (not TypeError): sparse contract violations are
+            # caller-input errors, same family as ScopeRequiredError.
+            if isinstance(i, bool) or not isinstance(i, int):
+                raise ValueError(f"sparse_query indices must be ints, got {i!r}")  # noqa: TRY004
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f"sparse_query values must be numeric, got {v!r}")  # noqa: TRY004
+            out[int(i)] = float(v)
+        return out
+
+    @staticmethod
+    def _parse_sparse_json(sj: str | None) -> dict[int, float] | None:
+        """Tolerant parse of stored sparse_json — corrupt data -> None (dense only)."""
+        if not sj:
+            return None
+        try:
+            d = json.loads(sj)
+            indices = d.get("indices")
+            values = d.get("values")
+            if not isinstance(indices, list) or not isinstance(values, list):
+                return None
+            return {int(i): float(v) for i, v in zip(indices, values)}
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _sparse_cosine(q: dict[int, float], d: dict[int, float]) -> float:
+        if not q or not d:
+            return 0.0
+        dot = sum(v * d[i] for i, v in q.items() if i in d)
+        nq = math.sqrt(sum(v * v for v in q.values()))
+        nd = math.sqrt(sum(v * v for v in d.values()))
+        if nq == 0.0 or nd == 0.0:
+            return 0.0
+        return dot / (nq * nd)
+
+    def _search_sync(
+        self,
+        vector,
+        limit,
+        score_threshold,
+        filter_,
+        sparse_query=None,
+        sparse_weight: float = 0.3,
+    ) -> list[dict]:
         where, params = self._translate_filter(filter_)
         sql = (
-            "SELECT id, vector, payload FROM points "
+            "SELECT id, vector, payload, sparse_json FROM points "
             f"WHERE collection=? AND {where}"
         )
-        rows = self._conn.execute(sql, (self.collection, *params)).fetchall()
+        with self._lock:  # M3: serialize — shared conn is not concurrency-safe
+            rows = self._conn.execute(sql, (self.collection, *params)).fetchall()
+        q_sparse = self._validate_sparse_query(sparse_query)
         query_vec = self._unpack_vector(self._pack_vector(vector))
         scored = self._score_candidates(rows, query_vec)
+
+        if q_sparse:
+            sparse_by_id = {
+                row["id"]: self._parse_sparse_json(row["sparse_json"]) for row in rows
+            }
+            for hit in scored:
+                s = self._sparse_cosine(q_sparse, sparse_by_id.get(hit["id"]) or {})
+                if s > 0.0:
+                    # Boost formula: sparse can only IMPROVE the score (RET-05).
+                    # A weighted mean would shrink scores when sparse=0 and
+                    # silently break score_threshold semantics.
+                    hit["score"] = hit["score"] + sparse_weight * s * (1.0 - hit["score"])
+                    hit["score_source"] += "+sparse"
+
         hits = [s for s in scored if s["score"] >= score_threshold]
-        hits.sort(key=lambda s: s["score"], reverse=True)
+        # RET-07: deterministic ordering — score desc, then id asc
+        hits.sort(key=lambda h: (-h["score"], h["id"]))
         return hits[:limit]
 
     async def search(
@@ -463,16 +544,31 @@ class MemoryDB:
         limit: int = 10,
         score_threshold: float = 0.3,
         filter: dict | None = None,
+        sparse_query: dict | None = None,
+        sparse_weight: float = 0.3,
     ) -> list[dict]:
-        """Dense search restricted by ENGINE filter. Fails closed without one."""
-        return await asyncio.to_thread(self._search_sync, vector, limit, score_threshold, filter)
+        """Dense search restricted by ENGINE filter. Fails closed without one.
+
+        With `sparse_query` (Qdrant-format tokens), each candidate's stored
+        sparse vector fuses as a monotonic boost: final = dense + w*s*(1-dense).
+        """
+        return await asyncio.to_thread(
+            self._search_sync,
+            vector,
+            limit,
+            score_threshold,
+            filter,
+            sparse_query,
+            sparse_weight,
+        )
 
     def _scroll_sync(self, filter_, limit) -> list[dict]:
         where, params = self._translate_filter(filter_)
-        rows = self._conn.execute(
-            f"SELECT id, payload FROM points WHERE collection=? AND {where} LIMIT ?",
-            (self.collection, *params, int(limit)),
-        ).fetchall()
+        with self._lock:  # M3: serialize — shared conn is not concurrency-safe
+            rows = self._conn.execute(
+                f"SELECT id, payload FROM points WHERE collection=? AND {where} LIMIT ?",
+                (self.collection, *params, int(limit)),
+            ).fetchall()
         out = []
         for row in rows:
             try:

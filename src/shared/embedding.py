@@ -284,8 +284,10 @@ def bm25_tokenize(text: str) -> dict:
     indices = []
     values = []
     for token, count in sorted(freq.items(), key=lambda x: x[1], reverse=True):
-        # Use 32-bit hash for token ID
-        token_hash = hash(token) & 0xFFFFFFFF
+        # M3 (RET-05): STABLE hash — Python's hash() is randomized per process
+        # (PYTHONHASHSEED), which would break sparse matching across restarts.
+        # SHA-256-derived 32-bit id is deterministic forever.
+        token_hash = int.from_bytes(hashlib.sha256(token.encode("utf-8")).digest()[:4], "big")
         indices.append(token_hash)
         values.append(float(count))
 
@@ -622,7 +624,10 @@ async def async_embed_batch(texts: list[str]) -> list[list[float]]:
     Uses LlamaServerBackend.embed_batch() for 1.6x speedup on 10+ texts.
     Falls back to individual embeds with parallel thread pool.
     """
-    import asyncio as _aio
+    # M3: was `import asyncio as _aio` — but the body uses asyncio.to_thread/
+    # asyncio.gather, guaranteeing NameError on the batch path (latent bug,
+    # found via ruff F821 during M3).
+    import asyncio
     if not texts:
         return []
 

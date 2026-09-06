@@ -20,8 +20,8 @@ from typing import Any
 
 logger = logging.getLogger("agent-memory.retrieval")
 
-from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
-from ..embedding import get_embedding
+from ..llm import classify_intent, QueryIntent
+from ..embedding import get_embedding, bm25_tokenize
 from ..memory_db import MemoryDB
 from ..scope import iter_namespaced_files, normalize_scope
 from .pruner import prune_content
@@ -259,6 +259,7 @@ async def _retrieve_hybrid(
             limit=k,
             score_threshold=MIN_SCORE,
             filter={"must": must},
+            sparse_query=bm25_tokenize(query_text),  # RET-05: lexical boost
         )
         for p in search_results:
             payload = p.get("payload", {})
@@ -332,19 +333,6 @@ def _rank_and_fuse(
             item.combined_score = max(0.0, min(1.0, item.combined_score))
             all_items.append(item)
     all_items.sort(key=lambda x: x.combined_score, reverse=True)
-
-    # SPEC-4.1: LLM ranking for complex queries
-    if intent.needs_ranking and len(all_items) > 5:
-        try:
-            query_text = getattr(intent, "_original_query", "") or " ".join(intent.entities)
-            ranked = rank_by_relevance(
-                query=query_text,
-                items=[{"content": item.content, "item": item} for item in all_items],
-                top_k=profile.token_budget // 500,
-            )
-            all_items = [r["item"] for r in ranked]
-        except Exception as e:
-            logger.debug("LLM ranking failed, using score-based order: %s", e)
 
     return all_items
 

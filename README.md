@@ -1,7 +1,7 @@
 # MCP-agent-memory
 
 > **Persistent multi-layer memory for AI coding agents.**
-> 53 MCP tools + HTTP API + auto-trigger plugin + bilingual vault. Zero-config memory that works without the LLM remembering to use it.
+> 54 MCP tools + HTTP API + auto-trigger plugin + bilingual vault. Zero-config memory that works without the LLM remembering to use it.
 
 ---
 
@@ -22,7 +22,7 @@ The backpack captures events **automatically** (no LLM decision needed) and prov
 │  │  backpack-orchestrator│    │      MCP-agent-memory            │  │
 │  │  (OpenCode Plugin)    │    │      (Python MCP Server)         │  │
 │  │                       │    │                                   │  │
-│  │  AUTO-TRIGGERS:       │    │  53 MCP TOOLS:                   │  │
+│  │  AUTO-TRIGGERS:       │    │  54 MCP TOOLS:                   │  │
 │  │  • Every user prompt  │──→│  • L0_capture_* (ingest, memorize) │  │
 │  │  • Every tool call    │──→│  • L0_to_L4_consolidation_*       │  │
 │  │  • Every file edit    │──→│  • L5_routing_* (context retrieval)│  │
@@ -76,101 +76,80 @@ L5 SELECTIVE    → Context routing and assembly
 
 ---
 
+## Evaluation
+
+Deterministic retrieval eval over the frozen 40-query set (ES/EN, 5 intents)
+against a traceable 38-doc fixture built from this repo:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_eval.py   # writes results YAML
+```
+
+Latest run (M5): **Recall@5 = 0.463 · MRR = 0.4767** (hash-vector embeddings,
+degraded mode — real embeddings score higher). Evidence:
+`openspec/changes/M5-troncal/evidence/eval-40-results-m5.yaml`.
+
 ## Module Reference
 
-### L0_capture — Real-time Memory Ingestion (`L0_capture_*`)
+54 tools, auto-registered from the 7 module servers by the unified
+entrypoint (names below are the live registry — regenerated M5):
 
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L0_capture_heartbeat` | ✅ | Signal agent alive, track turns, pre-compute embeddings |
-| `L0_capture_ingest_event` | ✅ | Ingest raw L0 event (terminal, git, file, tool_call, user_prompt, file_edited) |
-| `L0_capture_memorize` | 🧠 | Store a memory requiring judgment (decision, bugfix, discovery, fact) |
-| `L0_capture_status` | 👤 | Show L0_capture daemon status |
-
-### L0_to_L4_consolidation — Memory Consolidation (`L0_to_L4_consolidation_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L0_to_L4_consolidation_heartbeat` | ✅ | Check consolidation thresholds (L1→L2→L3→L4) |
-| `L0_to_L4_consolidation_consolidate` | ✅ | Run consolidation across all layers |
-| `L0_to_L4_consolidation_dream` | ✅ | Trigger deep dream cycle (background pattern detection) |
-| `L0_to_L4_consolidation_dream_status` | 👤 | Check background dream task status |
-| `L0_to_L4_consolidation_force_promote` | 👤 | Force-promote memories between layers (debug) |
-| `L0_to_L4_consolidation_get_narrative` | 🧠 | Retrieve L4 consolidated memories |
-| `L0_to_L4_consolidation_get_semantic` | 🧠 | Retrieve L3 semantic memories |
-| `L0_to_L4_consolidation_status` | 👤 | Show L0_to_L4_consolidation daemon state |
-
-### L5_routing — Smart Context Retrieval (`L5_routing_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L5_routing_request_context` | 🧠 | Smart context retrieval with intent classification |
-| `L5_routing_check_reminders` | ✅ | Check pending context reminders |
-| `L5_routing_push_reminder` | ✅ | Push a context reminder for later injection |
-| `L5_routing_detect_shift` | ✅ | Detect domain shift between queries |
-| `L5_routing_dismiss_reminder` | ⚙️ | Dismiss a reminder (internal) |
-| `L5_routing_status` | 👤 | Show L5_routing router status |
-
-### L2_conversations — Thread Persistence (`L2_conversations_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L2_conversations_save` | ✅ | Save a conversation thread (auto on compaction) |
-| `L2_conversations_search` | 🧠 | Search past conversations by similarity |
-| `L2_conversations_get` | 🧠 | Retrieve a conversation by thread ID |
-| `L2_conversations_list_threads` | 👤 | List recent conversation threads |
-| `L2_conversations_status` | 👤 | Show conversation store status |
-
-### L3_facts — Semantic Memory (`L3_facts_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L3_facts_add` | 🧠 | Add a semantic memory for a user |
-| `L3_facts_search` | 🧠 | Search semantic memories |
-| `L3_facts_list` | 👤 | List all memories for a user |
-| `L3_facts_delete` | 👤 | Delete a memory by ID |
-| `L3_facts_status` | 👤 | Show L3_facts status |
-
-### L3_decisions — Decision Memory & Vault (`L3_decisions_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `L3_decisions_save` | 🧠 | Save an architectural decision as Markdown |
-| `L3_decisions_search` | 🧠 | Search decisions by keyword |
-| `L3_decisions_get` | 🧠 | Get a specific decision by file path |
-| `L3_decisions_list` | 🧠 | List decisions with optional filtering |
-| `L3_decisions_delete` | 👤 | Delete a decision file |
-| `L3_decisions_vault_write` | 🧠 | Write a note to the Obsidian vault |
-| `L3_decisions_vault_read_note` | 🧠 | Read a vault note |
-| `L3_decisions_vault_list_notes` | 🧠 | List notes in a vault folder |
-| `L3_decisions_vault_process_inbox` | 👤 | Process vault inbox items |
-| `L3_decisions_vault_integrity_check` | 👤 | Verify vault consistency |
-| `L3_decisions_status` | 👤 | Show L3_decisions status |
-
-### Lx_reasoning — Sequential Thinking (`Lx_reasoning_*`)
-
-| Tool | Auto? | Description |
-|------|-------|-------------|
-| `Lx_reasoning_think` | 🧠 | Multi-step reasoning chain |
-| `Lx_reasoning_record_step` | 🧠 | Record a single thinking step |
-| `Lx_reasoning_create_plan` | 🧠 | Create an execution plan |
-| `Lx_reasoning_update_plan` | 🧠 | Update a plan step status |
-| `Lx_reasoning_reflect` | 🧠 | Reflect on reasoning quality |
-| `Lx_reasoning_propose_changes` | 🧠 | Propose a code change set |
-| `Lx_reasoning_apply_sandbox` | 🧠 | Apply changes in sandbox mode |
-| `Lx_reasoning_get_session` | 🧠 | Retrieve a thinking session |
-| `Lx_reasoning_list_sessions` | 👤 | List recent thinking sessions |
-| `Lx_reasoning_status` | 👤 | Show sequential thinking status |
-
-### Health
-
-| Tool | Description |
-|------|-------------|
-| `health_check` | Check health of all memory subsystems (memory.db, identity, vault, disk) |
-
-**Legend**: ✅ = auto-triggered by plugin | 🧠 = LLM decides when | 👤 = user-triggered | ⚙️ = internal
-
----
+| Tool | Purpose |
+|---|---|
+| `L0_capture_heartbeat` | Update agent heartbeat. Call every turn to signal the agent is alive. |
+| `L0_capture_ingest_event` | Ingest a raw L0 event (terminal, git, file, system, diff). |
+| `L0_capture_memorize` | Store a memory. L0_capture ingests it immediately. |
+| `L0_capture_status` | Show L0_capture daemon status — always ON regardless of agent state. |
+| `L0_to_L4_consolidation_approve_promotion` | M5-trunk (ISO-06/ISO-16): copy source points into the human-approved |
+| `L0_to_L4_consolidation_consolidate` | Run consolidation across all layers. |
+| `L0_to_L4_consolidation_dream` | Trigger a deep dream cycle — DISABLED in M2 (ISO-06): no-op, zero writes. |
+| `L0_to_L4_consolidation_dream_status` | Check status of a background dream task. |
+| `L0_to_L4_consolidation_force_promote` | Force promotion of memories between layers for testing. |
+| `L0_to_L4_consolidation_get_consolidated` | Get consolidated memories (L4). |
+| `L0_to_L4_consolidation_get_semantic` | Get semantic memories (L3). |
+| `L0_to_L4_consolidation_heartbeat` | Signal that the agent is alive. Triggers auto-consolidation if thresholds met. |
+| `L0_to_L4_consolidation_status` | Show L0_to_L4_consolidation daemon status. |
+| `L2_conversations_get_conversation` | Retrieve a conversation thread by ID. |
+| `L2_conversations_list_threads` | List recent conversation threads ordered by last update. |
+| `L2_conversations_save_conversation` | Save a conversation thread. |
+| `L2_conversations_search_conversations` | Search conversations by semantic similarity + full-text search. |
+| `L2_conversations_status` | Show conversation store status. |
+| `L3_decisions_delete_decision` | Delete a decision file. |
+| `L3_decisions_get_decision` | Get a specific decision by file path. |
+| `L3_decisions_get_model_pack` |  |
+| `L3_decisions_list_decisions` | List decisions with optional filtering (scoped: own + shared only). |
+| `L3_decisions_list_model_packs` |  |
+| `L3_decisions_save_decision` | Save an architectural decision as a Markdown file (scoped: non-shared scopes are namespaced). |
+| `L3_decisions_search_decisions` | Search decisions by keyword matching (token-based, scoped: own + shared only). |
+| `L3_decisions_set_model_pack` |  |
+| `L3_decisions_status` |  |
+| `L3_decisions_vault_integrity_check` |  |
+| `L3_decisions_vault_list_notes` |  |
+| `L3_decisions_vault_process_inbox` |  |
+| `L3_decisions_vault_read_note` |  |
+| `L3_decisions_vault_write` | Write a note to the Obsidian vault. |
+| `L3_facts_add_memory` | Add a semantic memory for a user. |
+| `L3_facts_delete_memory` | Delete a memory by ID. |
+| `L3_facts_get_all_memories` | Get all memories for a user. |
+| `L3_facts_search_memory` | Search semantic memories for a user. |
+| `L3_facts_status` | Show L3_facts status. |
+| `L5_routing_check_reminders` | Check pending context reminders. |
+| `L5_routing_detect_context_shift` | Detect if conversation context has shifted domains. |
+| `L5_routing_dismiss_reminder` | Dismiss a reminder (scoped: only own + shared namespaces are searched). |
+| `L5_routing_push_reminder` | System pushes a context reminder to the LLM. |
+| `L5_routing_request_context` | LLM requests context. Returns a ContextPack with smart routing. |
+| `L5_routing_status` | Show vk-cache router status. |
+| `Lx_reasoning_apply_sandbox` | Apply changes in sandbox mode. |
+| `Lx_reasoning_create_plan` | Create an execution plan with steps. |
+| `Lx_reasoning_get_thinking_session` | Retrieve a thinking session. |
+| `Lx_reasoning_list_thinking_sessions` | List recent thinking sessions. |
+| `Lx_reasoning_propose_change_set` | Propose a code change set. |
+| `Lx_reasoning_record_thought` | Record a single thought step. |
+| `Lx_reasoning_reflect` | Reflect on reasoning quality. |
+| `Lx_reasoning_sequential_thinking` | Step-by-step reasoning chain for complex problems. |
+| `Lx_reasoning_status` | Show sequential thinking status. |
+| `Lx_reasoning_update_plan_step` | Update a plan step status. |
+| `health_check` | Check health of all memory subsystems. |
 
 ## Directory Structure
 
@@ -207,7 +186,7 @@ MCP-servers/agent-memory/
 ├── scripts/                      # register_agent.py, migrate_to_memory_db.py, ops scripts
 ├── logs/
 ├── src/
-│   ├── shared/                  # Core library (pip install -e .)
+│   ├── shared/                  # Core library (path-imported; venv-in-repo)
 │   │   ├── memory_db.py         # MemoryDB engine: SQLite + WAL, SQL-level scope filters
 │   │   ├── identity.py          # M4 identity: registry, verify, strict fail-closed boot
 │   │   ├── scope.py             # 5-level namespace c:/p:/a:/s:/u:, FS jail
@@ -310,7 +289,8 @@ The installer has two phases:
 
 Or install from source as a Python package:
 ```bash
-pip install -e .   # installs agent-memory-core with all dependencies
+# M5 audit: pip-install is NOT supported (path-based imports, venv-in-repo
+# deployment). Use install/bootstrap.sh to create .venv + deps instead.
 ```
 
 ### Post-Install: Enable the Backpack Plugin
@@ -318,7 +298,8 @@ pip install -e .   # installs agent-memory-core with all dependencies
 For OpenCode users, copy the plugin:
 
 ```bash
-cp plugins/backpack-orchestrator.ts ~/.config/opencode/plugins/
+# plugin lives in its own repo — not bundled here
+# cp plugins/backpack-orchestrator.ts ~/.config/opencode/plugins/
 ```
 
 Then restart OpenCode. The plugin auto-connects to the HTTP API on localhost:8890.
@@ -327,7 +308,7 @@ Then restart OpenCode. The plugin auto-connects to the HTTP API on localhost:889
 
 ## Configuration
 
-### Environment Variables (`etc/.env`)
+### Environment Variables (`config/.env` — see `config/.env.example`)
 
 ```env
 MEMORY_SERVER_DIR=/path/to/MCP-agent-memory

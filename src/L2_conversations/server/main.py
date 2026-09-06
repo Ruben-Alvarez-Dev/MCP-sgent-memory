@@ -2,7 +2,7 @@
 
 Architecture:
     SQLite + FTS5  → raw storage, exact retrieval, full-text search
-    Qdrant         → semantic search only (vectors)
+    memory.db      → semantic search only (vectors)
     Both linked by thread_id.
 
 Multi-agent isolation:
@@ -24,6 +24,7 @@ from shared.embedding import safe_embed, bm25_tokenize
 from shared.sanitize import validate_save_conversation
 from shared.conversation_db import save_thread, get_thread, search_fts, list_threads as db_list_threads, thread_count
 from shared.result_models import SaveConversationResult, SearchResult, ThreadListResult, ConversationStatusResult
+from shared.scope import ScopeError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ async def save_conversation(
     """Save a conversation thread.
 
     Stores full messages in SQLite (exact retrieval + FTS5 search).
-    Stores vector in Qdrant (semantic search only).
+    Stores vector in memory.db (semantic search only).
 
     Args:
         thread_id: Unique thread identifier.
@@ -98,10 +99,17 @@ async def save_conversation(
 async def get_conversation(thread_id: str) -> dict:
     """Retrieve a conversation thread by ID.
 
-    Returns full messages from SQLite (not Qdrant).
+    Returns full messages from SQLite (not the vector store).
     """
     result = get_thread(thread_id)
     if result:
+        # M5/H5: post-retrieval identity gate — a thread stored under a foreign
+        # agent_scope is indistinguishable from a missing one: no existence
+        # oracle, no content leak for other tenants' threads (ISO-13).
+        try:
+            IDENTITY.assert_agent(result.get("agent_scope", "shared"))
+        except ScopeError:
+            return {"status": "not_found", "thread_id": thread_id}
         return result
     return {"status": "not_found", "thread_id": thread_id}
 
@@ -115,7 +123,7 @@ async def search_conversations(
 ) -> SearchResult:
     """Search conversations by semantic similarity + full-text search.
 
-    Merges Qdrant (semantic) and SQLite FTS5 (text) results.
+    Merges memory.db (semantic) and FTS5 (text) results.
     Deduplicates by thread_id, keeps best score.
 
     Args:

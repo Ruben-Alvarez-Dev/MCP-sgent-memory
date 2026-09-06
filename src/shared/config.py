@@ -7,8 +7,8 @@ Usage:
     from shared.config import Config
 
     config = Config.from_env()
-    print(config.qdrant_url)       # http://127.0.0.1:6333
-    print(config.embedding_dim)    # 1024
+    print(config.qdrant_collection)  # main memory.db collection
+    print(config.embedding_dim)      # 1024
 
     errors = config.validate()
     if errors:

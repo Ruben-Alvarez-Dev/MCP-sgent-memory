@@ -213,7 +213,7 @@ def main() -> None:
                 save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
                 consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
                 request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
-                port=int(os.environ.get("AUTOMEM_API_PORT", "8890")),
+                port=int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890")),
             )
             logger.info("Backpack API sidecar started")
         else:

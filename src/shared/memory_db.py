@@ -32,7 +32,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-from .scope import ScopeError
+from .scope import ScopeError, normalize_scope
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ class MemoryDB:
 
     @staticmethod
     def _translate_filter(filter_: dict | None) -> tuple[str, list[Any]]:
-        """Qdrant-style {"must":[{"key":k,"match":{"value":v}}]} -> safe SQL.
+        """Legacy-compatible filter dict ({"must":[{"key":k,...}]}) -> safe SQL.
 
         Keys MUST be engine columns (allowlist), values ALWAYS bound as
         parameters. Fail-closed on malformed filters (None values, exotic
@@ -256,6 +256,19 @@ class MemoryDB:
         if "agent_scope" not in payload:  # ISO-12: no global-implicit default
             payload["agent_scope"] = "shared"
             logger.info("upsert %s: missing agent_scope -> defaulted to 'shared'", point_id)
+        # M5-audit M1: case/whitespace variants ("MERGED", " merged") must not
+        # bypass the trunk gate. NOTE: normalize_scope REJECTS reserved names
+        # (merged included) — so the trunk check runs on the stripped/lowered
+        # raw value first, and only non-trunk scopes get full canonicalization.
+        if str(payload["agent_scope"]).strip().lower() in _MERGED_SCOPES:
+            payload["agent_scope"] = str(payload["agent_scope"]).strip().lower()
+            if not allow_reserved_scope:
+                raise ScopeError(
+                    f"scope {payload['agent_scope']!r} is the human-approved trunk: "
+                    "upsert requires allow_reserved_scope=True (A11)"
+                )
+        else:
+            payload["agent_scope"] = normalize_scope(str(payload["agent_scope"]))
         if payload["agent_scope"] in _MERGED_SCOPES:  # ISO-16 trunk gate
             if not allow_reserved_scope:
                 raise ScopeError(
@@ -362,11 +375,15 @@ class MemoryDB:
         async with self._write_lock:
             await asyncio.to_thread(_write)
 
-    def _get_one(self, point_id: str) -> dict | None:
+    def _get_one(self, point_id: str, filter_) -> dict | None:
+        # M5-audit C1: get is fail-closed like search — the engine filter is
+        # REQUIRED, so a trunk-approval flow can never read foreign-scope
+        # points by bare id.
+        where, fparams = self._translate_filter(filter_)
         with self._lock:  # M3: serialize — shared conn is not concurrency-safe
             row = self._conn.execute(
-            "SELECT id, payload FROM points WHERE collection=? AND id=?",
-            (self.collection, point_id),
+            f"SELECT id, payload FROM points WHERE collection=? AND id=? AND {where}",
+            (self.collection, point_id, *fparams),
         ).fetchone()
         if not row:
             return None
@@ -377,8 +394,14 @@ class MemoryDB:
             return None
         return {"id": row["id"], "payload": payload}
 
-    async def get(self, point_id: str) -> dict | None:
-        return await asyncio.to_thread(self._get_one, point_id)
+    async def get(self, point_id: str, filter: dict | None = None) -> dict | None:
+        """Fetch one point by id, restricted by an ENGINE filter.
+
+        Fail-closed by design (M5-audit C1): a bare-id fetch could read a
+        foreign tenant's point. Pass the same scope filter you would pass to
+        search; foreign rows read as not-found.
+        """
+        return await asyncio.to_thread(self._get_one, point_id, filter)
 
     def _delete_one(self, point_id: str, filter_: dict | None) -> bool:
         sql = "DELETE FROM points WHERE collection=? AND id=?"
@@ -407,7 +430,15 @@ class MemoryDB:
                 logger.warning("update_payload %s: corrupt existing payload", point_id)
                 return False
             payload.update(patch)
-            scope = payload.get("agent_scope") or row["agent_scope"] or "shared"
+            scope = normalize_scope(str(payload.get("agent_scope") or row["agent_scope"] or "shared"))
+            # M5-audit H1: the trunk gate applies to PATCHES too — update_payload
+            # must never mint rows in "merged" (approval goes through
+            # approve_promotion, which builds real provenance).
+            if scope in _MERGED_SCOPES:
+                raise ScopeError(
+                    "update_payload cannot place rows in the trunk scope "
+                    "(use approve_promotion, ISO-16)"
+                )
             user = payload.get("user_id", row["user_id"])
             layer = payload.get("layer", row["layer"])
             if layer is not None and not isinstance(layer, int):
@@ -486,7 +517,7 @@ class MemoryDB:
 
     @staticmethod
     def _validate_sparse_query(sq: Any) -> dict[int, float] | None:
-        """Validate Qdrant-format sparse query. Fail-closed on malformation."""
+        """Validate legacy-format sparse query (indices/values). Fail-closed."""
         if sq is None:
             return None
         if not isinstance(sq, dict):
@@ -585,7 +616,7 @@ class MemoryDB:
     ) -> list[dict]:
         """Dense search restricted by ENGINE filter. Fails closed without one.
 
-        With `sparse_query` (Qdrant-format tokens), each candidate's stored
+        With `sparse_query` (legacy indices/values tokens), each candidate's stored
         sparse vector fuses as a monotonic boost: final = dense + w*s*(1-dense).
         """
         return await asyncio.to_thread(

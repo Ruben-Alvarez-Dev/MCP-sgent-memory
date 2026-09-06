@@ -11,16 +11,11 @@ EMBEDDING_BACKEND=llama_server
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
 LLAMA_SERVER_URL=http://127.0.0.1:$LLAMA_PORT
-LLM_BACKEND=llama_cpp
-LLM_MODEL=qwen2.5:7b
 VAULT_PATH=$INSTALL_DIR/vault
-ENGRAM_PATH=$INSTALL_DIR/data/memory/engram
-DREAM_PATH=$INSTALL_DIR/data/memory/dream
-THOUGHTS_PATH=$INSTALL_DIR/data/memory/thoughts
-HEARTBEATS_PATH=$INSTALL_DIR/data/memory/heartbeats
-REMINDERS_PATH=$INSTALL_DIR/data/memory/reminders
 STAGING_BUFFER=$INSTALL_DIR/data/staging_buffer
-AUTOMEM_JSONL=$INSTALL_DIR/data/raw_events.jsonl
+# Migration: renamed from AUTOMEM_JSONL (legacy key still accepted as
+# fallback by shared/env_loader.py).
+MEMORY_EVENTS_JSONL=$INSTALL_DIR/data/raw_events.jsonl
 MEMORY_SERVER_DIR=$INSTALL_DIR
 EOF
 

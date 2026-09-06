@@ -1,5 +1,10 @@
 # Capability: isolation (current truth, pre-change)
 
+> ⚠️ **SUPERSEDED — frozen pre-change baseline.** Missions M1–M5 modified this
+> capability; the living truth is the delta chain in
+> `openspec/changes/M*/specs/` (each gate signs what changed). Kept verbatim
+> as the baseline those deltas were reviewed against.
+
 ## Purpose
 Who can see whose memories today. This spec documents the current
 self-asserted, partially-enforced model — including confirmed leaks — so M1's

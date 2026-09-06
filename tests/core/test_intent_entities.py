@@ -6,14 +6,14 @@ Covers:
   - decision_recall routing with expanded ES/EN keywords
   - Prior classification cases not broken (5 representative intents)
 """
-import sys
 import os
+import sys
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
-from shared.llm import classify_intent, QueryIntent
-
+from shared.llm import QueryIntent, classify_intent
 
 # ── Entities: UPPER_SNAKE + digits ────────────────────────────────
 

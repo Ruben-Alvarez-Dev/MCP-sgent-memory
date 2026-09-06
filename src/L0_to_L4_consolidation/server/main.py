@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 config = Config.from_env()
 db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4/M5: gate del trunk
 DREAM_PATH = Path(config.L4_narrative_path) if config.L4_narrative_path else Path("")
 _state_path = DREAM_PATH / "state.json"
 _state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -311,15 +313,19 @@ async def approve_promotion(point_ids: str, approved_by: str) -> dict:
     if not isinstance(approved_by, str) or not approved_by.strip():
         return {"error": "approved_by is required (human identity)"}
 
+    # M5-audit C1: solo se pueden aprobar fuentes que el llamador puede LEER
+    # (scope propio + shared + merged). Un id privado ajeno = not_found.
+    visible = {"must": [{"key": "agent_scope",
+                         "match": {"any": [IDENTITY.agent_id, "shared", "merged"]}}]}
     sources = []
     for pid in ids:
-        rec = await db.get(str(pid))
+        rec = await db.get(str(pid), filter=visible)
         if rec is None:
-            return {"error": f"source point not found: {pid}"}
+            return {"error": f"source point not found or not visible: {pid}"}
         sources.append(rec)
 
     new_id = "merged-" + _hl.sha256(",".join(sorted(map(str, ids))).encode()).hexdigest()[:16]
-    if await db.get(new_id) is not None:
+    if await db.get(new_id, filter=visible) is not None:
         return {"merged_id": new_id, "approved_by": approved_by, "sources": len(ids),
                 "note": "already merged (idempotent)"}
 

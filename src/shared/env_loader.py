@@ -106,6 +106,7 @@ def _setup_data_paths(root: Path) -> None:
         # Data paths
         "DATA_DIR": str(data),
         "MEMORY_DIR": str(mem),
+        "MEMORY_EVENTS_JSONL": str(data / "raw_events.jsonl"),  # M5 audit: was AUTOMEM_JSONL (unread legacy name)
         "AUTOMEM_JSONL": str(data / "raw_events.jsonl"),
         "STAGING_BUFFER": str(data / "staging_buffer"),
         "L3_DECISIONS_PATH": str(mem / "L3_decisions"),

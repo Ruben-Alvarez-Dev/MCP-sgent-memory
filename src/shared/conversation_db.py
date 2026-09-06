@@ -1,7 +1,7 @@
 """SQLite + FTS5 storage for conversation threads.
 
 Raw conversations go to SQLite (exact retrieval, full-text search).
-Vectors go to Qdrant (semantic search only).
+Dense vectors go to the memory_db points table (semantic search only).
 Both linked by thread_id.
 
 Schema:

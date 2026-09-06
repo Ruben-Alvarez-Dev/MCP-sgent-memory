@@ -72,7 +72,10 @@ def main() -> int:
         if not pid:
             skipped += 1
             continue
-        if db._get_one(pid) is not None:  # idempotent
+        row = db._conn.execute(
+            "SELECT 1 FROM points WHERE collection=? AND id=?", (db.collection, pid)
+        ).fetchone()
+        if row is not None:  # idempotent (admin check: no scope semantics here)
             skipped += 1
             continue
         # sync internal write (script context — no event loop)

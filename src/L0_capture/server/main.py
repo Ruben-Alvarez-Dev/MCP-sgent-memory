@@ -1,7 +1,7 @@
 """L0_capture — Real-time Memory Ingestion Daemon (M2-storage port).
 
 Storage is shared.memory_db.MemoryDB (SQLite, collection 'L0_L4_memory');
-the Qdrant daemon is gone. events.jsonl remains the source of truth
+events.jsonl remains the ingestion source of truth (storage is memory.db)
 (STO-03) and is append-only — never rewritten from here.
 """
 
@@ -24,6 +24,7 @@ from shared.models import HeartbeatStatus, MemoryItem, MemoryLayer, MemoryScope,
 from shared.embedding import async_embed, safe_embed, bm25_tokenize
 from shared.sanitize import validate_memorize, validate_ingest_event
 from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult
+from shared.scope import assert_contained
 
 config = Config.from_env()
 db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
@@ -45,7 +46,14 @@ async def _store_memory(item: MemoryItem) -> bool:
         vector = item.embedding if item.embedding else await safe_embed(item.content)
         sparse = bm25_tokenize(item.content)
         payload = dict(item.model_dump(mode="json"))
-        payload["agent_scope"] = "shared"  # ISO-12: explicit scope (engine would default it)
+        # M5/M2: effective identity scope instead of a hardcoded public write.
+        # Bound servers tag their OWN tenant scope (data stays private to the
+        # engine-level filter); unbound (open) servers keep the legacy public
+        # default so existing retrieval filters still see their memories.
+        agent_scope = IDENTITY.assert_agent("default")  # ISO-15: bound→own scope
+        if IDENTITY.mode != "bound":
+            agent_scope = "shared"  # open mode: no verified tenant → public
+        payload["agent_scope"] = agent_scope
         # user_id passthrough: preserved automatically if the item payload carried one
         await db.upsert(item.memory_id, vector, payload, sparse=sparse)
         return True
@@ -119,10 +127,16 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
         except Exception:
             pass  # Prefetch is best-effort
     
+    # M5/H2: identity gate BEFORE any I/O (ISO-13) — rejects foreign/traversal
+    # agent_ids while the server is bound; shape-validates them in open mode.
+    agent_id = IDENTITY.assert_agent(agent_id)
     status = HeartbeatStatus(agent_id=agent_id, session_id=session_id, turn_count=turn_count, status="active")
     hb_dir = Path(config.L1_working_path)
     hb_dir.mkdir(parents=True, exist_ok=True)
-    (hb_dir / f"{agent_id}.json").write_text(status.model_dump_json(indent=2))
+    # M5/H2: fail-closed containment — a traversal/absolute agent_id can never
+    # name a heartbeat file outside the L1 jail, even if shape checks regress.
+    path = assert_contained(hb_dir / f"{agent_id}.json", hb_dir)
+    path.write_text(status.model_dump_json(indent=2))
     promote_due = turn_count > 0 and turn_count % PROMOTION_INTERVAL == 0
     return HeartbeatResult(status="active", agent_id=agent_id, turn_count=turn_count, promotion_due=promote_due)
 

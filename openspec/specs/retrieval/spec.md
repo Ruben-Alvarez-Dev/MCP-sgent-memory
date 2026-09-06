@@ -1,5 +1,10 @@
 # Capability: retrieval (current truth, pre-change)
 
+> ⚠️ **SUPERSEDED — frozen pre-change baseline.** Missions M1–M5 modified this
+> capability; the living truth is the delta chain in
+> `openspec/changes/M*/specs/` (each gate signs what changed). Kept verbatim
+> as the baseline those deltas were reviewed against.
+
 ## Purpose
 How the system finds memories today: dense vectors (BGE-M3), deterministic
 intent classification, and score fusion. This spec freezes current behavior so

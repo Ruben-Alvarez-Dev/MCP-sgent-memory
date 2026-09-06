@@ -82,13 +82,13 @@ async def test_approve_promotion_end_to_end(db):
     await db.update_payload("src-1", {"merged_into": "merged-abc"})
     await db.update_payload("src-2", {"merged_into": "merged-abc"})
 
-    row = await db.get("merged-abc")
+    row = await db.get("merged-abc", filter=SHARED_FILTER)
     assert row["payload"]["approved_by"] == "manu"
     assert len(row["payload"]["provenance"]) == 2
     assert {p["point_id"] for p in row["payload"]["provenance"]} == {"src-1", "src-2"}
-    assert (await db.get("src-1"))["payload"]["merged_into"] == "merged-abc"
+    assert (await db.get("src-1", filter=SHARED_FILTER))["payload"]["merged_into"] == "merged-abc"
     # sources remain in their own scope (no destructive move)
-    assert (await db.get("src-1"))["payload"]["agent_scope"] == "shared"
+    assert (await db.get("src-1", filter=SHARED_FILTER))["payload"]["agent_scope"] == "shared"
 
 
 @pytest.mark.unit

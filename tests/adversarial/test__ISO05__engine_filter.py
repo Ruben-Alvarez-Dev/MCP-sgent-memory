@@ -30,6 +30,8 @@ if str(SRC) not in sys.path:
 
 from shared.memory_db import MemoryDB, ScopeRequiredError
 
+U1_F = {"must": [{"key": "user_id", "match": {"value": "u1"}}]}
+
 
 @pytest.fixture()
 def db(tmp_path):
@@ -120,9 +122,9 @@ class TestA3EngineFilterNeverScoresForeignRows:
         """Ownership-enforced delete: u2's filter must not remove u1's point."""
         await db.upsert("u1-row", _vec(1.0), {"content": "mine", "user_id": "u1"})
         assert await db.delete("u1-row", filter=_user_filter("u2")) is False
-        assert await db.get("u1-row") is not None  # untouched — no TOCTOU window
+        assert await db.get("u1-row", filter=U1_F) is not None  # untouched — no TOCTOU window
         assert await db.delete("u1-row", filter=_user_filter("u1")) is True
-        assert await db.get("u1-row") is None
+        assert await db.get("u1-row", filter=U1_F) is None
 
 
 class TestA3ServerWiring:
@@ -172,10 +174,10 @@ class TestA3ServerWiring:
         await db.upsert("mine", _vec(1.0), {"content": "mine", "user_id": "u1"})
         res = await l3.delete_memory("mine", user_id="u2")
         assert res.status == "not_found"
-        assert await db.get("mine") is not None  # u1's row survived u2's attempt
+        assert await db.get("mine", filter=U1_F) is not None  # u1's row survived u2's attempt
         res = await l3.delete_memory("mine", user_id="u1")
         assert res.status == "deleted"
-        assert await db.get("mine") is None
+        assert await db.get("mine", filter=U1_F) is None
 
 
 # ── A10: arbitrary filter keys — fail closed, never silent ──────────

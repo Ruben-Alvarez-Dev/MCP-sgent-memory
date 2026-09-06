@@ -1,5 +1,10 @@
 # Capability: consolidation (current truth, pre-change)
 
+> ⚠️ **SUPERSEDED — frozen pre-change baseline.** Missions M1–M5 modified this
+> capability; the living truth is the delta chain in
+> `openspec/changes/M*/specs/` (each gate signs what changed). Kept verbatim
+> as the baseline those deltas were reviewed against.
+
 ## Purpose
 How memories move L1→L2→L3→L4 and how dream works today, with the generative
 LLM permanently absent.

@@ -260,10 +260,10 @@ _STOP_WORDS = frozenset([
 
 
 def bm25_tokenize(text: str) -> dict:
-    """Tokenize text for BM25 sparse vector (Qdrant format).
+    """Tokenize text for BM25 sparse vector (legacy Qdrant-compatible dict).
 
-    Returns {"indices": [...], "values": [...]} for Qdrant sparse vector upsert.
-    Qdrant computes IDF server-side; we just send term frequencies.
+    Returns {"indices": [...], "values": [...]} for sparse upsert/storage.
+    Values are term frequencies; IDF/idf-style weighting is applied at read time.
     """
     import hashlib
 

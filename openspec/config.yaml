@@ -3,7 +3,7 @@ schema: spec-driven
 
 context: |
   Stack: Python 3.12, MCP SDK 1.29.1 (FastMCP stdio), SQLite 3.53.4 + FTS5,
-  Qdrant (to be removed), pytest + pytest-asyncio, ruff (line-length 120).
+  Qdrant (removed in M2), pytest + pytest-asyncio, ruff (line-length 120).
   HARD CONSTRAINTS (non-negotiable, apply to every change):
   - Cero modelos locales: no BGE-M3, no qwen, no micro-LLM. Generation only via
     harness hooks + agent LLM (prepare/commit protocol).

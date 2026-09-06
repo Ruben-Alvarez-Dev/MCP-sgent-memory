@@ -18,8 +18,7 @@ sys.path.insert(0, str(BASE / "src"))
 
 pytestmark = [pytest.mark.isolation]
 
-from shared.memory_db import MemoryDB, ScopeError  # noqa: E402
-from shared.identity import Identity  # noqa: E402
+from shared.memory_db import MemoryDB, ScopeError
 
 
 def _vec(seed: float) -> list[float]:
@@ -115,7 +114,7 @@ async def test_approve_promotion_tool_contract(tmp_path, monkeypatch):
     # unknown source → rejected
     assert "error" in await l04.approve_promotion('["ghost"]', approved_by="manu")
     # merged row carries provenance
-    row = await l04.db.get(result["merged_id"])
+    row = await l04.db.get(result["merged_id"], filter={"must": [{"key": "agent_scope", "match": {"any": ["shared", "merged"]}}]})
     assert row["payload"]["provenance"][0]["point_id"] == "s1"
     assert row["payload"]["approved_by"] == "manu"
 

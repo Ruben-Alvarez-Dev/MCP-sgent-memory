@@ -69,7 +69,6 @@ if $SHOW; then
     echo ""
     echo "Derived paths (handled by env_loader.py at runtime):"
     echo "  Data:         $DIR/data"
-    echo "  Engram:       $DIR/data/memory/engram"
     echo "  Thoughts:     $DIR/data/memory/thoughts"
     echo "  Events JSONL: $DIR/data/raw_events.jsonl"
     echo "  Staging:      $DIR/data/staging_buffer"

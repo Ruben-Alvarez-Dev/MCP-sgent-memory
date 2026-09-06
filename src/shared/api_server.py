@@ -57,7 +57,7 @@ def _get_verify_db() -> MemoryDB:
 
 
 def _set_payload_sync(db: MemoryDB, point_id: str, payload: dict) -> int:
-    """Qdrant set_payload parity: update ONLY the payload column.
+    """Legacy set_payload parity (Qdrant API shape): payload column only.
 
     MemoryDB.upsert(vector=None) would NULL the stored embedding
     (ON CONFLICT ... vector=excluded.vector), wiping the vector on every
@@ -127,7 +127,7 @@ async def _verify_memories(body: dict) -> dict:
     for mid in memory_ids[:20]:  # Cap at 20 per batch
         try:
             # Fetch the point
-            rec = await db.get(mid)
+            rec = await db.get(mid, filter={"must": [{"key": "agent_scope", "match": {"any": ["shared", "merged"]}}]})
             if rec is None:
                 errors.append(f"not found: {mid}")
                 continue
@@ -356,7 +356,7 @@ def start_api_server(
         save_conversation_fn: L2_conversations.save_conversation function
         consolidate_fn: L0_to_L4_consolidation.consolidate function
         request_context_fn: L5_routing.request_context function (optional)
-        port: Port to listen on (default: AUTOMEM_API_PORT env var or 8890)
+        port: Port to listen on (default: MEMORY_API_PORT env var or 8890)
 
     Returns:
         The HTTPServer instance (for testing / graceful shutdown).
@@ -372,7 +372,7 @@ def start_api_server(
     _request_context_fn = request_context_fn
 
     if port is None:
-        port = int(os.environ.get("AUTOMEM_API_PORT", "8890"))
+        port = int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890"))
 
     server = HTTPServer(("127.0.0.1", port), _ApiHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="backpack-api")

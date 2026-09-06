@@ -36,10 +36,10 @@ echo ""
 # ── Load bootstrap status ─────────────────────────────────────────
 if [ -f "$INSTALL_DIR/.bootstrap-status" ]; then
     source "$INSTALL_DIR/.bootstrap-status"
-    pass "Bootstrap status loaded (Emb=$BOOTSTRAP_EMB, LLM=$BOOTSTRAP_LLM)"
+    pass "Bootstrap status loaded (Emb=$BOOTSTRAP_EMB)"
 else
     warn "No .bootstrap-status found — infrastructure may not be set up"
-    BOOTSTRAP_EMB=false; BOOTSTRAP_LLM=false
+    BOOTSTRAP_EMB=false
     BOOTSTRAP_VENV="$INSTALL_DIR/.venv"
 fi
 
@@ -77,8 +77,6 @@ EMBEDDING_BACKEND=llama_server
 LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
-LLM_BACKEND=${LLM_BACKEND:-llama_cpp}
-LLM_MODEL=qwen2.5-7b-instruct-Q4_K_M.gguf
 EOF
         pass "config/.env updated with missing keys"
     else
@@ -90,17 +88,9 @@ EMBEDDING_BACKEND=llama_server
 LLAMA_SERVER_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
-LLM_BACKEND=llama_cpp
-LLM_MODEL=qwen2.5-7b-instruct-Q4_K_M.gguf
 MEMORY_SERVER_DIR=$INSTALL_DIR
 VAULT_PATH=$INSTALL_DIR/data/vault
-ENGRAM_PATH=$INSTALL_DIR/data/memory/engram
-DREAM_PATH=$INSTALL_DIR/data/memory/dream
-THOUGHTS_PATH=$INSTALL_DIR/data/memory/thoughts
-HEARTBEATS_PATH=$INSTALL_DIR/data/memory/heartbeats
-REMINDERS_PATH=$INSTALL_DIR/data/memory/reminders
 STAGING_BUFFER=$INSTALL_DIR/data/staging_buffer
-AUTOMEM_JSONL=$INSTALL_DIR/data/raw_events.jsonl
 EOF
     chmod 600 "$INSTALL_DIR/config/.env"
     pass "config/.env created"

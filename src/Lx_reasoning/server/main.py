@@ -12,9 +12,25 @@ from shared.result_models import ThinkingResult, PlanResult, PlanUpdateResult, R
 from shared.sanitize import sanitize_text, sanitize_thread_id, validate_json_field, validate_propose_change
 
 config = Config.from_env()
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4/M5-audit: complete the 8/8 bind
 THOUGHTS_PATH = Path(config.Lx_deliberative_path) if config.Lx_deliberative_path else Path("")
 STAGING = Path(config.tmp_path) if config.tmp_path else Path("")
 mcp = FastMCP("Lx_reasoning")
+
+def _sid(session_id: str) -> str:
+    """sanitize_thread_id + consumer-side path hardening (M5/M3, ISO-07).
+
+    sanitize_thread_id deliberately allows '/' and '.' for hierarchical TEXT
+    ids ("project/abc") — but _save/_load/_staging turn the id into a
+    FILESYSTEM path, where an absolute id ("/tmp/pwn") or a dot-prefixed one
+    escapes the sessions jail. Reject those HERE, at the only consumer that
+    builds paths from ids (shared/sanitize.py is shared API and off-limits).
+    """
+    sid = sanitize_thread_id(session_id)
+    if sid.startswith(("/", ".")) or ".." in sid:
+        raise ValueError(f"unsafe session/thread id for filesystem use: {sid!r}")
+    return sid
 
 def _save(sid, step, t):
     d = THOUGHTS_PATH / sid; d.mkdir(parents=True, exist_ok=True)
@@ -34,7 +50,7 @@ async def sequential_thinking(problem: str, context: str = "", max_steps: int = 
     """Step-by-step reasoning chain for complex problems."""
     problem = sanitize_text(problem, max_length=500, field="problem")
     context = sanitize_text(context, max_length=2000, field="context") if context else ""
-    sid = sanitize_thread_id(session_id) if session_id else f"think_{uuid.uuid4().hex[:8]}"
+    sid = _sid(session_id) if session_id else f"think_{uuid.uuid4().hex[:8]}"
 
     # Extract key entities from problem for varied thoughts
     import re
@@ -63,7 +79,7 @@ async def sequential_thinking(problem: str, context: str = "", max_steps: int = 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def record_thought(session_id: str, thought: str, step: int = 0, confidence: float = 0.5) -> ThinkingResult:
     """Record a single thought step."""
-    session_id = sanitize_thread_id(session_id)
+    session_id = _sid(session_id)
     thought = sanitize_text(thought, field="thought")
     existing = _load(session_id)
     ns = step or len(existing) + 1
@@ -93,7 +109,7 @@ async def create_plan(title: str, steps_json: str = "", context: str = "", sessi
             "Test and verify",
             "Document and finalize"
         ])]
-    sid = sanitize_thread_id(session_id) if session_id else f"plan_{uuid.uuid4().hex[:8]}"
+    sid = _sid(session_id) if session_id else f"plan_{uuid.uuid4().hex[:8]}"
     plan = {"plan_id":sid,"title":title,"context":context,"steps":steps,"status":"created","created_at":datetime.now(timezone.utc).isoformat()}
     d = THOUGHTS_PATH / "plans"; d.mkdir(parents=True, exist_ok=True)
     (d / f"{sid}_plan.json").write_text(json.dumps(plan, indent=2))
@@ -102,7 +118,7 @@ async def create_plan(title: str, steps_json: str = "", context: str = "", sessi
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def update_plan_step(plan_id: str, step_index: int, status: str = "completed", notes: str = "") -> PlanUpdateResult:
     """Update a plan step status."""
-    plan_id = sanitize_thread_id(plan_id)
+    plan_id = _sid(plan_id)
     notes = sanitize_text(notes, max_length=2000, field="notes") if notes else ""
     pf = THOUGHTS_PATH / "plans" / f"{plan_id}_plan.json"
     if not pf.exists(): return PlanUpdateResult(status="plan_not_found")
@@ -117,14 +133,14 @@ async def update_plan_step(plan_id: str, step_index: int, status: str = "complet
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def reflect(session_id: str, focus: str = "quality") -> ReflectResult:
     """Reflect on reasoning quality."""
-    session_id = sanitize_thread_id(session_id)
+    session_id = _sid(session_id)
     thoughts = _load(session_id)
     return ReflectResult(status="reflected", session_id=session_id, steps=len(thoughts), summary=f"Session {session_id}: {len(thoughts)} steps")
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_thinking_session(session_id: str) -> SessionResult:
     """Retrieve a thinking session."""
-    session_id = sanitize_thread_id(session_id)
+    session_id = _sid(session_id)
     thoughts = _load(session_id)
     return SessionResult(session_id=session_id, steps=len(thoughts), thoughts=thoughts)
 
@@ -148,7 +164,7 @@ async def propose_change_set(session_id: str, title: str, changes_json: str = "[
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def apply_sandbox(change_set_id: str, dry_run: bool = True) -> dict:
     """Apply changes in sandbox mode."""
-    change_set_id = sanitize_thread_id(change_set_id)
+    change_set_id = _sid(change_set_id)
     p = _staging(change_set_id)
     if not p.exists(): return {"status":"not_found"}
     cs = json.loads(p.read_text())

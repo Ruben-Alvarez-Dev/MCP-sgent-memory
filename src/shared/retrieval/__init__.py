@@ -244,8 +244,9 @@ async def _retrieve_hybrid(
 
     scope = normalize_scope(agent_scope)  # fail-closed (was: concatenated into collection name)
     target_coll = collection or QDRANT_COLLECTION
+    visible = [scope, "shared", "merged"] if scope != "shared" else ["shared", "merged"]
     must: list[dict] = [
-        {"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}
+        {"key": "agent_scope", "match": {"any": visible}}  # M5: trunk (merged) is public
     ]
     if level is not None:
         must.append({"key": "layer", "match": {"value": level}})

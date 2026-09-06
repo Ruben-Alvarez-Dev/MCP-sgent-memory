@@ -290,6 +290,58 @@ async def dream_status(task_id: str) -> dict:
     return result
 
 
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def approve_promotion(point_ids: str, approved_by: str) -> dict:
+    """M5-trunk (ISO-06/ISO-16): copy source points into the human-approved
+    'merged' trunk with full provenance, and mark the sources merged_into.
+
+    point_ids: JSON array string, e.g. '["id1","id2"]'. approved_by: human
+    identity REQUIRED — automatic promotion never reaches the trunk.
+
+    Returns {"merged_id", "approved_by", "sources": n}.
+    """
+    import hashlib as _hl
+    import json as _json
+    try:
+        ids = _json.loads(point_ids)
+    except _json.JSONDecodeError as e:
+        return {"error": f"point_ids must be a JSON array: {e}"}
+    if not isinstance(ids, list) or not ids:
+        return {"error": "point_ids must be a non-empty JSON array"}
+    if not isinstance(approved_by, str) or not approved_by.strip():
+        return {"error": "approved_by is required (human identity)"}
+
+    sources = []
+    for pid in ids:
+        rec = await db.get(str(pid))
+        if rec is None:
+            return {"error": f"source point not found: {pid}"}
+        sources.append(rec)
+
+    new_id = "merged-" + _hl.sha256(",".join(sorted(map(str, ids))).encode()).hexdigest()[:16]
+    if await db.get(new_id) is not None:
+        return {"merged_id": new_id, "approved_by": approved_by, "sources": len(ids),
+                "note": "already merged (idempotent)"}
+
+    base_payload = dict(sources[0]["payload"])
+    base_payload["content"] = "\n\n---\n\n".join(
+        s["payload"].get("content", "") for s in sources
+    )
+    base_payload["agent_scope"] = "merged"
+    base_payload["approved_by"] = approved_by.strip()
+    base_payload["provenance"] = [
+        {"from_scope": s["payload"].get("agent_scope", "shared"), "point_id": s["id"]}
+        for s in sources
+    ]
+    base_payload["approved_at"] = datetime.now(timezone.utc).isoformat()
+    await db.upsert(new_id, None, base_payload, allow_reserved_scope=True)
+
+    for s in sources:
+        await db.update_payload(s["id"], {"merged_into": new_id})
+
+    return {"merged_id": new_id, "approved_by": approved_by.strip(), "sources": len(ids)}
+
+
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_consolidated(scope: str = "") -> LayerResult:
     """Get consolidated memories (L4)."""
@@ -355,7 +407,7 @@ def register_tools(target_mcp: FastMCP, target_qdrant, target_config: Config, pr
     config = target_config
     if db.embedding_dim != config.embedding_dim:
         db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
-    for fn in [heartbeat, consolidate, dream, dream_status, force_promote, get_consolidated, get_semantic, status]:
+    for fn in [approve_promotion, heartbeat, consolidate, dream, dream_status, force_promote, get_consolidated, get_semantic, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")
 
 

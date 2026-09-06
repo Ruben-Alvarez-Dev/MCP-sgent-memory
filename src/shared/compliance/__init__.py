@@ -2,7 +2,8 @@
 
 Two-level verification:
   1. Deterministic (regex/AST) — fast, 100% reliable for code rules
-  2. Semantic (small LLM) — catches contradictions, intent violations
+  2. Semantic — no local generation models remain; semantic rules are
+     reported as SEMANTIC_UNVERIFIED for harness LLM review
 
 Usage:
     from shared.compliance import verify_compliance
@@ -190,48 +191,27 @@ async def verify_semantic(
     rules: list[ProjectRule] | None = None,
     context: dict[str, Any] | None = None,
 ) -> list[Violation]:
-    """Check code against semantic rules using small LLM.
+    """Check code against semantic rules.
 
-    Returns list of violations. Empty list = all rules passed.
+    The program runs with zero local generation models, so semantic rules
+    cannot be verified here. Each rule with a ``semantic_prompt`` yields an
+    informative (severity="info") SEMANTIC_UNVERIFIED violation flagging the
+    output for harness LLM review.
+
+    Returns list of informative violations. Empty list = no semantic rules.
     """
     rules = rules or DEFAULT_RULES
     violations: list[Violation] = []
 
-    # Find rules that need semantic checking
-    semantic_rules = [r for r in rules if r.semantic_prompt]
-    if not semantic_rules:
-        return violations
-
-    from ..llm import get_small_llm
-
-    try:
-        llm = get_small_llm()
-        if not llm.is_available():
-            return violations  # Can't do semantic checks without LLM
-    except Exception:
-        return violations  # No small LLM configured
-
-    for rule in semantic_rules:
-        prompt = (
-            f"You are a code compliance auditor. Check if the following code violates this rule:\n\n"
-            f"RULE: {rule.description}\n\n"
-            f"CHECK: {rule.semantic_prompt}\n\n"
-            f"CODE:\n{code}\n\n"
-            f"Respond with ONLY 'COMPLIANT' or 'VIOLATION: <brief reason>'."
-        )
-
-        try:
-            response = llm.ask(prompt, max_tokens=128, temperature=0.0)
-            if response.strip().upper().startswith("VIOLATION"):
-                reason = response.strip().replace("VIOLATION:", "").strip()
-                violations.append(Violation(
-                    rule_id=rule.id,
-                    rule_description=rule.description,
-                    severity=rule.severity,
-                    detail=f"Semantic violation: {reason}",
-                ))
-        except Exception:
-            pass  # Semantic check failure = not a violation, just skip
+    for rule in rules:
+        if not rule.semantic_prompt:
+            continue
+        violations.append(Violation(
+            rule_id=rule.id,
+            rule_description=rule.description,
+            severity="info",
+            detail="SEMANTIC_UNVERIFIED: requires harness LLM review",
+        ))
 
     return violations
 

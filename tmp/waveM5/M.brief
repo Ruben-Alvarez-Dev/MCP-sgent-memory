@@ -1,0 +1,16 @@
+Eres ingeniero senior. cwd=/Users/manu/.mcp-agent-memory. NO uses git. PROPIEDAD EXCLUSIVA: src/shared/compliance/__init__.py, src/shared/llm/config.py, src/shared/llm/__init__.py, y BORRADO de src/shared/llm/llama_cpp.py y src/shared/llm/base.py, más tests/core/test_intent_entities.py (nuevo). NO toques: memory_db.py, retrieval/, api_server.py, L0_to_L4, config.py compartido (el orquestador poda llm_backend allí), result_models.py.
+
+RESTRICCIÓN DURA DEL PROGRAMA: cero modelos de generación locales. El módulo shared/llm queda reducido al clasificador determinista.
+
+TAREA 1 — compliance sin micro-LLM: en src/shared/compliance/__init__.py, verify_semantic ya NO usa get_small_llm. Para reglas con semantic_prompt: genera una Violation informativa por regla: rule_id igual, severity="info" (mira el Literal de severity en el modelo y usa el valor válido más bajo; si no admite "info" usa el menor existente), detail="SEMANTIC_UNVERIFIED: requires harness LLM review". Elimina el import y el bloque del LLM. Conserva el resto de la verificación (nivel 1) intacta.
+
+TAREA 2 — demolición LLM: en src/shared/llm/config.py borra get_llm, get_small_llm, list_available_backends, _get_llama_cpp y helpers relacionados; CONSERVA classify_intent, QueryIntent y sus dependencias internas. BORRA src/shared/llm/llama_cpp.py y src/shared/llm/base.py. En src/shared/llm/__init__.py deja SOLO: from .config import classify_intent, QueryIntent y __all__ = ["classify_intent", "QueryIntent"] (ajusta el docstring: sin backends de generación).
+
+TAREA 3 — extractor de entities (findings del eval-40): en classify_intent dentro de llm/config.py:
+- snake regex: de r"[A-Z_]{2,}" a r"[A-Z_0-9]{2,}" para que FTS5 y puertos como 6333 se capturen íntegros (el camel actual ya va bien; verifica que no rompa casos previos)
+- fallback alfanumérico: tokens con r"[a-záéíóúüñA-Z0-9_]{3,}" conservando el filtro de stop words (añade dígitos puros de 4+ chars como válidos; los de 3 solo si van con letras)
+- routing decision_recall: localiza la cadena de keywords de intents y amplía el branch de decision_recall con: decidimos, decisión, decisiones, decidir, acuerdo, elegimos, motivo, razón, we decided, decision, rationale, why did we, choice. Cuidado con el orden de evaluación de branches (que decision_recall no quede sometido por pattern_match).
+Crea tests/core/test_intent_entities.py (pytest.mark.unit): FTS5 entero en entities; "puerto 6333" captura 6333; "por qué decidimos X" clasifica decision_recall; casos previos de clasificación no rotos (elige 5 intents representativos y assertea).
+
+VERIFICA: .venv/bin/python -c "import sys; sys.path.insert(0,'src'); from shared.llm import classify_intent, QueryIntent; import shared.compliance; print('OK')" y grep -rn "get_small_llm\|get_llm\b\|llama_cpp" src/ --include="*.py" | grep -v __pycache__ | grep -vi "embedding" (los únicos restos permitidos: result_models campo llama_cpp y su uso en L0_capture, y config.py llm_backend que poda el orquestador después — repórtalos si los ves) y .venv/bin/python -m pytest tests/core/test_intent_entities.py tests/core/test_llm_ranking.py -q 2>/dev/null; .venv/bin/python -m pytest tests/core -q (debe seguir verde; si un test existente usa APIs borradas, REPÓRTALO y no lo toques).
+REPORTA: cambios, verificación, desviaciones.

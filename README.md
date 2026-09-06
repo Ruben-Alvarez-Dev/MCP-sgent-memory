@@ -43,19 +43,26 @@ The backpack captures events **automatically** (no LLM decision needed) and prov
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐   │
 │  │                        STORAGE                               │   │
-│  │  Qdrant (vectors) │ SQLite (embedding cache) │ Filesystem   │   │
+│  │  memory.db (SQLite stdlib, WAL) │ Filesystem (vault/files)  │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+**Storage**: a single `data/memory.db` (SQLite stdlib, WAL mode). No daemons,
+no ports, no external vector database. The `MemoryDB` engine enforces scope
+filters at the SQL level (`agent_scope` / `user_id` / `layer`, validated via
+allowlist), forbids persisted zero-vectors (`NULL` + deterministic hash-vector
+instead), boosts lexical matches with sparse vectors (RET-05) and performs
+deletes atomically (no TOCTOU window).
 
 ### Memory Layers
 
 ```
 L0 RAW          → Append-only event lake (JSONL)
-L1 WORKING      → Steps, facts, hot dialogue (Qdrant)
-L2 EPISODIC     → Grouped events, incidents (Qdrant + SQLite)
-L3 SEMANTIC     → Decisions, entities, patterns (Qdrant + filesystem)
-L4 CONSOLIDATED → Narratives, deep summaries (Qdrant)
+L1 WORKING      → Steps, facts, hot dialogue (memory.db)
+L2 EPISODIC     → Grouped events, incidents (memory.db)
+L3 SEMANTIC     → Decisions, entities, patterns (memory.db + filesystem)
+L4 CONSOLIDATED → Narratives, deep summaries (memory.db)
 L5 SELECTIVE    → Context routing and assembly
 ```
 
@@ -159,7 +166,7 @@ L5 SELECTIVE    → Context routing and assembly
 
 | Tool | Description |
 |------|-------------|
-| `health_check` | Check health of all memory subsystems (Qdrant, embedding, collections, disk) |
+| `health_check` | Check health of all memory subsystems (memory.db, identity, vault, disk) |
 
 **Legend**: ✅ = auto-triggered by plugin | 🧠 = LLM decides when | 👤 = user-triggered | ⚙️ = internal
 
@@ -169,16 +176,17 @@ L5 SELECTIVE    → Context routing and assembly
 
 ```
 MCP-servers/agent-memory/
-├── bin/                          # Executables: qdrant, llama-server
-├── etc/                          # Config: .env, qdrant.yaml, mcp.json
+├── bin/                          # launchd scripts: vault processor & watcher
+├── etc/                          # Config: .env, mcp.json
 ├── data/                         # ALL persistent memory
-│   ├── L0-sensory/              # events.jsonl
+│   ├── memory.db                 # Single SQLite store (stdlib, WAL): points + conversations + facts
+│   ├── agents.json               # Agent identity registry (0600, sha256 hashes only)
+│   ├── L0-sensory/              # events.jsonl (append-only audit + ingestion fallback)
 │   ├── L1-working/              # agents/
-│   ├── L2-episodic/             # conversations.db
-│   ├── L3-semantic/             # decisions/, facts/
 │   ├── L4-narrative/            # consolidation-state.json
 │   ├── L5-selective/            # reminders/
 │   ├── Lx-deliberative/         # sessions/, plans/
+│   ├── staging_buffer/
 │   └── Lx-persistent/           # bilingual vault
 │       ├── ES/                  # Spanish (user writes in Obsidian)
 │       │   ├── Conocimiento/
@@ -195,40 +203,37 @@ MCP-servers/agent-memory/
 │       │   ├── episodes/
 │       │   └── entities/
 │       └── .system/             # counter.json
-├── qdrant/                      # Vector storage
-├── engine/                      # Compiled llama.cpp
-├── models/                      # GGUF: embeddings/, reasoning/
+├── openspec/                     # Specs + gated milestones M0–M5 (storage, identity, trunk…)
+├── scripts/                      # register_agent.py, migrate_to_memory_db.py, ops scripts
 ├── logs/
 ├── src/
-│   ├── shared/                 # Core library (pip install -e .)
-│   │   ├── config.py           # Environment configuration
-│   │   ├── embedding.py        # BGE-M3 via llama.cpp
-│   │   ├── qdrant_client.py    # Qdrant vector operations
-│   │   ├── sanitize.py         # Input validation & XSS protection
-│   │   ├── retrieval/          # Hybrid retrieval + ranking
-│   │   ├── vault_manager/      # Obsidian vault atomic writes
-│   │   ├── conversation_db.py  # SQLite + FTS5 thread storage
-│   │   ├── timeline.py         # Event timeline
-│   │   ├── llm/                # LLM integration (llama.cpp)
-│   │   ├── diff_sandbox.py     # Code change sandbox
-│   │   ├── observe.py          # File system observer
-│   │   └── vault_constants.py  # Folder mappings
-│   ├── unified/server/main.py  # Unified MCP server entrypoint
-│   ├── L0_capture/             # Auto-capture: memorize, ingest, heartbeat
-│   ├── L0_to_L4_consolidation/ # Memory consolidation & dreaming
-│   ├── L2_conversations/       # Thread storage & search
-│   ├── L3_facts/               # Semantic memory CRUD
-│   ├── L3_decisions/           # Vault decisions + Obsidian notes
-│   ├── L5_routing/             # Context retrieval + reminders
-│   └── Lx_reasoning/           # Sequential thinking + plans
-├── install/                    # Bootstrap + app-install scripts
-├── tests/                      # 164 tests (core/ + app/)
-│   ├── core/                   # No external services needed
-│   └── app/                    # Requires Qdrant + embedding server
-├── install/
+│   ├── shared/                  # Core library (pip install -e .)
+│   │   ├── memory_db.py         # MemoryDB engine: SQLite + WAL, SQL-level scope filters
+│   │   ├── identity.py          # M4 identity: registry, verify, strict fail-closed boot
+│   │   ├── scope.py             # 5-level namespace c:/p:/a:/s:/u:, FS jail
+│   │   ├── retrieval/           # Hybrid retrieval, sparse boost (RET-05)
+│   │   ├── api_server.py        # HTTP sidecar :8890 (optional token, ISO-17)
+│   │   ├── sanitize.py          # Input validation & XSS protection
+│   │   ├── vault_manager/       # Obsidian vault atomic writes
+│   │   └── config.py            # Environment configuration
+│   ├── unified/server/main.py   # Unified MCP server entrypoint (stdio)
+│   ├── L0_capture/              # Auto-capture: memorize, ingest, heartbeat
+│   ├── L0_to_L4_consolidation/  # Memory consolidation & dreaming
+│   ├── L2_conversations/        # Thread storage & search
+│   ├── L3_facts/                # Semantic memory CRUD
+│   ├── L3_decisions/            # Vault decisions + Obsidian notes
+│   ├── L5_routing/              # Context retrieval + reminders
+│   └── Lx_reasoning/            # Sequential thinking + plans
+├── tests/                       # core/ (no external services) + adversarial/
+├── install/                     # Bootstrap + app-install scripts
 ├── backups/
 └── .venv/
 ```
+
+> **Legacy (pre-v3.0, historical only)**: the old stack — Qdrant vector DB,
+> BGE-M3 embeddings and qwen2.5 served by a compiled llama.cpp engine
+> (`bin/qdrant`, `qdrant/`, `engine/`, `models/`) — was retired during the
+> memory-zero program (M2/M5). It is no longer part of the architecture.
 
 ---
 
@@ -269,31 +274,20 @@ The vault processor (`vault_processor.py`) runs as a launchd service with WatchP
 2. Extracts content and metadata
 3. Generates English translation (if needed)
 4. Creates/updates EN version
-5. Updates Qdrant embeddings
+5. Indexes the note in `memory.db`
 6. Updates `.system/counter.json`
 
 ---
 
-## Engine
+## Retrieval & Ranking
 
-MCP-agent-memory uses **llama.cpp** compiled from source with Metal GPU support for fast, local inference.
-
-### Components
-
-- **Embedding Model**: bge-m3 (1024 dimensions)
-- **LLM**: qwen2.5-7b-instruct
-- **Backend**: llama.cpp with Metal acceleration
-- **Installation**: NO Homebrew dependencies — compiled from source
-
-### Compilation
-
-The installer automatically compiles llama.cpp with Metal support:
-
-```bash
-cd engine/llama.cpp
-cmake -DCMAKE_BUILD_TYPE=Release -DLLAMA_METAL=ON ..
-make -j$(sysctl -n hw.ncpu)
-```
+- **Single store**: `data/memory.db` — SQLite (stdlib only, WAL mode). No daemons, no ports.
+- **Scope filters at the SQL level**: `agent_scope` / `user_id` / `layer` with an allowlist of filter keys — enforced by the engine, never by Python post-filtering.
+- **Sparse boost (RET-05)**: stable lexical sparse vectors boost dense scores at read time (SHA-256 token hashing — process-stable).
+- **Zero-vectors prohibited (STO-05)**: failed embeddings persist as `vector=NULL` + `embedded=false`; at query time they are scored against a deterministic hash-vector (`score_source="hash"`).
+- **Deterministic ranking**: no micro-LLM in the query path — hard constraint, enforced in code.
+- **Atomic deletes**: `delete(id, filter)` runs as a single engine-level operation — no TOCTOU window.
+- **Trunk consolidation (M5)**: `merged` is a reserved scope — engine-level writes require human approval + provenance (`approved_by`), ISO-16.
 
 ---
 
@@ -306,15 +300,12 @@ curl -fsSL https://raw.githubusercontent.com/Ruben-Alvarez-Dev/MCP-agent-memory/
 # Custom path
 curl -fsSL ... | bash -s -- ~/my-path
 
-# Skip LLM model download (~4.4GB)
-SKIP_LLM=1 bash install.sh
-
 # Reconfigure without re-bootstrap (e.g., new MCP client)
 bash install.sh --app-only
 ```
 
 The installer has two phases:
-1. **Bootstrap** (`install/bootstrap.sh`) — venv, Qdrant, BGE-M3 embedding, optional LLM model
+1. **Bootstrap** (`install/bootstrap.sh`) — venv and dependencies (no external services required)
 2. **App Install** (`install/app-install.sh`) — config, MCP client setup, verification
 
 Or install from source as a Python package:
@@ -339,14 +330,13 @@ Then restart OpenCode. The plugin auto-connects to the HTTP API on localhost:889
 ### Environment Variables (`etc/.env`)
 
 ```env
-QDRANT_URL=http://127.0.0.1:6333
-EMBEDDING_BACKEND=llama_server
-LLAMA_SERVER_URL=http://127.0.0.1:8081
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIM=1024
-LLM_BACKEND=llama_cpp
-LLM_MODEL=qwen2.5:7b
+MEMORY_SERVER_DIR=/path/to/MCP-agent-memory
 AUTOMEM_API_PORT=8890              # HTTP sidecar port (default: 8890)
+
+# Identity (M4) — per agent, generated by scripts/register_agent.py
+MEMORY_AGENT_ID=director-1
+MEMORY_AGENT_TOKEN=<printed once at registration>
+MEMORY_IDENTITY_MODE=strict        # open (default, WARN) | strict (fail-closed)
 ```
 
 ### MCP Client Configuration
@@ -361,11 +351,9 @@ AUTOMEM_API_PORT=8890              # HTTP sidecar port (default: 8890)
       "env": {
         "PYTHONPATH": "/path/to/src",
         "MEMORY_SERVER_DIR": "/path/to/MCP-agent-memory",
-        "QDRANT_URL": "http://127.0.0.1:6333",
-        "EMBEDDING_BACKEND": "llama_server",
-        "LLAMA_SERVER_URL": "http://127.0.0.1:8081",
-        "EMBEDDING_MODEL": "bge-m3",
-        "EMBEDDING_DIM": "1024"
+        "MEMORY_AGENT_ID": "director-1",
+        "MEMORY_AGENT_TOKEN": "<token>",
+        "MEMORY_IDENTITY_MODE": "strict"
       }
     }
   }
@@ -374,9 +362,31 @@ AUTOMEM_API_PORT=8890              # HTTP sidecar port (default: 8890)
 
 ---
 
+## Identity & Isolation
+
+Each MCP server instance runs under a **harness-asserted identity** (M4). Register an agent:
+
+```bash
+python scripts/register_agent.py --agent-id director-1
+```
+
+The CLI prints the credential block to paste into your MCP client config:
+
+```env
+MEMORY_AGENT_ID=director-1
+MEMORY_AGENT_TOKEN=<printed once>
+MEMORY_IDENTITY_MODE=strict
+```
+
+- `data/agents.json` — identity registry with `0600` permissions; stores **sha256 hashes only** (the token is never persisted in the file nor logged).
+- **Modes**: `open` (default, emits a visible WARN) | `strict` — missing or invalid credentials abort boot before any tool is registered (fail-closed).
+- **Scopes**: engine-level filters with filesystem jail and the 5-level namespace `c:x/p:y/a:z/s:w/u:v` (fixed order, levels optional).
+
+---
+
 ## HTTP API — Plugin Sidecar
 
-The MCP server exposes a lightweight HTTP API on port 8890 for plugin-to-server communication. This runs in a background thread alongside the MCP stdio server.
+The MCP server exposes a lightweight HTTP API on port 8890 for plugin-to-server communication. This runs in a background thread alongside the MCP stdio server. The sidecar binds to `127.0.0.1` only and supports an **optional bearer token** (ISO-17) that inherits the M4 identity — when configured, tokenless requests are rejected.
 
 | Method | Endpoint | Maps to MCP Tool |
 |--------|----------|-----------------|
@@ -395,7 +405,9 @@ The MCP server exposes a lightweight HTTP API on port 8890 for plugin-to-server 
 - **Filename validation**: OS-safe filenames, Windows reserved name checking
 - **Path confinement**: L3_decisions and vault restricted to project directories
 - **Config validation**: URLs, backends, dimensions validated at startup
-- **HTTP API**: localhost only (127.0.0.1), no network exposure
+- **Identity (M4)**: harness-asserted `MEMORY_AGENT_ID`/`MEMORY_AGENT_TOKEN`; registry `data/agents.json` (`0600`, sha256 hashes only); `strict` mode boots fail-closed
+- **HTTP API**: localhost only (127.0.0.1), optional bearer token (ISO-17), no network exposure
+- **Trunk guard (ISO-16)**: reserved scopes (`merged`) reject engine-level writes lacking human approval + provenance
 
 ---
 
@@ -417,8 +429,9 @@ PYTHONPATH=src python -m pytest tests/ -v
 | **v1.1** | Security audit | OWASP-grade input sanitization (652 lines), path confinement |
 | **v1.2** | The Backpack | `backpack-orchestrator` plugin + HTTP API sidecar. Auto-triggers |
 | **v2.0** | **Descriptive Naming** | Lx_NAME scheme, bilingual vault, compiled engine, modular installer |
+| **v3.0** | **memory-zero (M0–M5)** | Single `memory.db` store (Qdrant retired — legacy only), identity M4, trunk M5, deterministic ranking |
 
-### v2.0 — Descriptive Naming (Current)
+### v2.0 — Descriptive Naming
 
 **What changed**: Renamed all modules and tools to use the descriptive Lx_NAME scheme for clarity:
 
@@ -434,7 +447,17 @@ PYTHONPATH=src python -m pytest tests/ -v
 - Bilingual vault (ES/EN) with auto-translation
 - Compiled llama.cpp engine (no Homebrew dependencies)
 - Modular installer with engine compilation
-- Launchd services for vault processor and Qdrant watchdog
+- Launchd services for vault processor and Qdrant watchdog *(legacy — the watchdog was removed together with Qdrant in v3.0)*
+
+### v3.0 — memory-zero (Current)
+
+Architecture program executed in gated milestones (`openspec/changes/M0…M5`):
+
+- **M1 — Isolation**: engine-level scope filters (SQL `WHERE` with bound params, key allowlist), 5-level namespace `c:/p:/a:/s:/u:`, filesystem jail
+- **M2 — Storage**: one `data/memory.db` (SQLite stdlib, WAL). **Qdrant demolished** — remains legacy context only; zero-vectors prohibited (`NULL` + deterministic hash-vector); atomic anti-TOCTOU deletes
+- **M3 — Retrieval**: sparse lexical boost on the read path (RET-05), deterministic ranking
+- **M4 — Identity**: harness-asserted identity, `agents.json` registry (0600, sha256 only), strict fail-closed boot
+- **M5 — Trunk**: `merged` scope requires human approval + provenance (ISO-16); hard constraint "no local generation models" enforced in code; sidecar HTTP optional token (ISO-17)
 
 ---
 

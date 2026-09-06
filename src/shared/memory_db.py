@@ -32,6 +32,8 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from .scope import ScopeError
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = 2
@@ -46,6 +48,10 @@ class ScopeRequiredError(ValueError):
 
 # ISO-11: only these payload fields are engine-filterable. Everything else
 # must go through explicit APIs — prevents filter-key injection by design.
+# ISO-16: the trunk scope "merged" is write-gated (human approval +
+# provenance required). "global" stays reserved-unusable forever.
+_MERGED_SCOPES = {"merged"}
+
 _ENGINE_FILTER_COLUMNS = {
     "agent_scope": "agent_scope",
     "user_id": "user_id",
@@ -242,7 +248,7 @@ class MemoryDB:
         n = len(blob) // 4
         return list(struct.unpack(f"{n}f", blob))
 
-    def _prepare_row(self, point_id: str, vector, payload, sparse):
+    def _prepare_row(self, point_id: str, vector, payload, sparse, allow_reserved_scope: bool = False):
         if point_id is None or not isinstance(point_id, str) or not point_id.strip():
             raise ValueError(f"Invalid point id: {point_id!r}")
         _validate_payload_keys(payload, point_id)
@@ -250,6 +256,22 @@ class MemoryDB:
         if "agent_scope" not in payload:  # ISO-12: no global-implicit default
             payload["agent_scope"] = "shared"
             logger.info("upsert %s: missing agent_scope -> defaulted to 'shared'", point_id)
+        if payload["agent_scope"] in _MERGED_SCOPES:  # ISO-16 trunk gate
+            if not allow_reserved_scope:
+                raise ScopeError(
+                    f"scope {payload['agent_scope']!r} is the human-approved trunk: "
+                    "upsert requires allow_reserved_scope=True (A11)"
+                )
+            if not payload.get("approved_by") or not isinstance(payload.get("approved_by"), str):
+                raise ScopeError("trunk writes require non-empty payload['approved_by'] (A12)")
+            prov = payload.get("provenance")
+            if not isinstance(prov, list) or not prov or not all(
+                isinstance(p, dict) and p.get("from_scope") and p.get("point_id") for p in prov
+            ):
+                raise ScopeError(
+                    "trunk writes require non-empty payload['provenance'] "
+                    "=[{from_scope, point_id}, ...] (A12)"
+                )
         payload["schema_version"] = payload.get("schema_version", "1.0")
         blob = self._pack_vector(vector)
         if vector and len(vector) != self.embedding_dim:
@@ -271,9 +293,9 @@ class MemoryDB:
         return point_id, blob, json.dumps(payload), sparse_json, now, \
             payload["agent_scope"], payload.get("user_id"), layer
 
-    def _upsert_one(self, point_id, vector, payload, sparse) -> None:
+    def _upsert_one(self, point_id, vector, payload, sparse, allow_reserved_scope=False) -> None:
         pid, blob, payload_json, sparse_json, now, scope, user, layer = self._prepare_row(
-            point_id, vector, payload, sparse
+            point_id, vector, payload, sparse, allow_reserved_scope
         )
         with self._lock, self._conn:
             self._conn.execute(
@@ -296,16 +318,30 @@ class MemoryDB:
         payload: dict[str, Any],
         sparse: dict | None = None,
         wait: bool = True,
+        allow_reserved_scope: bool = False,
     ) -> None:
-        """Insert/update one point. vector=None/zero/dim-mismatch -> stored as NULL."""
-        async with self._write_lock:
-            await asyncio.to_thread(self._upsert_one, point_id, vector, payload, sparse)
+        """Insert/update one point. vector=None/zero/dim-mismatch -> stored as NULL.
 
-    async def upsert_batch(self, points: list[dict[str, Any]], wait: bool = True) -> None:
+        ISO-16: writing into the trunk scope "merged" requires
+        allow_reserved_scope=True AND payload approved_by + provenance.
+        """
+        async with self._write_lock:
+            await asyncio.to_thread(
+                self._upsert_one, point_id, vector, payload, sparse, allow_reserved_scope
+            )
+
+    async def upsert_batch(
+        self, points: list[dict[str, Any]], wait: bool = True, allow_reserved_scope: bool = False
+    ) -> None:
         rows = []
         for p in points:
             pid = p.get("id", "?")
-            rows.append(self._prepare_row(pid, p.get("vector"), p.get("payload", {}), p.get("sparse_vectors")))
+            rows.append(
+                self._prepare_row(
+                    pid, p.get("vector"), p.get("payload", {}), p.get("sparse_vectors"),
+                    allow_reserved_scope,
+                )
+            )
         def _write():
             with self._lock, self._conn:
                 self._conn.executemany(

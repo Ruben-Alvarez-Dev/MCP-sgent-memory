@@ -215,10 +215,24 @@ def _run_async(coro: Any) -> Any:
     return _event_loop.run_until_complete(coro)
 
 
+def _check_http_token(headers) -> bool:
+    """ISO-17: when MEMORY_HTTP_TOKEN is set, X-Memory-Token must match.
+    Constant-time compare. Unset env = localhost trust + WARN at startup."""
+    expected = os.getenv("MEMORY_HTTP_TOKEN", "")
+    if not expected:
+        return True
+    provided = headers.get("X-Memory-Token", "")
+    import hmac as _hmac
+    return _hmac.compare_digest(expected, provided)
+
+
 class _ApiHandler(BaseHTTPRequestHandler):
     """Thin HTTP handler that delegates to MCP tool functions."""
 
     def do_GET(self) -> None:
+        if self.path != "/api/health" and not _check_http_token(self.headers):
+            self._json_response(401, {"error": "invalid or missing X-Memory-Token"})
+            return
         if self.path == "/api/health":
             self._json_response(200, {
                 "status": "ok",
@@ -236,6 +250,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        if not _check_http_token(self.headers):
+            self._json_response(401, {"error": "invalid or missing X-Memory-Token"})
+            return
         body = self._read_body()
         if body is None:
             return
@@ -326,6 +343,8 @@ def start_api_server(
     request_context_fn: Callable | None = None,
     port: int | None = None,
 ) -> HTTPServer:
+    if not os.getenv("MEMORY_HTTP_TOKEN"):
+        logger.warning("api_server: MEMORY_HTTP_TOKEN unset — sidecar trusts localhost (ISO-17)")
     """Start the HTTP API server in a background thread.
 
     Call BEFORE mcp.run(transport="stdio") which blocks the main thread.

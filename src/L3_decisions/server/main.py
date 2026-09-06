@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
 from shared.sanitize import validate_save_decision, validate_vault_write, sanitize_filename, SanitizeError
+from shared.scope import iter_namespaced_files, normalize_scope, scope_subdir
 from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, L3DecisionsStatusResult
 
 config = Config.from_env()
@@ -14,9 +15,11 @@ DECISIONS_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else
 VAULT_PATH = Path(config.Lx_persistent_path) if config.Lx_persistent_path else Path("")
 mcp = FastMCP("L3_decisions")
 
-def _files():
+def _files(agent_scope: str = "shared"):
+    """ISO-04 enforced: shared tree (minus _scopes/) + own scope dir. Never siblings."""
     DECISIONS_PATH.mkdir(parents=True, exist_ok=True)
-    return sorted(DECISIONS_PATH.rglob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
+    files = iter_namespaced_files(DECISIONS_PATH, agent_scope, "*.md")
+    return sorted(files, key=lambda f: f.stat().st_mtime, reverse=True)
 
 def _read(f):
     c = f.read_text(encoding="utf-8")
@@ -24,30 +27,34 @@ def _read(f):
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def save_decision(title: str, content: str = "", category: str = "general", tags: str = "", scope: str = "agent", body: str = "") -> SaveDecisionResult:
-    """Save an architectural decision as a Markdown file."""
+    """Save an architectural decision as a Markdown file (scoped: non-shared scopes are namespaced)."""
     try:
         # If body is provided and content is empty, use body as content
         effective_content = body if body else content
-        clean = validate_save_decision(title, effective_content, category, tags, scope)
-    except SanitizeError as e:
+        # Validate the RAW scope first: sanitizers neutralize traversal by
+        # remapping ("../../etc" -> "etc"), which would silently redirect the
+        # write into another tenant's namespace. Strict check first, sanitize after.
+        ns = normalize_scope(scope)
+        clean = validate_save_decision(title, effective_content, category, tags, ns)
+    except (SanitizeError, ValueError) as e:
         return SaveDecisionResult(status="error", file_path="", title=title, error=str(e))
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     fn = sanitize_filename(f"{ts}-{clean['title'][:50]}")
-    td = DECISIONS_PATH / clean["category"]; td.mkdir(parents=True, exist_ok=True)
+    td = scope_subdir(DECISIONS_PATH, ns) / clean["category"]; td.mkdir(parents=True, exist_ok=True)
     fp = td / f"{fn}.md"
-    md = f"---\ntitle: \"{clean['title']}\"\ncategory: {clean['category']}\ntags: {clean['tags']}\n---\n\n# {clean['title']}\n\n{effective_content}\n"
+    md = f"---\ntitle: \"{clean['title']}\"\ncategory: {clean['category']}\ntags: {clean['tags']}\nscope: {ns}\n---\n\n# {clean['title']}\n\n{effective_content}\n"
     fp.write_text(md, encoding="utf-8")
     return SaveDecisionResult(status="saved", file_path=str(fp), title=clean["title"])
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def search_decisions(query: str, category: str = "", limit: int = 10) -> DecisionListResult:
-    """Search decisions by keyword matching (token-based)."""
+async def search_decisions(query: str, category: str = "", limit: int = 10, agent_scope: str = "shared") -> DecisionListResult:
+    """Search decisions by keyword matching (token-based, scoped: own + shared only)."""
     import re
     tokens = [t.lower() for t in re.split(r'\s+', query) if len(t) > 1]
     if not tokens:
         return DecisionListResult(count=0, decisions=[])
     results = []
-    for f in _files():
+    for f in _files(agent_scope):
         if category and category not in str(f): continue
         try:
             content_lower = f.read_text(encoding="utf-8").lower()
@@ -68,8 +75,8 @@ async def get_decision(file_path: str) -> dict:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def list_decisions(category: str = "", scope: str = "", limit: int = 20) -> DecisionListResult:
-    """List decisions with optional filtering."""
-    files = _files()
+    """List decisions with optional filtering (scoped: own + shared only)."""
+    files = _files(scope or "shared")
     if category: files = [f for f in files if category in str(f)]
     return DecisionListResult(count=len(files[:limit]), decisions=[_read(f) for f in files[:limit]])
 

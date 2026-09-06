@@ -25,6 +25,7 @@ logger = logging.getLogger("agent-memory.retrieval")
 
 from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
 from ..embedding import get_embedding, bm25_tokenize
+from ..scope import iter_namespaced_files
 from .index_repo import build_repo_index_points, upsert_repository_index
 from .pruner import prune_content
 from .repo_map import get_repo_map
@@ -206,7 +207,7 @@ async def _retrieve_parallel(
             tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1, agent_scope=agent_scope))
         elif level == 2:
             tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2, agent_scope=agent_scope))
-            tasks["L2_decisions"] = asyncio.create_task(_retrieve_L3_decisions(intent, k))
+            tasks["L2_decisions"] = asyncio.create_task(_retrieve_L3_decisions(intent, k, agent_scope))
         elif level == 3:
             tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3, agent_scope=agent_scope))
         elif level == 4:
@@ -278,7 +279,8 @@ async def _retrieve_hybrid(
     return results
 
 
-async def _retrieve_L3_decisions(intent: QueryIntent, k: int) -> list[ContextItem]:
+async def _retrieve_L3_decisions(intent: QueryIntent, k: int, agent_scope: str = "shared") -> list[ContextItem]:
+    """ISO-04 enforced: shared tree (minus _scopes/) + own scope dir. Never siblings."""
     L3_decisions_path = Path(L3_DECISIONS_PATH)
     if not L3_decisions_path.exists():
         return []
@@ -286,7 +288,7 @@ async def _retrieve_L3_decisions(intent: QueryIntent, k: int) -> list[ContextIte
     query_terms = set(w.lower() for w in intent.entities)
     if not query_terms:
         return []
-    for md_file in L3_decisions_path.rglob("*.md"):
+    for md_file in iter_namespaced_files(L3_decisions_path, agent_scope, "*.md"):
         try:
             content = md_file.read_text()
             if any(word in content.lower() for word in query_terms):

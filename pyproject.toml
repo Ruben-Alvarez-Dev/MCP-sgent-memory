@@ -38,6 +38,14 @@ include = ["shared*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 log_cli = false
+markers = [
+    "unit: pure unit tests, no I/O",
+    "contract: interface and schema contract tests",
+    "integration: tests against real memory.db / services",
+    "nightly: heavy suites (adversarial full, eval, e2e)",
+    "isolation: tenant-isolation adversarial subset (runs in CI)",
+    "req: requirement-traceable test (use with req ID, e.g. -m 'req')",
+]
 
 [tool.ruff]
 target-version = "py312"

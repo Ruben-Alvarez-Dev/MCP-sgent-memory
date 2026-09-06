@@ -1,0 +1,32 @@
+# OpenSpec project config — MCP-agent-memory (`memory-zero` program)
+schema: spec-driven
+
+context: |
+  Stack: Python 3.12, MCP SDK 1.29.1 (FastMCP stdio), SQLite 3.53.4 + FTS5,
+  Qdrant (to be removed), pytest + pytest-asyncio, ruff (line-length 120).
+  HARD CONSTRAINTS (non-negotiable, apply to every change):
+  - Cero modelos locales: no BGE-M3, no qwen, no micro-LLM. Generation only via
+    harness hooks + agent LLM (prepare/commit protocol).
+  - Logical layers L0-L5 are preserved as concepts; physical storage may change.
+  - Default-deny tenant isolation (namespace c:/p:/a:/s:/u:). Scope is NEVER a
+    ranking signal, always a hard filter. No human-approved merge reaches
+    global/merged. No automatism ever promotes across scopes.
+  - Every mission ends in a hard GATE (GATE_<N>.md, GO/NO-GO signed). A failed
+    gate blocks the next mission. No dragged failures.
+  - Any change to storage or retrieval re-signs G-ISOLATION.
+
+rules:
+  proposal:
+    - Declare capabilities (new/modified) or set skip_specs: true with justification.
+    - Identify affected tenants/scopes and the isolation impact (or state "none" with reason).
+    - Include rollback plan.
+  specs:
+    - Use Given/When/Then scenarios; every requirement testable by a named test.
+    - Requirement IDs stable per capability (STO-, RET-, ISO-, MEM-, HAR-, TRU-).
+    - Isolation requirements MUST state the enforcement point (engine filter, never post-filter).
+  design:
+    - Include failure modes + adversarial cases section for every change.
+    - No new network ports, daemons, or model dependencies without explicit approval.
+  tasks:
+    - Format `- [ ] X.Y description`; acceptance criterion per task; ordered by dependency.
+    - Every task traces to ≥1 requirement ID.

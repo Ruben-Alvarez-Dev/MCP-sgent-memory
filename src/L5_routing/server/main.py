@@ -1,6 +1,6 @@
 """vk-cache — Unified Retrieval & Context Assembly (L5)."""
 from __future__ import annotations
-import json, math, os
+import json, math, os, re
 from datetime import datetime, timezone
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
@@ -12,6 +12,13 @@ from shared.models import ContextPack, ContextReminder, ContextSource
 from shared.embedding import async_embed
 from shared.retrieval import retrieve as smart_retrieve
 from shared.sanitize import validate_request_context, validate_push_reminder, sanitize_text
+from shared.scope import (
+    ScopeError,
+    assert_contained,
+    normalize_scope,
+    scope_dir_hashed,
+    visible_dirs_hashed,
+)
 from shared.result_models import ContextPackResult, ReminderListResult, ReminderPushResult, DismissResult, ContextShiftResult, VkCacheStatusResult
 
 config = Config.from_env()
@@ -21,8 +28,64 @@ _L5_selective_path.mkdir(parents=True, exist_ok=True)
 mcp = FastMCP("L5_routing")
 
 def _estimate_tokens(t): return len(t) // 4
-def _save_reminder(r): (_L5_selective_path / f"{r.reminder_id}.json").write_text(r.model_dump_json(indent=2))
-def _get_reminders(aid): return [ContextReminder(**json.loads(f.read_text())) for f in _L5_selective_path.glob("*.json")]
+
+_REMINDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_migrated_legacy = False
+
+def _sanitize_reminder_id(reminder_id: str) -> str:
+    if not isinstance(reminder_id, str) or not _REMINDER_ID_RE.match(reminder_id or ""):
+        raise ScopeError(f"invalid reminder_id: {reminder_id!r}")
+    return reminder_id
+
+def _migrate_legacy_reminders() -> int:
+    """One-time move of root-level *.json into the shared namespace dir.
+
+    Legacy files were world-readable by design accident; their historical
+    visibility was public, so shared/ is the honest destination.
+    """
+    global _migrated_legacy
+    if _migrated_legacy:
+        return 0
+    _migrated_legacy = True
+    moved = 0
+    if not _L5_selective_path.is_dir():
+        return 0
+    dest = scope_dir_hashed(_L5_selective_path, "shared")
+    for f in sorted(_L5_selective_path.glob("*.json")):
+        if not f.is_file():
+            continue
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            target = dest / f.name
+            if not target.exists():
+                f.rename(target)
+                moved += 1
+        except OSError:
+            continue
+    return moved
+
+def _save_reminder(r, scope: str = "shared"):
+    _migrate_legacy_reminders()
+    d = scope_dir_hashed(_L5_selective_path, scope)
+    d.mkdir(parents=True, exist_ok=True)
+    fp = assert_contained(d / f"{_sanitize_reminder_id(r.reminder_id)}.json", _L5_selective_path)
+    fp.write_text(r.model_dump_json(indent=2))
+
+def _get_reminders(agent_id):
+    """ISO-03 enforced: read ONLY own scope dir + shared dir. Never siblings."""
+    _migrate_legacy_reminders()
+    scope = normalize_scope(agent_id)
+    out = []
+    for d in visible_dirs_hashed(_L5_selective_path, scope):
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.json")):
+            try:
+                assert_contained(f, _L5_selective_path)
+                out.append(ContextReminder(**json.loads(f.read_text())))
+            except (OSError, ValueError):
+                continue
+    return out
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def request_context(query: str, agent_id: str = "shared", intent: str = "answer", token_budget: int = 8000, scopes: str = "", mode: str = "standard") -> ContextPackResult:
@@ -45,7 +108,10 @@ async def check_reminders(agent_id: str = "default") -> ReminderListResult:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def push_reminder(query: str, reason: str = "relevant_to_current_task", agent_id: str = "default") -> ReminderPushResult:
     """System pushes a context reminder to the LLM."""
-    clean = validate_push_reminder(query, agent_id)
+    # Raw scope first: sanitize_user_id would remap traversal instead of
+    # rejecting it — strict validation before any sanitization.
+    scope = normalize_scope(agent_id)
+    clean = validate_push_reminder(query, scope)
     vector = await async_embed(clean["query"])
     scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
     results = await scoped_qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
@@ -53,14 +119,23 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     summary = "\n".join(f"[{s.layer}][{s.score:.2f}] {s.content_preview}" for s in sources) or "No context found"
     pack = ContextPack(request_id="",query=clean["query"],sources=sources,summary=summary,token_estimate=_estimate_tokens(summary),reason=reason)
     reminder = ContextReminder(pack=pack, reason=reason)
-    _save_reminder(reminder)
+    _save_reminder(reminder, scope)
     return ReminderPushResult(status="reminder_pushed", reminder_id=reminder.reminder_id, sources=len(sources))
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
-async def dismiss_reminder(reminder_id: str) -> DismissResult:
-    """Dismiss a reminder."""
-    path = _L5_selective_path / f"{reminder_id}.json"
-    if path.exists(): path.unlink(); return DismissResult(status="dismissed", reminder_id=reminder_id)
+async def dismiss_reminder(reminder_id: str, agent_id: str = "shared") -> DismissResult:
+    """Dismiss a reminder (scoped: only own + shared namespaces are searched)."""
+    rid = _sanitize_reminder_id(reminder_id)
+    scope = normalize_scope(agent_id)
+    for d in visible_dirs_hashed(_L5_selective_path, scope):
+        path = d / f"{rid}.json"
+        try:
+            assert_contained(path, _L5_selective_path)
+        except ScopeError:
+            continue
+        if path.exists():
+            path.unlink()
+            return DismissResult(status="dismissed", reminder_id=reminder_id)
     return DismissResult(status="not_found", reminder_id=reminder_id)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))

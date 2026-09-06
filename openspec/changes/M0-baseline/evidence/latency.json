@@ -1,0 +1,12 @@
+{
+  "measured_at": "2026-09-06T05:30Z",
+  "machine": "MacPro7,1 Intel Xeon, 16GB RAM, no Metal",
+  "qdrant_healthz": 200,
+  "embedding_8091_health": "ok",
+  "embedding_8091_embed_ms": [848, 172],
+  "embedding_8091_note": "High variance: CPU contention on loaded host. M1 reference in code comments: ~15ms.",
+  "port_8081": "OCCUPIED by unrelated process (PID 882, sunproxyadmin, Python). /health -> 404. NOT our embedding server.",
+  "port_8081_consequence": "tests/app/conftest.py health-checks :8081/health for 'ok' -> app suite SKIPS cleanly. See KNOWN-BUG-001.",
+  "qdrant_points": {"L0_L4_memory": 2, "L2_conversations": 0, "L3_facts": 0},
+  "suite_core": "167 passed, 1 failed (KNOWN-BUG-003), 6 skipped (legacy v3), 4-5s"
+}

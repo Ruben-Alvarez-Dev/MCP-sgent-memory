@@ -1,0 +1,12 @@
+        """top_k parameter limits the output."""
+        items = [{"content": f"item{i}"} for i in range(20)]
+        ranked = rank_by_relevance("query", items, top_k=5)
+>       assert len(ranked) <= 5
+E       AssertionError: assert 20 <= 5
+E        +  where 20 = len([{'content': 'item0'}, {'content': 'item1'}, {'content': 'item2'}, {'content': 'item3'}, {'content': 'item4'}, {'content': 'item5'}, ...])
+
+tests/core/test_llm_ranking.py:54: AssertionError
+=========================== short test summary info ============================
+SKIPPED [5] tests/core/test_v3_spec_features.py: Legacy V3 spec test - superseded by Fusion Code Maps
+SKIPPED [1] tests/core/test_v3_spec_features.py:141: Proximity ranking by entities not yet implemented in _rank_and_fuse
+1 failed, 167 passed, 6 skipped in 3.78s

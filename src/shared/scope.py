@@ -3,9 +3,10 @@
 Single source of truth for scope validation and namespace directory layout.
 No I/O, no dependencies beyond stdlib — safe to import anywhere.
 
-Lite scope model: ONE validated segment (e.g. "director-1", "default",
-"shared"). The full 5-level `c:/p:/a:/s:/u:` namespace lands in M2; this
-module's contract (normalize → validate → jail) is what M2 must preserve.
+Scope model: ONE validated segment (e.g. "director-1", "default", "shared")
+or the full M2 5-level namespace `c:x/p:y/a:z/s:w/u:v` (levels optional,
+order fixed, each segment validated). Filesystem browsable stores remain
+single-segment in M2; opaque/hashed stores hash the canonical form.
 
 Security properties:
 - `normalize_scope` rejects empty, overlong, reserved, traversal, glob and
@@ -29,6 +30,11 @@ class ScopeError(ValueError):
 _SCOPE_SEGMENT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _MAX_SCOPE_LEN = 32
 
+# M2: 5-level namespace levels, in mandatory order (each optional, no repeats).
+_SCOPE_LEVELS = ("c", "p", "a", "s", "u")
+_SCOPE_LEVEL_RE = re.compile(r"^([cpasu]):([a-z0-9][a-z0-9_-]{0,31})$")
+_MAX_CANONICAL_LEN = 5 * (_MAX_SCOPE_LEN + 3)  # "c:" + 32 + "/" per level
+
 # Names that must never be usable as a *private* scope. "shared" is the
 # legitimate public scope, NOT a bypass — it is readable by every tenant
 # by design and must never hold private data.
@@ -47,7 +53,10 @@ _SCOPES_DIRNAME = "_scopes"
 def normalize_scope(scope: str) -> str:
     """Validate and canonicalize a scope string.
 
-    Returns the canonical (stripped, lowercased) scope.
+    Accepts ONE segment ("director-1") or the M2 5-level namespace
+    ("c:acme/p:memory/a:director-1"). Returns the canonical form:
+    single segments are stripped+lowercased; multi-level scopes are
+    canonically ordered c<p<a<s<u with each segment validated.
     Raises ScopeError on anything invalid. Never returns a fallback.
     """
     if not isinstance(scope, str):
@@ -55,6 +64,8 @@ def normalize_scope(scope: str) -> str:
     s = scope.strip().lower()
     if not s:
         raise ScopeError("empty scope")
+    if ":" in s:
+        return _normalize_namespaced(s)
     if len(s) > _MAX_SCOPE_LEN:
         raise ScopeError(f"scope too long ({len(s)} > {_MAX_SCOPE_LEN})")
     if s in RESERVED_SCOPES:
@@ -62,6 +73,41 @@ def normalize_scope(scope: str) -> str:
     if not _SCOPE_SEGMENT_RE.match(s):
         raise ScopeError(f"invalid scope (must match {_SCOPE_SEGMENT_RE.pattern}): {s!r}")
     return s
+
+
+def _normalize_namespaced(s: str) -> str:
+    """Canonicalize `c:x/p:y/...` form: fixed order, no repeats, valid segments."""
+    if len(s) > _MAX_CANONICAL_LEN:
+        raise ScopeError(f"scope too long ({len(s)} > {_MAX_CANONICAL_LEN})")
+    seen: dict[str, str] = {}
+    for part in s.split("/"):
+        m = _SCOPE_LEVEL_RE.match(part.strip())
+        if not m:
+            raise ScopeError(f"invalid namespace level (want c:/p:/a:/s:/u:): {part!r}")
+        level, segment = m.group(1), m.group(2)
+        if level in seen:
+            raise ScopeError(f"duplicate namespace level: {level}:")
+        if segment in RESERVED_SCOPES:
+            raise ScopeError(f"reserved scope segment: {segment!r}")
+        seen[level] = segment
+    if not seen:
+        raise ScopeError("empty namespaced scope")
+    return "/".join(f"{lvl}:{seen[lvl]}" for lvl in _SCOPE_LEVELS if lvl in seen)
+
+
+def scope_jail_path(base: Path, scope: str, rel: "str | Path") -> Path:
+    """Resolve `rel` inside the scope's jailed directory — fail-closed (ISO-07).
+
+    Raises ScopeError BEFORE any filesystem access when `rel` traverses out
+    (../..), is absolute, or escapes via an existing symlink. Returns the
+    fully-resolved path callers MUST use for the actual write/read.
+    """
+    s = normalize_scope(scope)
+    if isinstance(rel, str):
+        rel = Path(rel)
+    jail = scope_subdir(base, s)
+    candidate = (jail / rel).resolve()
+    return assert_contained(candidate, jail)
 
 
 def scope_dir_hashed(base: Path, scope: str) -> Path:
@@ -79,9 +125,16 @@ def scope_subdir(base: Path, scope: str, prefix: str = _SCOPES_DIRNAME) -> Path:
     """Namespace directory for HUMAN-BROWSABLE stores (decisions, vault).
 
     Uses the normalized scope as directory name. Safe: `normalize_scope`
-    output cannot contain `/`, `..`, or glob characters (regex-enforced).
+    output cannot contain `/`, `..`, or glob characters for single segments
+    (regex-enforced). M2: multi-level scopes are REJECTED here — browsable
+    filesystem stores stay single-segment; hashed stores take any scope.
     """
     s = normalize_scope(scope)
+    if ":" in s:
+        raise ScopeError(
+            "multi-level scopes cannot map to browsable directories; "
+            "use scope_dir_hashed (M2 contract)"
+        )
     if s == PUBLIC_SCOPE:
         return base
     return base / prefix / s

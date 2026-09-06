@@ -31,7 +31,10 @@ def _get_db_path() -> str:
         base = os.getenv("MEMORY_SERVER_DIR", os.path.expanduser("~/.memory"))
         data_dir = os.getenv("DATA_DIR", os.path.join(base, "data"))
         os.makedirs(data_dir, exist_ok=True)
-        _db_path = os.path.join(data_dir, "conversations.db")
+        # M2-storage (STO-02): conversations now live in the unified memory.db.
+        # Schema unchanged — threads/messages/messages_fts coexist with the
+        # dense-memory `points` table in the same file (WAL, multi-process safe).
+        _db_path = os.path.join(data_dir, "memory.db")
     return _db_path
 
 

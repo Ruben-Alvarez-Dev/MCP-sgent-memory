@@ -27,7 +27,6 @@ cat > "$OUTPUT" << EOF
       "args": ["-m", "unified.server.main"],
       "cwd": "${INSTALL_DIR}/src",
       "env": {
-        "QDRANT_URL": "${QDRANT_URL:-http://127.0.0.1:6333}",
         "EMBEDDING_BACKEND": "${EMBEDDING_BACKEND:-llama_server}",
         "EMBEDDING_DIM": "${EMBEDDING_DIM:-1024}",
         "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-}",

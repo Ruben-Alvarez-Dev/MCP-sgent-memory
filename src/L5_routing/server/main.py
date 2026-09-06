@@ -7,7 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
+from shared.memory_db import MemoryDB
 from shared.models import ContextPack, ContextReminder, ContextSource
 from shared.embedding import async_embed
 from shared.retrieval import retrieve as smart_retrieve
@@ -22,7 +22,7 @@ from shared.scope import (
 from shared.result_models import ContextPackResult, ReminderListResult, ReminderPushResult, DismissResult, ContextShiftResult, VkCacheStatusResult
 
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
 _L5_selective_path = Path(config.L5_selective_path) if config.L5_selective_path else Path("")
 _L5_selective_path.mkdir(parents=True, exist_ok=True)
 mcp = FastMCP("L5_routing")
@@ -113,8 +113,11 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     scope = normalize_scope(agent_id)
     clean = validate_push_reminder(query, scope)
     vector = await async_embed(clean["query"])
-    scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
-    results = await scoped_qdrant.search(vector, limit=5, score_threshold=config.L5_routing_min_score)
+    # M2: engine-level scope filter (own + shared) — was per-scope collection name
+    results = await store.search(
+        vector, limit=5, score_threshold=config.L5_routing_min_score,
+        filter={"must": [{"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}]},
+    )
     sources = [ContextSource(scope=f"{r.get('payload',{}).get('scope_type','')}/{r.get('payload',{}).get('scope_id','')}",layer=r.get("payload",{}).get("layer",0),mem_type=r.get("payload",{}).get("type",""),score=r.get("score",0),content_preview=r.get("payload",{}).get("content","")[:500]) for r in results]
     summary = "\n".join(f"[{s.layer}][{s.score:.2f}] {s.content_preview}" for s in sources) or "No context found"
     pack = ContextPack(request_id="",query=clean["query"],sources=sources,summary=summary,token_estimate=_estimate_tokens(summary),reason=reason)
@@ -151,19 +154,24 @@ async def detect_context_shift(current_query: str, previous_query: str = "", age
     new_ctx = ""
     if shifted:
         vec = await async_embed(current_query)
-        scoped_qdrant = qdrant.with_collection(f"{config.qdrant_collection}_{agent_id}" if agent_id != "shared" else config.qdrant_collection)
-        res = await scoped_qdrant.search(vec, limit=5)
+        scope = normalize_scope(agent_id)
+        res = await store.search(
+            vec, limit=5,
+            filter={"must": [{"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}]},
+        )
         new_ctx = f"{len(res)} sources found"
     return ContextShiftResult(shift_detected=shifted, similarity=round(sim,4), new_context=new_ctx)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def status() -> VkCacheStatusResult:
     """Show vk-cache router status."""
-    q_ok = await qdrant.health()
-    return VkCacheStatusResult(daemon="vk-cache", status="RUNNING", qdrant="OK" if q_ok else "DOWN", active_reminders=len(list(_L5_selective_path.glob("*.json"))))
+    q_ok = await store.health()
+    return VkCacheStatusResult(daemon="vk-cache", status="RUNNING", storage="memory.db" if q_ok else "ERROR", active_reminders=len(list(_L5_selective_path.glob("*.json"))))
 
 def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
-    global qdrant, config; qdrant = target_qdrant if isinstance(target_qdrant, QdrantClient) else QdrantClient(target_config.qdrant_url, target_config.qdrant_collection, target_config.embedding_dim); config = target_config
+    global store, config
+    store = target_qdrant if isinstance(target_qdrant, MemoryDB) else MemoryDB(None, target_config.qdrant_collection, target_config.embedding_dim)
+    config = target_config
     for fn in [request_context, check_reminders, push_reminder, dismiss_reminder, detect_context_shift, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")
 

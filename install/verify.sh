@@ -3,7 +3,6 @@
 set -euo pipefail
 INSTALL_DIR="${1:?Usage: verify.sh <install_dir>}"
 PYTHON="$INSTALL_DIR/.venv/bin/python3"
-QDRANT_PORT="${2:-6333}"
 LLAMA_PORT="${3:-8081}"
 PASS=0; FAIL=0
 
@@ -40,18 +39,7 @@ fi
 
 # 4. Services
 echo "  [Services]"
-check_url "http://127.0.0.1:$QDRANT_PORT/healthz" "Qdrant (port $QDRANT_PORT)"
 check_url "http://127.0.0.1:$LLAMA_PORT/health" "llama-server (port $LLAMA_PORT)"
-
-# 5. Qdrant collections
-echo "  [Qdrant Collections]"
-for col in L0_L4_memory L2_conversations L3_facts; do
-    if curl -sf "http://127.0.0.1:$QDRANT_PORT/collections/$col" >/dev/null 2>&1; then
-        echo "  ✓ Collection $col"; PASS=$((PASS+1))
-    else
-        echo "  ✗ Collection $col missing"; FAIL=$((FAIL+1))
-    fi
-done
 
 # 4. Embeddings working (uses venv python, not system python3)
 echo "  [Embeddings]"
@@ -86,7 +74,6 @@ if PYTHONPATH="$INSTALL_DIR/src" "$PYTHON" -c "
 import sys; sys.path.insert(0, '$INSTALL_DIR/src')
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
 from shared.result_models import MemorizeResult
 import importlib.util
 spec = importlib.util.spec_from_file_location('unified', '$INSTALL_DIR/src/unified/server/main.py')

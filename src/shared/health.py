@@ -9,11 +9,10 @@ Usage:
     python3 -m shared.health --watch  (continuous monitoring)
 
 Services checked:
-    1. Qdrant       — http://127.0.0.1:6333
-    2. llama-server  — http://127.0.0.1:8081
-    3. 1MCP Gateway  — http://127.0.0.1:3050
-    4. Embedding     — circuit breaker state
-    5. Disk usage    — data directory
+    1. llama-server  — http://127.0.0.1:8081
+    2. 1MCP Gateway  — http://127.0.0.1:3050
+    3. Embedding     — circuit breaker state
+    4. Disk usage    — data directory
 """
 
 from __future__ import annotations
@@ -93,23 +92,6 @@ def _check_http(name: str, url: str, timeout: float = 3.0) -> ServiceStatus:
         elapsed = (time.monotonic() - start) * 1000
         status.latency_ms = elapsed
         status.error = f"{type(e).__name__}: {e}"
-    return status
-
-
-def check_qdrant(url: str = "http://127.0.0.1:6333") -> ServiceStatus:
-    """Check Qdrant vector store health."""
-    status = _check_http("qdrant", f"{url}/healthz")
-    if status.healthy:
-        # Also get collection count
-        try:
-            import urllib.request
-            req = urllib.request.Request(f"{url}/collections", method="GET")
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read())
-                collections = data.get("result", {}).get("collections", [])
-                status.detail = f"{len(collections)} collections"
-        except Exception:
-            pass
     return status
 
 
@@ -200,7 +182,6 @@ def check_launchd() -> ServiceStatus:
         )
         # Core services that must always be running
         core_services = [
-            "com.agent-memory.qdrant",
             "com.agent-memory.llama-embedding",
             "com.agent-memory.gateway",
         ]
@@ -233,19 +214,16 @@ def check_launchd() -> ServiceStatus:
 
 # ── Main Health Check ──────────────────────────────────────────────
 
-def run_health_check(qdrant_url: str | None = None,
-                     llama_url: str | None = None,
+def run_health_check(llama_url: str | None = None,
                      gateway_url: str | None = None,
                      base_dir: str | None = None) -> HealthReport:
     """Run all health checks and return a report."""
-    qdrant_url = qdrant_url or os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
     llama_url = llama_url or os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081")
     gateway_url = gateway_url or "http://127.0.0.1:3050"
     base_dir = base_dir or os.getenv("MEMORY_SERVER_DIR")
 
     report = HealthReport()
     report.services = [
-        check_qdrant(qdrant_url),
         check_llama_server(llama_url),
         check_gateway(gateway_url),
         check_embedding_pipeline(),
@@ -294,14 +272,12 @@ if __name__ == "__main__":
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--watch", type=int, metavar="INTERVAL",
                         help="Continuous monitoring (seconds)")
-    parser.add_argument("--qdrant-url", default=None)
     parser.add_argument("--llama-url", default=None)
     parser.add_argument("--gateway-url", default=None)
     args = parser.parse_args()
 
     def _run():
         report = run_health_check(
-            qdrant_url=args.qdrant_url,
             llama_url=args.llama_url,
             gateway_url=args.gateway_url,
         )

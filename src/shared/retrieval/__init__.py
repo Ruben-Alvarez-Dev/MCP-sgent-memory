@@ -11,11 +11,8 @@ The brain of vk-cache. Routes each query through:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
-import httpx
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,17 +21,15 @@ from typing import Any
 logger = logging.getLogger("agent-memory.retrieval")
 
 from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
-from ..embedding import get_embedding, bm25_tokenize
-from ..scope import iter_namespaced_files
-from .index_repo import build_repo_index_points, upsert_repository_index
+from ..embedding import get_embedding
+from ..memory_db import MemoryDB
+from ..scope import iter_namespaced_files, normalize_scope
 from .pruner import prune_content
 from .repo_map import get_repo_map
-from ..qdrant_client import QdrantClient
 
 # ── Configuration ──────────────────────────────────────────────────
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")  # legacy env name, now a memory.db collection
 CONV_COLLECTION = os.getenv("CONV_COLLECTION", "L2_conversations")
 L3_FACTS_COLLECTION = os.getenv("L3_FACTS_COLLECTION", "L3_facts")
 _MSD = os.getenv("MEMORY_SERVER_DIR", "")
@@ -45,11 +40,13 @@ L3_DECISIONS_PATH = os.getenv(
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
 
-_qdrant_clients: dict[str, QdrantClient] = {}
-def _get_scoped_client(collection: str) -> QdrantClient:
-    if collection not in _qdrant_clients:
-        _qdrant_clients[collection] = QdrantClient(QDRANT_URL, collection, 1024)
-    return _qdrant_clients[collection]
+_db_clients: dict[str, MemoryDB] = {}
+
+def _get_db(collection: str) -> MemoryDB:
+    """Shared MemoryDB handles, one per logical collection (same process)."""
+    if collection not in _db_clients:
+        _db_clients[collection] = MemoryDB(None, collection, 1024)
+    return _db_clients[collection]
 
 
 # ── Retrieval Profiles ────────────────────────────────────────────
@@ -175,6 +172,7 @@ async def retrieve(
     open_files: list[str] | None = None,
     agent_scope: str = "shared",
 ) -> ContextPack:
+    agent_scope = normalize_scope(agent_scope)  # fail-closed at entry (M2: closes collection-name injection)
     intent = classify_intent(query, session_type, open_files)
     setattr(intent, "_original_query", query)
 
@@ -230,10 +228,11 @@ async def _retrieve_parallel(
 async def _retrieve_hybrid(
     intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None, agent_scope: str = "shared"
 ) -> list[ContextItem]:
-    """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
+    """Hybrid search over memory.db: dense cosine + deterministic hash fallback.
 
-    Uses /points/search (returns proper scores in Qdrant v1.13).
-    Sparse BM25 is applied as a second pass when available.
+    M2 (ISO-05): scope filtering is ENGINE-LEVEL. Own + shared are merged via
+    a single bound IN clause — sibling scopes are unreachable BY THE ENGINE,
+    never by Python post-filtering.
     """
     query_text = (
         " ".join(intent.entities)
@@ -243,23 +242,23 @@ async def _retrieve_hybrid(
     if not query_text:
         return []
 
-    target_coll = f"{collection or QDRANT_COLLECTION}_{agent_scope}" if agent_scope and agent_scope != "shared" else (collection or QDRANT_COLLECTION)
-    search_filter = (
-        {"must": [{"key": "layer", "match": {"value": level}}]}
-        if level is not None
-        else None
-    )
+    scope = normalize_scope(agent_scope)  # fail-closed (was: concatenated into collection name)
+    target_coll = collection or QDRANT_COLLECTION
+    must: list[dict] = [
+        {"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}
+    ]
+    if level is not None:
+        must.append({"key": "layer", "match": {"value": level}})
 
     results: list[ContextItem] = []
-
     try:
-        client = _get_scoped_client(target_coll)
+        db = _get_db(target_coll)
         vector = get_embedding(query_text)
-        search_results = await client.search(
+        search_results = await db.search(
             vector,
             limit=k,
             score_threshold=MIN_SCORE,
-            filter=search_filter,
+            filter={"must": must},
         )
         for p in search_results:
             payload = p.get("payload", {})

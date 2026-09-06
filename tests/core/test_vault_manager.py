@@ -220,12 +220,12 @@ class TestClassifyNote:
     def test_tag_extraction(self, vault: VaultManager):
         """Tech keywords in note body are extracted as tags."""
         result = vault._classify_note(
-            "Decidimos usar JWT para auth. Hay que configurar qdrant. We chose docker.",
+            "Decidimos usar JWT para auth. Hay que configurar embeddings. We chose docker.",
             None,
         )
         assert "auth" in result["tags"]
         assert "jwt" in result["tags"]
-        assert "qdrant" in result["tags"]
+        assert "docker" in result["tags"]
 
     def test_filename_generation(self, vault: VaultManager):
         """_generate_filename creates a valid .md filename from body."""

@@ -3,7 +3,7 @@ from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE,
 from ..sanitize import SanitizeError
 """Vault Manager — Obsidian vault with catastrophe-proof writes.
 
-Manages the human-readable vault that complements Qdrant.
+Manages the human-readable vault of the memory system.
 All writes are atomic, backed up, and integrity-checked.
 
 Usage:
@@ -19,9 +19,6 @@ Usage:
 
     # Process inbox
     vault.process_inbox()
-
-    # Full rebuild from Qdrant
-    vault.rebuild()
 
     # Integrity check
     report = vault.integrity_check()
@@ -391,7 +388,7 @@ class VaultManager:
         knowledge_score = sum(1 for w in knowledge_words if w in body_lower)
 
         # Extract potential tags from keywords
-        tech_keywords = ["auth", "jwt", "qdrant", "embedding", "retrieval", "llm", "docker",
+        tech_keywords = ["auth", "jwt", "embedding", "retrieval", "llm", "docker",
                         "api", "vault", "obsidian", "hybrid", "bm25", "compliance"]
         for kw in tech_keywords:
             if kw in body_lower:
@@ -542,93 +539,6 @@ class VaultManager:
         self._write_integrity_report(report)
 
         return report
-
-    # ── Rebuild from Qdrant ────────────────────────────────────────
-
-    def rebuild(self, qdrant_url: str = "http://127.0.0.1:6333") -> dict:
-        """Rebuild entire vault from Qdrant data.
-
-        This is the catastrophe recovery protocol.
-        """
-        import httpx
-
-        result = {
-            "files_rebuilt": 0,
-            "errors": [],
-        }
-
-        # Move current vault to trash
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        trash_backup = TRASH_DIR / f"pre-rebuild-{timestamp}"
-        if self.Lx_persistent_path.exists():
-            trash_backup.mkdir(parents=True, exist_ok=True)
-            for item in self.Lx_persistent_path.iterdir():
-                if item.name == ".system":
-                    continue
-                item.rename(trash_backup / item.name)
-
-        # Rebuild structure
-        self._ensure_structure()
-
-        # Fetch all points from Qdrant
-        collections = ["L0_L4_memory", "L2_conversations", "L3_facts"]
-
-        for collection in collections:
-            try:
-                with httpx.Client() as client:
-                    resp = client.post(
-                        f"{qdrant_url}/collections/{collection}/points/scroll",
-                        json={"limit": 10000, "with_payload": True},
-                    )
-                    if resp.status_code != 200:
-                        result["errors"].append(f"Failed to scroll {collection}: {resp.status_code}")
-                        continue
-
-                    points = resp.json().get("result", {}).get("points", [])
-                    for point in points:
-                        payload = point.get("payload", {})
-                        content = payload.get("content", "")
-                        if not content:
-                            continue
-
-                        layer = payload.get("layer", 0)
-                        mem_type = payload.get("type", "")
-                        created = payload.get("created_at", "")
-
-                        # Determine folder
-                        folder = self._layer_to_folder(layer, mem_type)
-
-                        # Generate filename
-                        filename = f"{mem_type}_{point['id']}.md"
-
-                        # Extract wikilinks
-                        wikilinks = re.findall(r'\[\[([^\]]+)\]\]', content)
-
-                        data = {
-                            "type": mem_type,
-                            "layer": layer,
-                            "created": created or datetime.now(timezone.utc).isoformat(),
-                            "confidence": payload.get("confidence", 0.5),
-                            "source": "qdrant-rebuild",
-                            "tags": payload.get("tags", []),
-                            "content": content,
-                        }
-                        if wikilinks:
-                            data["related"] = wikilinks
-
-                        try:
-                            self.write_note(folder, filename, data, "system")
-                            result["files_rebuilt"] += 1
-                        except Exception as e:
-                            result["errors"].append(f"Failed to write {folder}/{filename}: {e}")
-
-            except Exception as e:
-                result["errors"].append(f"Failed to fetch {collection}: {e}")
-
-        # Run integrity check
-        self.integrity_check()
-
-        return result
 
     def _layer_to_folder(self, layer: int, mem_type: str) -> str:
         """Map memory layer/type to vault folder."""

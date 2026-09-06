@@ -165,7 +165,7 @@ async def status() -> SequentialThinkingStatusResult:
     st = sum(1 for _ in STAGING.glob("*.json")) if STAGING.exists() else 0
     return SequentialThinkingStatusResult(daemon="sequential-thinking", status="RUNNING", sessions=sc, plans=pc, staged=st)
 
-def register_tools(target_mcp, _qdrant, target_config, prefix=""):
+def register_tools(target_mcp, target_config, prefix=""):
     global config, THOUGHTS_PATH, STAGING
     config = target_config
     THOUGHTS_PATH = Path(config.Lx_deliberative_path) if config.Lx_deliberative_path else Path("")

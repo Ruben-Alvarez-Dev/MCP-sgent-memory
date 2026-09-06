@@ -46,7 +46,6 @@ find_free_port() {
     return 1
 }
 
-QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:$(find_free_port 6333)}"
 LLAMA_SERVER_URL="${LLAMA_SERVER_URL:-http://127.0.0.1:$(find_free_port 8081)}"
 GATEWAY_PORT="${GATEWAY_PORT:-$(find_free_port 3050)}"
 LLM_BACKEND="${LLM_BACKEND:-llama_cpp}"
@@ -63,7 +62,6 @@ G="\033[32m" R="\033[31m" Y="\033[33m" B="\033[1m" X="\033[0m"
 if $SHOW; then
     echo "${B}Current Configuration${X}"
     echo "  MEMORY_SERVER_DIR: $DIR"
-    echo "  QDRANT_URL:        $QDRANT_URL"
     echo "  LLAMA_SERVER_URL:  $LLAMA_SERVER_URL"
     echo "  LLM_BACKEND:       $LLM_BACKEND"
     echo "  LLM_MODEL:         $LLM_MODEL"
@@ -76,7 +74,6 @@ if $SHOW; then
     echo "  Events JSONL: $DIR/data/raw_events.jsonl"
     echo "  Staging:      $DIR/data/staging_buffer"
     echo "  Vault:        $DIR/data/vault"
-    echo "  Qdrant data:  $DIR/data/qdrant"
     echo ""
     echo "Python: $DIR/.venv/bin/python3"
     echo "venv exists: $(test -f "$DIR/.venv/bin/python3" && echo "${G}yes${X}" || echo "${R}no${X}")"
@@ -105,7 +102,6 @@ echo "  MEMORY_SERVER_DIR = $DIR"
 
 MCP_JSON=$(sed \
     -e "s|{{DIR}}|$DIR|g" \
-    -e "s|{{QDRANT_URL}}|$QDRANT_URL|g" \
     -e "s|{{LLAMA_SERVER_URL}}|$LLAMA_SERVER_URL|g" \
     -e "s|{{LLM_BACKEND}}|$LLM_BACKEND|g" \
     -e "s|{{LLM_MODEL}}|$LLM_MODEL|g" \
@@ -151,31 +147,6 @@ mkdir -p "$LAUNCH_DIR"
 mkdir -p "$HOME/.memory"
 
 PLISTS_GENERATED=0
-
-# --- Qdrant ---
-QDRANT_PLIST="$LAUNCH_DIR/com.agent-memory.qdrant.plist"
-cat > "$QDRANT_PLIST" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>com.agent-memory.qdrant</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$DIR/src/shared/qdrant/start.sh</string>
-    </array>
-    <key>WorkingDirectory</key><string>$DIR/src/shared/qdrant</string>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-    <key>StandardOutPath</key><string>$HOME/.memory/qdrant.log</string>
-    <key>StandardErrorPath</key><string>$HOME/.memory/qdrant-error.log</string>
-    <key>ThrottleInterval</key><integer>5</integer>
-    <key>ProcessType</key><string>Background</string>
-</dict>
-</plist>
-PLIST
-echo "  ✅ com.agent-memory.qdrant.plist"
-((PLISTS_GENERATED++))
 
 # --- llama-server ---
 LLAMA_BIN="$DIR/bin/engine/bin/llama-server"

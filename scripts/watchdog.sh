@@ -19,7 +19,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 export PYTHONPATH="${PROJECT_ROOT}/src"
 export MEMORY_SERVER_DIR="${PROJECT_ROOT}"
-export QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
 export LLAMA_SERVER_URL="${LLAMA_SERVER_URL:-http://127.0.0.1:8081}"
 
 DRY_RUN=false
@@ -70,7 +69,6 @@ HEALTH_JSON=$("$PYTHON" -m shared.health --json 2>/dev/null) || true
 if [ -z "$HEALTH_JSON" ]; then
     log "❌ Health check failed to produce output"
     log "Attempting to restart all services..."
-    restart_service "com.agent-memory.qdrant" "Qdrant"
     restart_service "com.agent-memory.llama-embedding" "llama-server"
     restart_service "com.agent-memory.gateway" "Gateway"
     exit 1
@@ -99,10 +97,6 @@ for svc in health['services']:
 
 for svc in $UNHEALTHY; do
     case "$svc" in
-        qdrant)
-            log "🔴 Qdrant is down"
-            restart_service "com.agent-memory.qdrant" "Qdrant"
-            ;;
         llama-server)
             log "🔴 llama-server is down"
             restart_service "com.agent-memory.llama-embedding" "llama-server"

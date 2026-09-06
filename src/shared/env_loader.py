@@ -11,13 +11,11 @@ Layout (same in dev and prod):
     ├── config/.env
     ├── data/
     │   ├── memory/          ← L3_decisions, dream, thoughts, heartbeats, reminders
-    │   ├── qdrant/          ← vector DB storage
     │   ├── logs/            ← service logs
     │   ├── raw_events.jsonl ← L0 audit trail
     │   └── staging_buffer/  ← temp staging
     ├── engine/              ← llama.cpp binaries
     ├── models/              ← .gguf embedding models
-    ├── bin/                 ← Qdrant binary
     ├── src/ (or directly)   ← server code + shared/
     └── vault/               ← Obsidian vault
 
@@ -99,7 +97,7 @@ def _setup_data_paths(root: Path) -> None:
         data, mem,
         mem / "L3_decisions", mem / "dream", mem / "thoughts",
         mem / "heartbeats", mem / "reminders",
-        data / "qdrant", data / "logs", data / "staging_buffer",
+        data / "logs", data / "staging_buffer",
     ]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -115,9 +113,6 @@ def _setup_data_paths(root: Path) -> None:
         "THOUGHTS_PATH": str(mem / "thoughts"),
         "HEARTBEATS_PATH": str(mem / "heartbeats"),
         "REMINDERS_PATH": str(mem / "reminders"),
-
-        # Qdrant
-        "QDRANT_DATA": str(data / "qdrant"),
 
         # Logs
         "LOG_DIR": str(data / "logs"),

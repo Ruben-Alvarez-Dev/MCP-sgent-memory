@@ -2,18 +2,17 @@
 from __future__ import annotations
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
-from shared.embedding import async_embed, safe_embed, bm25_tokenize
+from shared.memory_db import MemoryDB
+from shared.embedding import safe_embed, bm25_tokenize
 from shared.sanitize import validate_add_memory
 from shared.result_models import AddMemoryResult, SearchResult, LayerResult, DismissResult, L3FactsStatusResult
 
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, "L3_facts", config.embedding_dim)
+db = MemoryDB(None, "L3_facts", config.embedding_dim)
 DEFAULT_USER = "default"
 mcp = FastMCP("L3_facts")
 
@@ -26,8 +25,8 @@ async def add_memory(content: str, user_id: str = DEFAULT_USER, metadata: str = 
     import uuid as _uuid
     mid = str(_uuid.uuid4())
     meta = json.loads(metadata) if metadata.strip().startswith("{") else {}
-    await qdrant.ensure_collection(sparse=True)
-    await qdrant.upsert(mid, vector, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"metadata":meta,"created_at":datetime.now(timezone.utc).isoformat()}, sparse=sparse)
+    await db.ensure_collection()
+    await db.upsert(mid, vector, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"metadata":meta,"created_at":datetime.now(timezone.utc).isoformat(),"agent_scope":"shared"}, sparse=sparse)
     return AddMemoryResult(status="stored", memory_id=mid)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -38,37 +37,36 @@ async def search_memory(query: str, user_id: str = DEFAULT_USER, limit: int = 5,
     if not query or len(query) < 2 or not any(c.isalnum() for c in query):
         return SearchResult(count=0, results=[])
     vector = await safe_embed(query)
-    results = await qdrant.search(vector, limit=limit, score_threshold=min_score)
-    filtered = [{**r.get("payload",{}), "score": round(r.get("score", 0), 4)} for r in results if r.get("payload",{}).get("user_id") == user_id]
-    return SearchResult(count=len(filtered), results=filtered)
+    results = await db.search(vector, limit=limit, score_threshold=min_score,
+                              filter={"must":[{"key":"user_id","match":{"value":user_id}}]})
+    hits = [{**r.get("payload",{}), "score": round(r.get("score", 0), 4)} for r in results]
+    return SearchResult(count=len(hits), results=hits)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_all_memories(user_id: str = DEFAULT_USER, limit: int = 50) -> LayerResult:
     """Get all memories for a user."""
-    results = await qdrant.scroll({"must":[{"key":"user_id","match":{"value":user_id}}]}, limit=limit)
+    results = await db.scroll(filter={"must":[{"key":"user_id","match":{"value":user_id}}]}, limit=limit)
     return LayerResult(layer="semantic", count=len(results), memories=results)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
 async def delete_memory(memory_id: str, user_id: str = DEFAULT_USER) -> DismissResult:
     """Delete a memory by ID."""
-    point = await qdrant.get(memory_id)
-    if point and point.get("payload",{}).get("user_id") == user_id:
-        deleted = await qdrant.delete(memory_id)
-        if deleted:
-            return DismissResult(status="deleted", reminder_id=memory_id)
-        return DismissResult(status="delete_failed", reminder_id=memory_id)
-    return DismissResult(status="not_found")
+    # Atomic engine-level delete (id + user_id in ONE statement) — no get-then-check TOCTOU
+    deleted = await db.delete(memory_id, filter={"must":[{"key":"user_id","match":{"value":user_id}}]})
+    if deleted:
+        return DismissResult(status="deleted", reminder_id=memory_id)
+    return DismissResult(status="not_found", reminder_id=memory_id)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def status() -> L3FactsStatusResult:
     """Show L3_facts status."""
-    ok = await qdrant.health()
-    count = await qdrant.count() if ok else 0
+    ok = await db.health()
+    count = await db.count() if ok else 0
     return L3FactsStatusResult(daemon="L3_facts", status="RUNNING", memories=count)
 
 def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
-    global qdrant, config
-    qdrant = QdrantClient(target_config.qdrant_url, "L3_facts", target_config.embedding_dim)
+    global db, config
+    db = MemoryDB(None, "L3_facts", target_config.embedding_dim)
     config = target_config
     for fn in [add_memory, search_memory, get_all_memories, delete_memory, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")

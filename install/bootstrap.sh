@@ -226,7 +226,7 @@ echo -e "${BOLD}[4/6] Embedding server (BGE-M3)${NC}"
 echo "────────────────────────────────────────────────────────────"
 
 EMB_OK=false
-EMB_PORT=8081
+EMB_PORT="${EMB_PORT:-8081}"   # allow override when default port is occupied
 PRECISION=${MODEL_PRECISION:-Q4_K_M}
 
 if curl -s --max-time 3 http://127.0.0.1:$EMB_PORT/health 2>/dev/null | grep -q "ok"; then

@@ -46,11 +46,17 @@ class TestNormalizeScope:
         "s",
         ["", "   ", "../../etc", "..", "a/b", "*", "c1/p*", "a b", "a" * 33,
          "global", "merged", "consolidated", "narrative", "dream", "GLOBAL",
-         "a\x00b", "sí", "a.b", "a:b", "-lead", "_x"],
+         "a\x00b", "sí", "a.b", "-lead", "_x"],
     )
     def test_invalid_rejected(self, s):
+        # M2 note: "a:b" was removed from this list — 5-level namespace scopes
+        # (c:/p:/a:/s:/u:) are now VALID by contract (ISO-09 M2 extension).
         with pytest.raises(ScopeError):
             normalize_scope(s)
+
+    def test_namespaced_scope_m2_valid(self):
+        """M2 contract: single-level namespace scopes canonicalize (was invalid in M1)."""
+        assert normalize_scope("a:b") == "a:b"
 
     def test_non_string_rejected(self):
         with pytest.raises(ScopeError):

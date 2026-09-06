@@ -29,8 +29,8 @@ import re
 import sqlite3
 import struct
 import threading
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ class ScopeRequiredError(ValueError):
 _ENGINE_FILTER_COLUMNS = {
     "agent_scope": "agent_scope",
     "user_id": "user_id",
+    "layer": "layer",  # system-controlled (server-written), never caller input
 }
 
 
@@ -134,6 +135,7 @@ class MemoryDB:
                   payload TEXT NOT NULL,
                   agent_scope TEXT NOT NULL DEFAULT 'shared',
                   user_id TEXT,
+                  layer INTEGER,
                   sparse_json TEXT,
                   created_at TEXT NOT NULL,
                   PRIMARY KEY(collection, id)
@@ -143,7 +145,7 @@ class MemoryDB:
             self._conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_points_scope
-                ON points(collection, agent_scope, user_id)
+                ON points(collection, agent_scope, user_id, layer)
                 """
             )
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
@@ -158,21 +160,21 @@ class MemoryDB:
             return await asyncio.to_thread(
                 lambda: self._conn.execute("SELECT 1").fetchone() is not None
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — health() IS the "any failure -> False" boundary
             return False
 
     async def close(self) -> None:
         async with self._write_lock:
             await asyncio.to_thread(self._conn.close)
 
-    def with_collection(self, collection: str) -> "MemoryDB":
+    def with_collection(self, collection: str) -> MemoryDB:
         """Create a new client targeting a different collection (parity)."""
         return MemoryDB(self.db_path, collection, self.embedding_dim)
 
     # ── Filter translation (ISO-11) ────────────────────────────
 
     @staticmethod
-    def _translate_filter(filter_: Optional[dict]) -> tuple[str, list[Any]]:
+    def _translate_filter(filter_: dict | None) -> tuple[str, list[Any]]:
         """Qdrant-style {"must":[{"key":k,"match":{"value":v}}]} -> safe SQL.
 
         Keys MUST be engine columns (allowlist), values ALWAYS bound as
@@ -191,15 +193,31 @@ class MemoryDB:
             raise ValueError("filter.must must be a non-empty list")
         for cond in must:
             if not isinstance(cond, dict):
-                raise ValueError("filter condition must be a dict")
+                # ValueError (not TypeError): filter contract violation is a
+                # caller-input error, same family as ScopeRequiredError.
+                raise ValueError("filter condition must be a dict")  # noqa: TRY004
             key = cond.get("key")
             match = cond.get("match")
             value = match.get("value") if isinstance(match, dict) else None
+            any_values = match.get("any") if isinstance(match, dict) else None
             if not isinstance(key, str) or key not in _ENGINE_FILTER_COLUMNS:
                 raise ValueError(f"filter key not engine-filterable: {key!r}")
+            col = _ENGINE_FILTER_COLUMNS[key]
+            if any_values is not None:
+                # Qdrant-parity match.any -> IN clause (own+shared merges)
+                if (
+                    not isinstance(any_values, list)
+                    or not any_values
+                    or any(v is None or isinstance(v, (dict, list)) for v in any_values)
+                ):
+                    raise ValueError(f"filter any-values for '{key}' must be non-empty scalars")
+                placeholders = ", ".join("?" for _ in any_values)
+                clauses.append(f"{col} IN ({placeholders})")
+                params.extend(any_values)
+                continue
             if value is None or isinstance(value, (dict, list)):
                 raise ValueError(f"Filter value for '{key}' must be scalar")
-            clauses.append(f"{_ENGINE_FILTER_COLUMNS[key]} = ?")
+            clauses.append(f"{col} = ?")
             params.append(value)
         if not clauses:
             raise ScopeRequiredError("Empty filter — refuse unfiltered scan")
@@ -208,7 +226,7 @@ class MemoryDB:
     # ── Point operations ───────────────────────────────────────
 
     @staticmethod
-    def _pack_vector(vector: Optional[list[float]]) -> Optional[bytes]:
+    def _pack_vector(vector: list[float] | None) -> bytes | None:
         if not vector:
             return None
         if all(v == 0.0 for v in vector):
@@ -218,7 +236,7 @@ class MemoryDB:
         return struct.pack(f"{len(vector)}f", *vector)
 
     @staticmethod
-    def _unpack_vector(blob: Optional[bytes]) -> Optional[list[float]]:
+    def _unpack_vector(blob: bytes | None) -> list[float] | None:
         if not blob:
             return None
         n = len(blob) // 4
@@ -242,34 +260,41 @@ class MemoryDB:
             blob = None
         embedded = blob is not None
         payload["embedded"] = embedded
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         sparse_json = json.dumps(sparse) if sparse else None
+        layer = payload.get("layer")
+        if layer is not None and not isinstance(layer, int):
+            try:
+                layer = int(layer)
+            except (TypeError, ValueError):
+                layer = None
         return point_id, blob, json.dumps(payload), sparse_json, now, \
-            payload["agent_scope"], payload.get("user_id")
+            payload["agent_scope"], payload.get("user_id"), layer
 
     def _upsert_one(self, point_id, vector, payload, sparse) -> None:
-        pid, blob, payload_json, sparse_json, now, scope, user = self._prepare_row(
+        pid, blob, payload_json, sparse_json, now, scope, user, layer = self._prepare_row(
             point_id, vector, payload, sparse
         )
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, sparse_json, created_at)
-                VALUES(?,?,?,?,?,?,?,?)
+                INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, layer, sparse_json, created_at)
+                VALUES(?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(collection, id) DO UPDATE SET
                   vector=excluded.vector, payload=excluded.payload,
                   agent_scope=excluded.agent_scope, user_id=excluded.user_id,
+                  layer=excluded.layer,
                   sparse_json=excluded.sparse_json, created_at=excluded.created_at
                 """,
-                (pid, self.collection, blob, payload_json, scope, user, sparse_json, now),
+                (pid, self.collection, blob, payload_json, scope, user, layer, sparse_json, now),
             )
 
     async def upsert(
         self,
         point_id: str,
-        vector: Optional[list[float]],
+        vector: list[float] | None,
         payload: dict[str, Any],
-        sparse: Optional[dict] = None,
+        sparse: dict | None = None,
         wait: bool = True,
     ) -> None:
         """Insert/update one point. vector=None/zero/dim-mismatch -> stored as NULL."""
@@ -285,22 +310,23 @@ class MemoryDB:
             with self._lock, self._conn:
                 self._conn.executemany(
                     """
-                    INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, sparse_json, created_at)
-                    VALUES(?,?,?,?,?,?,?,?)
+                    INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, layer, sparse_json, created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(collection, id) DO UPDATE SET
                       vector=excluded.vector, payload=excluded.payload,
                       agent_scope=excluded.agent_scope, user_id=excluded.user_id,
+                      layer=excluded.layer,
                       sparse_json=excluded.sparse_json, created_at=excluded.created_at
                     """,
                     [
-                        (pid, self.collection, blob, pj, scope, user, sj, now)
-                        for pid, blob, pj, sj, now, scope, user in rows
+                        (pid, self.collection, blob, pj, scope, user, layer, sj, now)
+                        for pid, blob, pj, sj, now, scope, user, layer in rows
                     ],
                 )
         async with self._write_lock:
             await asyncio.to_thread(_write)
 
-    def _get_one(self, point_id: str) -> Optional[dict]:
+    def _get_one(self, point_id: str) -> dict | None:
         row = self._conn.execute(
             "SELECT id, payload FROM points WHERE collection=? AND id=?",
             (self.collection, point_id),
@@ -314,10 +340,10 @@ class MemoryDB:
             return None
         return {"id": row["id"], "payload": payload}
 
-    async def get(self, point_id: str) -> Optional[dict]:
+    async def get(self, point_id: str) -> dict | None:
         return await asyncio.to_thread(self._get_one, point_id)
 
-    def _delete_one(self, point_id: str, filter_: Optional[dict]) -> bool:
+    def _delete_one(self, point_id: str, filter_: dict | None) -> bool:
         sql = "DELETE FROM points WHERE collection=? AND id=?"
         params: list[Any] = [self.collection, point_id]
         if filter_ is not None:  # atomic ownership-enforced delete (anti-TOCTOU)
@@ -328,11 +354,50 @@ class MemoryDB:
             cur = self._conn.execute(sql, params)
             return cur.rowcount > 0
 
+    def _update_payload_one(self, point_id: str, patch: dict) -> bool:
+        """Atomic payload merge — preserves the stored vector (unlike upsert)."""
+        _validate_payload_keys(patch, point_id)
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT payload, agent_scope, user_id, layer FROM points WHERE collection=? AND id=?",
+                (self.collection, point_id),
+            ).fetchone()
+            if not row:
+                return False
+            try:
+                payload = json.loads(row["payload"])
+            except json.JSONDecodeError:
+                logger.warning("update_payload %s: corrupt existing payload", point_id)
+                return False
+            payload.update(patch)
+            scope = payload.get("agent_scope") or row["agent_scope"] or "shared"
+            user = payload.get("user_id", row["user_id"])
+            layer = payload.get("layer", row["layer"])
+            if layer is not None and not isinstance(layer, int):
+                try:
+                    layer = int(layer)
+                except (TypeError, ValueError):
+                    layer = None
+            self._conn.execute(
+                "UPDATE points SET payload=?, agent_scope=?, user_id=?, layer=? WHERE collection=? AND id=?",
+                (json.dumps(payload), scope, user, layer, self.collection, point_id),
+            )
+            return True
+
+    async def update_payload(self, point_id: str, patch: dict[str, Any]) -> bool:
+        """Merge `patch` into the stored payload WITHOUT touching the vector.
+
+        Engine columns (agent_scope/user_id/layer) are re-extracted so the
+        enforcement index stays consistent with the merged payload.
+        """
+        async with self._write_lock:
+            return await asyncio.to_thread(self._update_payload_one, point_id, patch)
+
     async def delete(
         self,
         point_id: str,
         wait: bool = True,
-        filter: Optional[dict] = None,
+        filter: dict | None = None,
     ) -> bool:
         """Delete one point. With `filter`, the delete is ATOMIC (id+scope must
         both match in a single statement) — callers enforcing ownership MUST
@@ -342,15 +407,18 @@ class MemoryDB:
 
     async def count(self) -> int:
         def _count():
-            row = self._conn.execute(
-                "SELECT COUNT(*) AS c FROM points WHERE collection=?", (self.collection,)
-            ).fetchone()
+            try:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS c FROM points WHERE collection=?", (self.collection,)
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return 0  # virgin DB (no table yet) — empty, not an error
             return row["c"]
         return await asyncio.to_thread(_count)
 
     # ── Search (engine-level enforcement, ISO-05) ──────────────
 
-    def _score_candidates(self, rows, query_vec: Optional[list[float]]):
+    def _score_candidates(self, rows, query_vec: list[float] | None):
         """Score SQL-filtered candidate rows. Returns scored dicts."""
         scored = []
         for row in rows:
@@ -391,10 +459,10 @@ class MemoryDB:
 
     async def search(
         self,
-        vector: Optional[list[float]],
+        vector: list[float] | None,
         limit: int = 10,
         score_threshold: float = 0.3,
-        filter: Optional[dict] = None,
+        filter: dict | None = None,
     ) -> list[dict]:
         """Dense search restricted by ENGINE filter. Fails closed without one."""
         return await asyncio.to_thread(self._search_sync, vector, limit, score_threshold, filter)
@@ -415,7 +483,7 @@ class MemoryDB:
 
     async def scroll(
         self,
-        filter: Optional[dict] = None,
+        filter: dict | None = None,
         limit: int = 50,
         with_payload: bool = True,
     ) -> list[dict]:

@@ -27,9 +27,8 @@ from typing import Optional
 class Config:
     """Type-safe configuration loaded from environment variables."""
 
-    # ── Qdrant ────────────────────────────────────────────────
-    qdrant_url: str = "http://127.0.0.1:6333"
-    qdrant_collection: str = "L0_L4_memory"
+    # ── Storage (M2: single memory.db, no daemon) ────────────
+    qdrant_collection: str = "L0_L4_memory"  # legacy env name QDRANT_COLLECTION
 
     # ── Embedding ─────────────────────────────────────────────
     embedding_backend: str = "llama_server"
@@ -76,8 +75,7 @@ class Config:
         server_dir = os.getenv("MEMORY_SERVER_DIR", "")
 
         return cls(
-            # Qdrant
-            qdrant_url=os.getenv("QDRANT_URL", "http://127.0.0.1:6333"),
+            # Storage (M2: single memory.db — no daemon URL)
             qdrant_collection=os.getenv("QDRANT_COLLECTION", "L0_L4_memory"),
             # Embedding
             embedding_backend=os.getenv("EMBEDDING_BACKEND", "llama_server"),
@@ -115,21 +113,7 @@ class Config:
         """Validate configuration. Returns list of error messages."""
         errors: list[str] = []
 
-        # URLs
-        if not self.qdrant_url:
-            errors.append("QDRANT_URL is empty")
-        elif not self.qdrant_url.startswith(("http://", "https://")):
-            errors.append(f"QDRANT_URL must be http(s) URL, got {self.qdrant_url}")
-        else:
-            # Validate port is in valid range
-            try:
-                from urllib.parse import urlparse
-                port = urlparse(self.qdrant_url).port
-                if port is not None and not (1 <= port <= 65535):
-                    errors.append(f"QDRANT_URL port out of range: {port}")
-            except ValueError:
-                errors.append(f"QDRANT_URL has invalid port number")
-                pass
+        # URLs (M2: no storage daemon — nothing to validate)
 
         # Embedding backend
         valid_embed_backends = {"llama_cpp", "llama_server", "http", "noop"}

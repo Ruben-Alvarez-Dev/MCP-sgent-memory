@@ -1,8 +1,23 @@
-"""L0_to_L4_consolidation — Consolidation & Dream Daemon."""
+"""L0_to_L4_consolidation — Consolidation & Dream Daemon (M2-storage port).
+
+Storage is shared.memory_db.MemoryDB (SQLite, collection 'L0_L4_memory').
+
+ISO-06 (M2): the cross-layer promotions that minted scope-global rows —
+L2→L3 (scope_id='consolidated'), L3→L4 (scope_id='narrative') and the dream
+cycle (scope_id='dream') — are hard NO-OPS: they log a warning, report
+status='disabled', and never write.
+
+Layer-keyed reads: 'layer' is NOT an engine-filterable key (ISO-11 allowlist
+is {agent_scope, user_id} only) and Python post-filtering is forbidden
+(ISO-05). Maintenance reads therefore use a documented, same-process,
+READ-ONLY administrative SQL cursor with the layer predicate INSIDE the
+statement (json_extract + bound parameters) — no user input reaches it.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,14 +27,15 @@ from mcp.types import ToolAnnotations
 from shared.env_loader import load_env
 load_env()
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
+from shared.memory_db import MemoryDB
 from shared.models import MemoryItem, MemoryLayer, MemoryScope, MemoryType
-from shared.llm import get_llm
-from shared.embedding import async_embed, safe_embed
-from shared.result_models import HeartbeatResult, ConsolidateResult, DreamResult, LayerResult, ConsolidationStatusResult
+from shared.embedding import safe_embed
+from shared.result_models import HeartbeatResult, ConsolidateResult, LayerResult, ConsolidationStatusResult
+
+logger = logging.getLogger(__name__)
 
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
 DREAM_PATH = Path(config.L4_narrative_path) if config.L4_narrative_path else Path("")
 _state_path = DREAM_PATH / "state.json"
 _state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -35,25 +51,39 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     _state_path.write_text(json.dumps(state, indent=2))
 
-async def _summarize(texts: list[str], prompt: str = "") -> str:
-    content = "\n---\n".join(texts[:20])
-    if not prompt:
-        prompt = "Synthesize the following memories into a concise summary.\n\n"
-    try:
-        llm = get_llm()
-        if llm.is_available():
-            resp = llm.ask(prompt + content, max_tokens=512, temperature=0.3)
-            if resp.strip():
-                return resp.strip()
-    except Exception:
-        pass
-    return "\n".join(f"[{i+1}] {t[:200]}" for i, t in enumerate(texts[:10]))
+
+def _payloads(rows) -> list[dict]:
+    out: list[dict] = []
+    for row in rows:
+        try:
+            out.append(json.loads(row["payload"]))
+        except json.JSONDecodeError:
+            logger.warning("administrative read: skipped corrupt payload id=%s", row["id"])
+    return out
+
+
+def _admin_read_by_layer(layer: int, limit: int) -> list[dict]:
+    """Administrative internal READ-ONLY scan keyed by payload layer.
+
+    'layer' is not an engine-filterable key (ISO-11 allowlist: agent_scope,
+    user_id only) and Python post-filtering is forbidden (ISO-05), so this
+    same-process maintenance path goes straight to the SQLite cursor with the
+    layer predicate INSIDE the SQL statement (json_extract, bound parameter).
+    No user input flows into this query; read-only by construction.
+    """
+    rows = db._conn.execute(
+        "SELECT id, payload FROM points "
+        "WHERE collection=? AND json_extract(payload, '$.layer')=? LIMIT ?",
+        (db.collection, int(layer), int(limit)),
+    ).fetchall()
+    return _payloads(rows)
+
 
 async def _promote_l1_l2(state: dict) -> str | None:
     if state["turn_count"] - state.get("last_promote_l1_l2", 0) < config.consolidation_promote_L1:
         return None
-    await qdrant.ensure_collection(sparse=False)
-    working = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 1}}]}, limit=100)
+    await db.ensure_collection()
+    working = _admin_read_by_layer(1, 100)
     if not working:
         return None
     groups: dict[str, list] = {}
@@ -68,43 +98,28 @@ async def _promote_l1_l2(state: dict) -> str | None:
         combined = "\n".join(f"- {m['content']}" for m in items[:10])
         avg_imp = sum(m.get("importance", 0) for m in items) / len(items)
         ep = MemoryItem(layer=MemoryLayer.EPISODIC, scope_type=items[0].get("scope_type", MemoryScope.AGENT), scope_id=items[0].get("scope_id", "system"), type=MemoryType.EPISODE, content=f"Episode ({len(items)} events):\n{combined}", importance=avg_imp, confidence=0.7)
+        payload = ep.model_dump(mode="json")
+        payload["agent_scope"] = items[0].get("agent_scope", "shared")  # episodes inherit source scope
         vector = await safe_embed(ep.content)
-        batch_points.append({"id": ep.memory_id, "vector": vector, "payload": ep.model_dump(mode="json")})
+        batch_points.append({"id": ep.memory_id, "vector": vector, "payload": payload})
         episode_ids.append(ep.memory_id)
     if batch_points:
-        await qdrant.upsert_batch(batch_points)
+        await db.upsert_batch(batch_points)
     state["last_promote_l1_l2"] = state.get("turn_count", 0)
     return f"Created {len(episode_ids)} episodes" if episode_ids else None
 
-async def _promote_l2_l3(state: dict, now: float) -> str | None:
-    if now - state.get("last_promote_l2_l3", 0) < config.consolidation_promote_L2:
-        return None
-    await qdrant.ensure_collection(sparse=False)
-    episodes = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 2}}]}, limit=50)
-    if not episodes:
-        return None
-    summary = await _summarize([e.get("content", "") for e in episodes], "Extract key decisions, entities, and reusable patterns.\n\n")
-    sem = MemoryItem(layer=MemoryLayer.SEMANTIC, scope_type=MemoryScope.AGENT, scope_id="consolidated", type=MemoryType.DECISION, content=f"Consolidated from {len(episodes)} episodes:\n\n{summary}", importance=0.8, confidence=0.75)
-    vector = await safe_embed(summary)
-    await qdrant.upsert(sem.memory_id, vector, sem.model_dump(mode="json"))
-    state["last_promote_l2_l3"] = now
-    state["total_consolidated"] = state.get("total_consolidated", 0) + 1
-    return f"Consolidated {len(episodes)} episodes"
 
-async def _promote_l3_l4(state: dict, now: float) -> str | None:
-    if now - state.get("last_promote_l3_l4", 0) < config.consolidation_promote_L3:
-        return None
-    await qdrant.ensure_collection(sparse=False)
-    semantic = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 3}}]}, limit=30)
-    if not semantic:
-        return None
-    narrative = await _summarize([s.get("content", "") for s in semantic], "Write a coherent narrative from these memory fragments.\n\n")
-    item = MemoryItem(layer=MemoryLayer.CONSOLIDATED, scope_type=MemoryScope.AGENT, scope_id="narrative", type=MemoryType.NARRATIVE, content=narrative, importance=0.9, confidence=0.6)
-    vector = await safe_embed(narrative)
-    await qdrant.upsert(item.memory_id, vector, item.model_dump(mode="json"))
-    state["last_promote_l3_l4"] = now
-    state["total_consolidated"] = state.get("total_consolidated", 0) + 1
-    return "Created consolidated narrative"
+# ── ISO-06 (M2): scope-global promotions are hard no-ops ──────────────
+
+async def _promote_l2_l3(state: dict, now: float) -> dict:
+    """NO-OP (ISO-06/M2): L2→L3 promotion disabled — zero writes, visible status."""
+    logger.warning("ISO-06: promotion disabled (M2), request=%s", "promote_l2_l3")
+    return {"status": "disabled"}
+
+async def _promote_l3_l4(state: dict, now: float) -> dict:
+    """NO-OP (ISO-06/M2): L3→L4 promotion disabled — zero writes, visible status."""
+    logger.warning("ISO-06: promotion disabled (M2), request=%s", "promote_l3_l4")
+    return {"status": "disabled"}
 
 
 # ── v1.4: Verification during consolidation ────────────────────────────
@@ -118,22 +133,21 @@ async def _verify_stale() -> str | None:
     and age since last verification. This is the dream-cycle equivalent of
     the brain's reconsolidation process.
     """
-    await qdrant.ensure_collection(sparse=False)
+    await db.ensure_collection()
 
-    # Find memories that need verification (L2 and above — L1 is too volatile)
-    needs_check = await qdrant.scroll(
-        {
-            "must": [
-                {"key": "layer", "match": {"values": [2, 3, 4]}},
-            ],
-            "should": [
-                {"key": "verification_status", "match": {"value": "never_verified"}},
-                {"key": "verification_status", "match": {"value": "stale"}},
-                # Also check verified memories that might be old
-            ],
-        },
-        limit=50,
-    )
+    # Administrative READ-ONLY internal scan (same rationale as
+    # _admin_read_by_layer): 'layer'/'verification_status' are not
+    # engine-filterable keys (ISO-11) and post-filtering is forbidden
+    # (ISO-05). Predicates live INSIDE the SQL statement.
+    rows = db._conn.execute(
+        "SELECT id, payload FROM points "
+        "WHERE collection=? "
+        "AND json_extract(payload, '$.layer') IN (2, 3, 4) "
+        "AND COALESCE(json_extract(payload, '$.verification_status'), 'never_verified') "
+        "IN ('never_verified', 'stale') LIMIT ?",
+        (db.collection, 50),
+    ).fetchall()
+    needs_check = _payloads(rows)
 
     if not needs_check:
         return None
@@ -190,7 +204,7 @@ async def _verify_stale() -> str | None:
         new_status = "verified"
         source = "consolidation_check"
 
-        # Update in Qdrant
+        # Update in the memory store (payload already carries its own scope)
         updated = {**payload,
             "verification_status": new_status,
             "verified_at": now_iso,
@@ -200,7 +214,7 @@ async def _verify_stale() -> str | None:
         mem_id = payload.get("memory_id", "")
         if mem_id:
             vector = payload.get("embedding")
-            await qdrant.upsert(mem_id, vector, updated)
+            await db.upsert(mem_id, vector, updated)
             if new_status == "stale":
                 stale += 1
             else:
@@ -214,17 +228,24 @@ async def _verify_stale() -> str | None:
     return f"Verification: {', '.join(parts)}" if parts else None
 
 
+async def _run_consolidation_pass(state: dict, now: float) -> list[str]:
+    results: list[str] = []
+    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
+        r = await fn(state)
+        if isinstance(r, dict):
+            continue  # disabled marker (ISO-06): already logged, never surfaces as success
+        if r:
+            results.append(r)
+    return results
+
+
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> HeartbeatResult:
     """Signal that the agent is alive. Triggers auto-consolidation if thresholds met."""
     state = _load_state()
     state["turn_count"] = state.get("turn_count", 0) + turn_count
     now = datetime.now(timezone.utc).timestamp()
-    results = []
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
-        r = await fn(state)
-        if r:
-            results.append(r)
+    results = await _run_consolidation_pass(state, now)
     if results:
         _save_state(state)
     return HeartbeatResult(status="ok", agent_id=agent_id, turn_count=state["turn_count"], message=", ".join(results) if results else "No consolidation due")
@@ -236,49 +257,20 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
     state = _load_state()
     state["turn_count"] = state.get("turn_count", 0) + 1
     now = datetime.now(timezone.utc).timestamp()
-    results = []
     if force:
         state["last_promote_l1_l2"] = 0
         state["last_promote_l2_l3"] = 0
         state["last_promote_l3_l4"] = 0
-    for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
-        r = await fn(state)
-        if r:
-            results.append(r)
+    results = await _run_consolidation_pass(state, now)
     _save_state(state)
     return ConsolidateResult(status="consolidation complete", forced=force, results=results)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def dream() -> dict:
-    """Trigger a deep dream cycle — runs in background, returns immediately."""
-    from shared.task_queue import get_tracker, TaskStatus
-
-    state = _load_state()
-    now = datetime.now(timezone.utc).timestamp()
-    # Allow re-running by checking if explicitly forced (last_dream = 0 resets cooldown)
-    if now - state.get("last_dream", 0) < config.consolidation_promote_L4:
-        # Reset so next call works
-        return {"status": "skipped", "reason": "not due yet (cooldown " + str(int(config.consolidation_promote_L4 - (now - state.get("last_dream", 0)))) + "s remaining)", "total_dreams": state.get("total_dreams", 0), "hint": "set last_dream=0 in state file to force"}
-
-    async def _dream_impl():
-        all_mem = []
-        for layer in [MemoryLayer.WORKING, MemoryLayer.EPISODIC, MemoryLayer.SEMANTIC, MemoryLayer.CONSOLIDATED]:
-            all_mem.extend(await qdrant.scroll({"must": [{"key": "layer", "match": {"value": layer.value}}]}, limit=30))
-        if not all_mem:
-            return DreamResult(status="No memories to dream about", total_dreams=state.get("total_dreams", 0))
-        dream_text = await _summarize([m.get("content", "") for m in all_mem[:15]], "You are dreaming. Find deep patterns and insights.\n\n")
-        item = MemoryItem(layer=MemoryLayer.CONSOLIDATED, scope_type=MemoryScope.AGENT, scope_id="dream", type=MemoryType.DREAM, content=f"Dream:\n\n{dream_text}", importance=0.5, confidence=0.4)
-        vector = await safe_embed(dream_text)
-        await qdrant.upsert(item.memory_id, vector, item.model_dump(mode="json"))
-        s = _load_state()
-        s["last_dream"] = now
-        s["total_dreams"] = s.get("total_dreams", 0) + 1
-        _save_state(s)
-        return DreamResult(status="Dream cycle complete", total_dreams=s["total_dreams"])
-
-    info = get_tracker().schedule(_dream_impl())
-    return {"status": "dream_scheduled", "task_id": info.task_id}
+    """Trigger a deep dream cycle — DISABLED in M2 (ISO-06): no-op, zero writes."""
+    logger.warning("ISO-06: promotion disabled (M2), request=%s", "dream")
+    return {"status": "disabled", "reason": "dream writes are disabled in M2 (ISO-06)"}
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -301,14 +293,14 @@ async def dream_status(task_id: str) -> dict:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_consolidated(scope: str = "") -> LayerResult:
     """Get consolidated memories (L4)."""
-    mems = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 4}}]}, limit=20)
+    mems = _admin_read_by_layer(4, 20)
     return LayerResult(layer="L4_CONSOLIDATED", count=len(mems), memories=mems)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def get_semantic(scope: str = "") -> LayerResult:
     """Get semantic memories (L3)."""
-    mems = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": 3}}]}, limit=20)
+    mems = _admin_read_by_layer(3, 20)
     return LayerResult(layer="L3_SEMANTIC", count=len(mems), memories=mems)
 
 
@@ -322,11 +314,11 @@ async def status() -> ConsolidationStatusResult:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def force_promote(from_layer: int = 1, count: int = 10) -> dict:
     """Force promotion of memories between layers for testing."""
-    await qdrant.ensure_collection(sparse=False)
+    await db.ensure_collection()
     if from_layer not in (1, 2, 3):
         return {"status": "error", "error": "from_layer must be 1, 2, or 3"}
 
-    mems = await qdrant.scroll({"must": [{"key": "layer", "match": {"value": from_layer}}]}, limit=count)
+    mems = _admin_read_by_layer(from_layer, count)
     if not mems:
         return {"status": "no_memories", "from_layer": from_layer, "message": f"No L{from_layer} memories found"}
 
@@ -343,17 +335,26 @@ async def force_promote(from_layer: int = 1, count: int = 10) -> dict:
             importance=m.get("importance", 0.5),
             confidence=min(m.get("confidence", 0.5) + 0.1, 1.0),
         )
+        payload = new_item.model_dump(mode="json")
+        payload["agent_scope"] = m.get("agent_scope", "shared")  # promoted rows inherit source scope
         vector = await safe_embed(new_item.content)
-        await qdrant.upsert(new_item.memory_id, vector, new_item.model_dump(mode="json"))
+        await db.upsert(new_item.memory_id, vector, payload)
         promoted += 1
 
     return {"status": "promoted", "from_layer": f"L{from_layer}", "to_layer": f"L{to_layer}", "count": promoted}
 
 
-def register_tools(target_mcp: FastMCP, target_qdrant: QdrantClient, target_config: Config, prefix: str = "") -> None:
-    global qdrant, config
-    qdrant = target_qdrant
+def register_tools(target_mcp: FastMCP, target_qdrant, target_config: Config, prefix: str = "") -> None:
+    """Register consolidation tools. Positional signature is a public contract.
+
+    target_qdrant is IGNORED (M2-storage: SQLite MemoryDB replaced the Qdrant
+    daemon); it stays in the signature for positional compatibility with the
+    unified server.
+    """
+    global config, db
     config = target_config
+    if db.embedding_dim != config.embedding_dim:
+        db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
     for fn in [heartbeat, consolidate, dream, dream_status, force_promote, get_consolidated, get_semantic, status]:
         target_mcp.add_tool(fn, name=f"{prefix}{fn.__name__}")
 

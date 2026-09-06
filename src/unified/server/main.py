@@ -22,12 +22,12 @@ setup_logging()
 import logging
 logger = logging.getLogger("agent-memory.unified")
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
+from shared.memory_db import MemoryDB
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("agent-memory")
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
 _initialized = False
 
 # ── Register all module tools via public API ────────────────────
@@ -62,7 +62,11 @@ for import_name, dir_name, prefix in [(n, d, f"{n}_") for n, d in _MODULES]:
         if not hasattr(mod, "register_tools"):
             _failed.append((import_name, "no register_tools()"))
             continue
-        mod.register_tools(mcp, qdrant, config, prefix=prefix)
+        if import_name in ("L3_decisions", "Lx_reasoning"):
+            # M2: FS-only modules dropped the vestigial store parameter
+            mod.register_tools(mcp, config, prefix=prefix)
+        else:
+            mod.register_tools(mcp, store, config, prefix=prefix)
         count = len(mcp._tool_manager._tools) - sum(t for _, t in _loaded)
         _loaded.append((import_name, len(mcp._tool_manager._tools)))
     except Exception as e:
@@ -106,17 +110,12 @@ async def _ensure_initialized() -> None:
         if d:
             Path(d).mkdir(parents=True, exist_ok=True)
 
-    # 2. Ensure all Qdrant collections exist
-    collections = {
-        "L0_L4_memory": (config.qdrant_url, config.embedding_dim),
-        "L2_conversations": (config.qdrant_url, config.embedding_dim),
-        "L3_facts": (config.qdrant_url, config.embedding_dim),
-    }
-    for coll_name, (url, dim) in collections.items():
+    # 2. Ensure memory.db schema for all logical collections (M2: same file)
+    for coll_name in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
         try:
-            client = QdrantClient(url, coll_name, dim)
-            await client.ensure_collection(sparse=True)
-            logger.info(f"Collection '{coll_name}' ready")
+            client = MemoryDB(None, coll_name, config.embedding_dim)
+            await client.ensure_collection()
+            logger.info(f"Collection '{coll_name}' ready (memory.db)")
         except Exception as e:
             logger.warning(f"Collection '{coll_name}' init failed: {e}")
 
@@ -142,11 +141,11 @@ async def health_check() -> dict:
     import asyncio
     checks = {}
 
-    # Qdrant
+    # memory.db (M2)
     try:
-        checks["qdrant"] = await qdrant.health()
+        checks["memory_db"] = await store.health()
     except Exception as e:
-        checks["qdrant"] = f"error: {e}"
+        checks["memory_db"] = f"error: {e}"
 
     # Embedding
     try:
@@ -156,10 +155,10 @@ async def health_check() -> dict:
     except Exception as e:
         checks["embedding"] = f"error: {e}"
 
-    # Collection counts
+    # Collection counts (engine-filtered by shared scope for a public oracle)
     for coll in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
         try:
-            c = QdrantClient(config.qdrant_url, coll, config.embedding_dim)
+            c = MemoryDB(None, coll, config.embedding_dim)
             checks[f"{coll}_count"] = await c.count()
         except Exception:
             checks[f"{coll}_count"] = -1

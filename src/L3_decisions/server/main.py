@@ -147,7 +147,7 @@ async def status() -> L3DecisionsStatusResult:
     vc = sum(1 for _ in VAULT_PATH.rglob("*.md")) if VAULT_PATH.exists() else 0
     return L3DecisionsStatusResult(daemon="L3_decisions", status="RUNNING", decision_files=len(_files()), vault_notes=vc)
 
-def register_tools(target_mcp, _qdrant, target_config, prefix=""):
+def register_tools(target_mcp, target_config, prefix=""):
     global config, DECISIONS_PATH, VAULT_PATH
     config = target_config
     DECISIONS_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")

@@ -2,14 +2,11 @@
 # config.sh — Configuration generation
 set -euo pipefail
 INSTALL_DIR="${1:?Usage: config.sh <install_dir>}"
-QDRANT_PORT="${2:-6333}"
 LLAMA_PORT="${3:-8081}"
 
 mkdir -p "$INSTALL_DIR/config" "$INSTALL_DIR/data"/{memory/{engram,dream,thoughts,heartbeats,reminders},staging_buffer} "$INSTALL_DIR/vault"
 
 cat > "$INSTALL_DIR/config/.env" << EOF
-QDRANT_URL=http://127.0.0.1:$QDRANT_PORT
-QDRANT_COLLECTION=L0_L4_memory
 EMBEDDING_BACKEND=llama_server
 EMBEDDING_MODEL=bge-m3
 EMBEDDING_DIM=1024
@@ -36,7 +33,6 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
         "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "QDRANT_URL": "http://127.0.0.1:$QDRANT_PORT",
         "EMBEDDING_BACKEND": "llama_server",
         "LLAMA_SERVER_URL": "http://127.0.0.1:$LLAMA_PORT",
         "EMBEDDING_MODEL": "bge-m3",

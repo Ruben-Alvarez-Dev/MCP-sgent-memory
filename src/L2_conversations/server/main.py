@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 config = Config.from_env()
 store = MemoryDB(None, "L2_conversations", config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 mcp = FastMCP("L2_conversations")
 
 
@@ -51,6 +53,7 @@ async def save_conversation(
         agent_scope: Scope for multi-agent isolation. Default "shared" (visible to all).
                      Use agent-specific scope like "director-1" for private threads.
     """
+    agent_scope = IDENTITY.assert_agent(agent_scope)  # M4: identity gate before I/O (ISO-13)
     clean = validate_save_conversation(thread_id, messages_json)
     messages = clean["messages"]
 
@@ -121,6 +124,8 @@ async def search_conversations(
         min_score: Minimum semantic similarity score.
         agent_scope: If set, filter to this scope + "shared". None = all scopes.
     """
+    # M4: None means "without explicit scope" → ISO-15 default coercion in bound mode
+    agent_scope = IDENTITY.assert_agent(agent_scope or "default")  # identity gate before I/O (ISO-13)
     # 1. Semantic search via memory.db (engine-level scope filter, ISO-05)
     vector = await safe_embed(query)
     scope = (agent_scope or "shared").strip().lower()
@@ -182,6 +187,8 @@ async def list_threads(
         limit: Max threads to return.
         agent_scope: If set, filter to this scope + "shared". None = all scopes.
     """
+    # M4: None means "without explicit scope" → ISO-15 default coercion in bound mode
+    agent_scope = IDENTITY.assert_agent(agent_scope or "default")  # identity gate before I/O (ISO-13)
     threads = db_list_threads(limit=limit, agent_scope=agent_scope)
     return ThreadListResult(count=len(threads), threads=threads)
 

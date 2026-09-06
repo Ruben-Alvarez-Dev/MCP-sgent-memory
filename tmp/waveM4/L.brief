@@ -1,0 +1,13 @@
+Eres ingeniero adversarial de seguridad. cwd=/Users/manu/.mcp-agent-memory. NO uses git. SOLO puedes crear tests/adversarial/test__M4__identity.py (nuevo). No toques nada mas.
+
+OBJETO: src/shared/identity.py y src/L5_routing/server/main.py (solo lectura).
+API identity: AgentRegistry(path) .register(agent_id)->token, .verify(id,token)->bool, .list_agents(); bind_identity(env=dict, registry=) -> Identity(.agent_id,.mode,.assert_agent(x),.as_dict()); IdentityError; ScopeError viene de shared.scope. El token real se muestra una vez en register y solo se guarda su sha256.
+
+Crea tests/adversarial/test__M4__identity.py con pytest.mark.isolation, tmp_path/monkeypatch (NUNCA os.environ global para credenciales), sin red:
+- A17 spoof: registry tmp con director-1 y engineer-1 registrados; bind con credenciales de director-1 (env dict pasado a bind_identity). assert_agent("engineer-1") lanza ScopeError; assert_agent("default")=="director-1" (coercion ISO-15); assert_agent("shared")=="shared". Ademas: carga el modulo L5 via importlib con nombre unico y monkeypatch de su atributo IDENTITY con una Identity bound a director-1: push_reminder y check_reminders con agent_id="engineer-1" lanzan ScopeError ANTES de tocar storage (para push_reminder usa una query valida y DATA_DIR tmp seteado con monkeypatch ANTES del import).
+- A18 strict boot fail-closed: env solo con MEMORY_IDENTITY_MODE=strict (sin credenciales) lanza IdentityError; con MEMORY_AGENT_ID y token malo tambien lanza IdentityError.
+- A19 replay cruzado: register director-1 y engineer-1; verify de engineer-1 con el token de director-1 es False.
+- A20 open mode: bind sin credenciales devuelve mode open; assert_agent("engineer-1") permitido (legacy) pero assert_agent("../x") lanza ScopeError; caplog confirma WARNING de bind_identity con texto OPEN mode.
+- A21 registry: fichero corrupto arranca vacio sin crash; register("global") lanza ScopeError; tras register el fichero tiene permisos 0600; el token en claro NO aparece en el contenido del fichero.
+Corre: .venv/bin/python -m pytest tests/adversarial/test__M4__identity.py tests/core/test_identity.py -q
+REPORTA: casos cubiertos, resultado pytest, desviaciones.

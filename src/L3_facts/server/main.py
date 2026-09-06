@@ -13,6 +13,8 @@ from shared.result_models import AddMemoryResult, SearchResult, LayerResult, Dis
 
 config = Config.from_env()
 db = MemoryDB(None, "L3_facts", config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 DEFAULT_USER = "default"
 mcp = FastMCP("L3_facts")
 

@@ -17,7 +17,6 @@ from shared.identity import (
     AGENT_TOKEN_ENV,
     IDENTITY_MODE_ENV,
     AgentRegistry,
-    Identity,
     IdentityError,
     bind_identity,
 )
@@ -56,7 +55,8 @@ def test_register_roundtrip(reg):
 @pytest.mark.unit
 def test_registry_stores_hash_only(reg, reg_path):
     token = reg.register("director-1")
-    data = json.load(open(reg_path))
+    with open(reg_path) as fh:
+        data = json.load(fh)
     entry = data["director-1"]
     assert entry["token_sha256"] == hashlib.sha256(token.encode()).hexdigest()
     assert token not in json.dumps(data)                      # plaintext never stored
@@ -83,7 +83,8 @@ def test_unknown_agent_and_reserved_rejected(reg):
 
 @pytest.mark.unit
 def test_corrupt_registry_starts_empty(reg_path, caplog):
-    open(reg_path, "w").write("{corrupt")
+    with open(reg_path, "w") as fh:
+        fh.write("{corrupt")
     r2 = AgentRegistry(reg_path)
     assert r2.list_agents() == {}                             # WARN + empty, no crash
 

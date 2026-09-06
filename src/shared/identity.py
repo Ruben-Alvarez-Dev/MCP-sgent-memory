@@ -31,7 +31,7 @@ import secrets
 import stat
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .scope import PUBLIC_SCOPE, ScopeError, normalize_scope
@@ -73,7 +73,9 @@ class AgentRegistry:
             with open(self.path, encoding="utf-8") as fh:
                 data = json.load(fh)
             if not isinstance(data, dict):
-                raise ValueError("registry root must be an object")
+                # ValueError not TypeError: corrupt registry is caller-shaped
+                # input state, same family as ScopeError (ValueError).
+                raise ValueError("registry root must be an object")  # noqa: TRY004
             return data
         except (json.JSONDecodeError, ValueError, OSError) as e:
             # Corrupt registry: empty + WARN — boot in open mode must survive;
@@ -103,7 +105,7 @@ class AgentRegistry:
         token = token or secrets.token_urlsafe(32)
         self._entries[aid] = {
             "token_sha256": _token_hash(token),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         self._save()
         return token

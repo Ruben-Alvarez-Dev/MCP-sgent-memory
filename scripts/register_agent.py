@@ -20,8 +20,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE / "src"))
 
-from shared.identity import AgentRegistry, IdentityError  # noqa: E402
-from shared.scope import ScopeError  # noqa: E402
+from shared.identity import AgentRegistry, IdentityError
+from shared.scope import ScopeError
 
 
 def main() -> int:

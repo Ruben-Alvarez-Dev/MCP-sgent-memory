@@ -28,6 +28,8 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("agent-memory")
 config = Config.from_env()
 store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 _initialized = False
 
 # ── Register all module tools via public API ────────────────────
@@ -177,6 +179,7 @@ async def health_check() -> dict:
     checks["modules_loaded"] = len(_loaded)
     checks["modules_failed"] = len(_failed)
     checks["tools_total"] = len(mcp._tool_manager._tools)
+    checks["identity"] = IDENTITY.as_dict()  # M4: identity observability (agent_id, mode)
     checks["status"] = "ok" if not _failed else "degraded"
     return checks
 

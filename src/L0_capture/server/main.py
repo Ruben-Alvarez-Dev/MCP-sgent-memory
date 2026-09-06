@@ -27,6 +27,8 @@ from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, 
 
 config = Config.from_env()
 db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 JSONL_PATH = config.L0_events_jsonl
 PROMOTION_INTERVAL = config.L0_capture_promote_every
 STAGING_BUFFER = Path(config.tmp_path) if config.tmp_path else Path("")

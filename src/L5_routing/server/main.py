@@ -23,6 +23,8 @@ from shared.result_models import ContextPackResult, ReminderListResult, Reminder
 
 config = Config.from_env()
 store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
+from shared.identity import bind_identity
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 _L5_selective_path = Path(config.L5_selective_path) if config.L5_selective_path else Path("")
 _L5_selective_path.mkdir(parents=True, exist_ok=True)
 mcp = FastMCP("L5_routing")
@@ -105,6 +107,7 @@ def _get_reminders(agent_id):
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def request_context(query: str, agent_id: str = "shared", intent: str = "answer", token_budget: int = 8000, scopes: str = "", mode: str = "standard") -> ContextPackResult:
     """LLM requests context. Returns a ContextPack with smart routing."""
+    agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     clean = validate_request_context(query, intent)
     sm = {"answer":"dev","plan":"dev","review":"dev","debug":"ops","study":"docs"}
     pack = await smart_retrieve(query=clean["query"], session_type=sm.get(clean["intent"],"dev"), token_budget=token_budget, agent_scope=agent_id)
@@ -116,6 +119,7 @@ async def request_context(query: str, agent_id: str = "shared", intent: str = "a
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def check_reminders(agent_id: str = "default") -> ReminderListResult:
     """Check pending context reminders."""
+    agent_id = IDENTITY.assert_agent(agent_id)
     rems = _get_reminders(agent_id)
     result = [{"reminder_id":r.reminder_id,"reason":r.reason,"pack":r.pack.to_injection_text()} for r in rems]
     return ReminderListResult(agent_id=agent_id, reminders=result, count=len(result))
@@ -125,6 +129,7 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     """System pushes a context reminder to the LLM."""
     # Raw scope first: sanitize_user_id would remap traversal instead of
     # rejecting it — strict validation before any sanitization.
+    agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     scope = normalize_scope(agent_id)
     clean = validate_push_reminder(query, scope)
     vector, _embedded = await _embed_or_hash(clean["query"])
@@ -143,6 +148,7 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True))
 async def dismiss_reminder(reminder_id: str, agent_id: str = "shared") -> DismissResult:
     """Dismiss a reminder (scoped: only own + shared namespaces are searched)."""
+    agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     rid = _sanitize_reminder_id(reminder_id)
     scope = normalize_scope(agent_id)
     for d in visible_dirs_hashed(_L5_selective_path, scope):
@@ -159,6 +165,7 @@ async def dismiss_reminder(reminder_id: str, agent_id: str = "shared") -> Dismis
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def detect_context_shift(current_query: str, previous_query: str = "", agent_id: str = "default") -> ContextShiftResult:
     """Detect if conversation context has shifted domains."""
+    agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     if not previous_query: return ContextShiftResult(shift_detected=False)
     try:
         v1, _ = await _embed_or_hash(current_query)

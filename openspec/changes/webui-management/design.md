@@ -1,5 +1,10 @@
 # Design — webui-management
 
+> **Dependencia:** las operaciones destructivas (delete/edit/masivos) se
+> implementan sobre el motor `surgical-memory-ops` (openspec/changes/
+> surgical-memory-ops/) — invariantes, backup/undo y dry-run viven ahí;
+> esta UI es su vehículo. F1 arranca solo con Grupo A del motor verificado.
+
 ## 1. Arquitectura
 
 ```

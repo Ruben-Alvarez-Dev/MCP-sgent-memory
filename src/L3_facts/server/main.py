@@ -23,7 +23,8 @@ mcp = FastMCP("L3_facts")
 async def add_memory(content: str, user_id: str = DEFAULT_USER, metadata: str = "") -> AddMemoryResult:
     """Add a semantic memory for a user."""
     clean = validate_add_memory(content, user_id)
-    vector = await None
+    # M9: FTS5-only — no vector to embed (dead `await None` landmine removed,
+    # E2E audit 2026-09-07 P0-1: it raised TypeError on every call).
     sparse = None
     import uuid as _uuid
     mid = str(_uuid.uuid4())

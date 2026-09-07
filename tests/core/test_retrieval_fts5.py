@@ -1,8 +1,33 @@
 """M6: FTS5-first retrieval pipeline (RET-01, RET-07, RET-08, RET-09)."""
+import sqlite3
+
 import pytest
 
 from shared.memory_db import MemoryDB, _build_fts5_query
 from shared.synonym import expand_query
+
+
+@pytest.mark.unit
+async def test_fts5_query_builder_keeps_alphanumeric_tokens():
+    """E2E audit 2026-09-07: letter+digit runs must survive query building.
+
+    FTS5's unicode61 tokenizer indexes "E2EPROTOCOLSMOKE" as the single token
+    "e2eprotocolsmoke"; the old letters-only branch extracted
+    "eprotocolsmoke" (leading E lost at the digit boundary), which never
+    matched. Same failure family: OAuth2, ISO14, UTF8, CVE-2024-1234.
+    """
+    assert "e2eprotocolsmoke" in _build_fts5_query("E2EPROTOCOLSMOKE quantum")
+    assert "oauth2" in _build_fts5_query("OAuth2 callback flow")
+    assert "iso14" in _build_fts5_query("regla ISO14 de identidad")
+    # Roundtrip: the built tokens must actually match the indexed tokens.
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute("CREATE VIRTUAL TABLE t USING fts5(content)")
+        conn.execute("INSERT INTO t VALUES ('E2EPROTOCOLSMOKE quantum flux blueprint')")
+        built = _build_fts5_query("find E2EPROTOCOLSMOKE now")
+        hits = conn.execute(
+            "SELECT rowid FROM t WHERE t MATCH ?", (built,)
+        ).fetchall()
+    assert hits, f"built query {built!r} failed to match its own indexed content"
 
 
 @pytest.mark.unit

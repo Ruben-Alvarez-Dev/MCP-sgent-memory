@@ -136,7 +136,8 @@ async def search_conversations(
     # M4: None means "without explicit scope" → ISO-15 default coercion in bound mode
     agent_scope = IDENTITY.assert_agent(agent_scope or "default")  # identity gate before I/O (ISO-13)
     # 1. Semantic search via memory.db (engine-level scope filter, ISO-05)
-    vector = await None
+    # M9: FTS5-only — dead `vector = await None` landmine removed (E2E audit
+    # 2026-09-07 P0-3: it raised TypeError before the search could run).
     scope = (agent_scope or "shared").strip().lower()
     db_filter = {
         "must": [

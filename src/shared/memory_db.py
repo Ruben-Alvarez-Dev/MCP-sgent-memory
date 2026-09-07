@@ -448,8 +448,25 @@ class MemoryDB:
             sql += f" AND {where}"
             params.extend(fparams)
         with self._lock, self._conn:
+            # E2E audit 2026-09-07 (P1): purge points_fts together with the
+            # point — deleted content must not linger in the FTS index
+            # (retention/privacy). Capture the rowid BEFORE the row is gone;
+            # purge only if the delete actually landed (filter mismatch must
+            # leave a live point fully indexed).
+            fts_row = self._conn.execute(
+                "SELECT rowid FROM points WHERE collection=? AND id=?",
+                (self.collection, point_id),
+            ).fetchone()
             cur = self._conn.execute(sql, params)
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+            if deleted and fts_row is not None:
+                try:
+                    self._conn.execute(
+                        "DELETE FROM points_fts WHERE rowid=?", (int(fts_row["rowid"]),)
+                    )
+                except sqlite3.OperationalError as e:
+                    logger.debug("FTS5 delete sync failed for %s: %s", point_id, e)
+            return deleted
 
     def _update_payload_one(self, point_id: str, patch: dict) -> bool:
         """Atomic payload merge — preserves the stored vector (unlike upsert)."""
@@ -889,9 +906,15 @@ def _build_fts5_query(query: str, synonym_expand: bool = True) -> str:
 
     For synonym-aware search, expand before calling this function.
     """
-    # Extract tokens: CamelCase words, UPPER_SNAKE (with digits, e.g. FTS5 — M5
-    # eval finding), and regular words
-    tokens = re.findall(r'[A-Z][a-z]+(?:[A-Z][a-z]+)*|[A-Z]{2,}[0-9]*(?:_[A-Z0-9]+)*|[a-zA-Záéíóúñü]{3,}', query)
+    # Extract tokens exactly like FTS5's default unicode61 tokenizer does:
+    # maximal runs of alphanumerics (underscore is a SEPARATOR for unicode61,
+    # so UPPER_SNAKE splits into words — same behavior on the query side and
+    # the index side keeps them consistent). Digits must be accepted after the
+    # first letter (E2EPROTOCOLSMOKE, OAuth2, ISO14, FTS5) — the old
+    # letters-only branch produced fragments ("eprotocolsmoke", "oa"+"uth2")
+    # that never matched the index (E2E audit 2026-09-07 roundtrip smoke).
+    # Minimum 3 chars keeps noise words out (unchanged from the M6 builder).
+    tokens = re.findall(r'[a-zA-Záéíóúñü][a-zA-Z0-9áéíóúñü]{2,}', query)
     if not tokens:
         return query
     # FTS5 is case-insensitive; lowercase for matching. OR-join keeps recall

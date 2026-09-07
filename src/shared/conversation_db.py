@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _db_lock = threading.Lock()
 _db_path: str = ""
+_schema_ready: bool = False
 
 
 def _get_db_path() -> str:
@@ -39,8 +40,9 @@ def _get_db_path() -> str:
 
 def set_db_path(path: str) -> None:
     """Override default DB path (for testing or config injection)."""
-    global _db_path
+    global _db_path, _schema_ready
     _db_path = path
+    _schema_ready = False
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -109,12 +111,18 @@ def _init_db(db_path: str) -> None:
 
 def _ensure_db() -> str:
     """Get DB path, creating the DB and running migrations if needed."""
+    global _schema_ready
     path = _get_db_path()
-    if not os.path.exists(path):
+    if not _schema_ready:
+        # E2E audit 2026-09-07 (P0-2): ALWAYS ensure the schema. The old
+        # file-existence guard skipped _init_db on pre-existing DBs created
+        # points-first by MemoryDB, so threads/messages never came into being
+        # in production ("no such table: threads"). Every statement in
+        # _init_db is CREATE ... IF NOT EXISTS → idempotent; migrations are
+        # guarded too. Runs once per process; set_db_path() resets the flag.
         _init_db(path)
-    else:
-        # Run migrations on existing DB (e.g. agent_scope column)
         _run_migrations(path)
+        _schema_ready = True
     return path
 
 

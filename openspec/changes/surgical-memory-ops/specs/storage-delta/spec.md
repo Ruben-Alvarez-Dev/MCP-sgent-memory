@@ -8,14 +8,19 @@
 resultante (reemplazo DELETE+INSERT del rowid).
 Test: `test_update_payload_resyncs_fts_same_transaction`
 
-## STO-10 — Purga de grafo al eliminar punto
+## STO-10 — Integridad del grafo sin FK (corregido por A.1)
 
-**Given** un punto con filas asociadas en `entities`/`relations`,
-**When** se elimina el punto,
-**Then** sus filas de grafo se purgan en la misma transacción (o se marca
-`orphan=true` con purge_orphans posterior documentado — decisión: purge en
-línea, el grafo no conserva nodos sin punto fuente).
-Test: `test_delete_purges_entity_graph_rows`
+**Given** que `entities` NO tiene FK hacia points (grafo standalone: id =
+`{agent_scope}:{name.lower()}`, extracción por contenido) y `relations`
+referencia entidades (no puntos),
+**When** se elimina un punto o una entidad,
+**Then** NO hay cascade silenciosa (Chesterton's fence): la integridad del
+grafo se mantiene con dos operaciones quirúrgicas explícitas —
+`purge_orphans` (relations con endpoints inexistentes, anti-join barato) y
+`purge_unreferenced_entities` (entidades sin mención en points vivos,
+escaneo caro opcional `verify(full=True)`). Un punto borrado NO invalida
+relaciones (otro punto puede seguir mencionando la entidad).
+Test: `test_purge_orphans_dry_run_then_delete` + `test_verify_detects_dangling_relations`
 
 ## STO-11 — `integrity_check` como invariante operativa
 

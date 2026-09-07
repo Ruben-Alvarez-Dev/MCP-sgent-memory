@@ -382,6 +382,20 @@ Backpack HTTP sidecar (:8890) is single-bind: keep it enabled only in the
 client whose hooks consume it (default: opencode) and set
 `MEMORY_API_DISABLED=1` in the rest.
 
+### Integration layers (how agents actually reach the memory)
+
+| Layer | Mechanism | State |
+|-------|-----------|-------|
+| **MCP (primary)** | stdio server, 54 tools per client, strict per-agent identity | all clients |
+| **REST (automation)** | Backpack sidecar `127.0.0.1:8890/api/*` — hooks trigger memory ops **without the LLM** (`ingest-event`, `save-conversation`, `consolidate`, `request-context`, `heartbeat`, `verify-memories`). Single-bind: hosted by one instance, callable from any process on the machine | host: opencode; others `MEMORY_API_DISABLED=1` |
+| **Instructions / skills** | `MEMORY_START/END` block in `AGENTS.md` / `GEMINI.md` (recall-first, save-what-matters, isolation rules) + `memory` skill (`~/.pi/agent/skills/memory`, `~/.claude/skills/memory`) | per client |
+| **Harness (arnés)** | `launch-unified.sh` asserts `MEMORY_AGENT_ID`/`MEMORY_AGENT_TOKEN` (Keychain) at boot — fail-closed; agent id via env or `$1` | all clients |
+
+Native hooks example (Claude Code, `~/.claude/settings.json`): `SessionEnd` →
+`POST /api/consolidate` (fail-silent, `--max-time 2`) so each session's raw
+events consolidate without LLM involvement. Any agent or script can call the
+same endpoints.
+
 - `data/agents.json` — identity registry with `0600` permissions; stores **sha256 hashes only** (the token is never persisted in the file nor logged).
 - **Modes**: `open` (default, emits a visible WARN) | `strict` — missing or invalid credentials abort boot before any tool is registered (fail-closed).
 - **Scopes**: engine-level filters with filesystem jail and the 5-level namespace `c:x/p:y/a:z/s:w/u:v` (fixed order, levels optional).

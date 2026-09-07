@@ -61,6 +61,38 @@
 | 8 | **Agentes** | `GET /api/agents` · `POST /api/agents/{id}/rotate` · `DELETE /api/agents/{id}` | registry agents.json; rotate imprime token UNA vez en la respuesta (nunca se re-muestra); revoke = borrar entrada |
 | 9 | **Métricas** | `GET /api/metrics/snapshot` · `GET /api/metrics/history` | reutiliza la lógica de scripts/metrics.py (extraída a función) |
 | 10 | **Auditoría L0** | `GET /api/l0/events?from&to&type` (read-only, paginado) | timeline append-only |
+| 11 | **Atlas del conocimiento** | `GET /api/graph?scope&limit` · `GET /api/graph/thread/{id}` · `GET /api/artifacts/thread/{id}` | ver §11 |
+
+### 11. Atlas del conocimiento — grafo y artefactos enriquecidos
+
+El humano observa CÓMO se estructura el conocimiento, no solo filas:
+
+- **Grafo de entidades** (`/api/graph`): nodos = `entities` (tamaño ∝
+  `mention_count`, color por `type`: class/function/concept/decision/…),
+  aristas = `relations` (etiqueta = `relation_type`, grosor ∝ `strength`).
+  Filtros: scope, type, grado mínimo. Layout **force-directed** propio
+  (modelo resorte-eléctrico estilo Fruchterman-Reingold, ~200 líneas en
+  canvas vanilla — sin dependencias: iteración de repulsión O(n²) con
+cap n≤500 nodos + atracción por arista + gravedad al centro; suficiente
+  y determinista con seed fija).
+- **Hilo como artefacto** (`/api/artifacts/thread/{id}`): composición
+  enriquecida de un hilo de conversación — messages en timeline vertical,
+  conclusiones detectadas (mensajes del assistant marcados como
+  conclusión por heurística: nodos de decisión registrados vía MCP),
+  entidades mencionadas enlazadas al grafo, decisiones guardadas
+  enlazadas al vault, y el/los puntos de memoria derivados. Objetivo:
+  ver la GÉNESIS de una memoria, no solo su fila.
+- **Árbol de pensamiento** (`/api/lx/sessions/{id}` render): pasos de
+  `sequential_thinking`/`record_thought` como DAG (step, confidence,
+  branching), planes con estados de paso, sesiones conectadas a sus
+  changesets propuestos.
+- **Navegación cruzada**: cada nodo/entidad/artículo enlaza con el
+  explorador de memorias filtrado (drill-down grafo→memorias→payload).
+
+Datos: solo lectura en F1-F4 (el grafo se CURA desde el panel quirúrgico);
+el endpoint agregaa `agent_scope` como filtro obligatorio (aislamiento
+respecto a lo mostrado por defecto: `shared` + scopes propios del agente
+visible).
 
 Front: una sola página, hash-routing (#/memories, #/decisions, …), tabla
 virtualizada simple (paginación server-side), visor JSON con plegado, dark

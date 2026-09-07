@@ -504,6 +504,13 @@ class MemoryDB:
                 "UPDATE points SET payload=?, agent_scope=?, user_id=?, layer=? WHERE collection=? AND id=?",
                 (json.dumps(payload), scope, user, layer, self.collection, point_id),
             )
+            # STO-09 (surgical-memory-ops): the FTS index must reflect the NEW
+            # content in the SAME transaction — editing without resync left the
+            # index serving stale terms (index drift, E2E audit follow-up).
+            try:
+                self._sync_fts_upsert(point_id, json.dumps(payload))
+            except sqlite3.OperationalError as e:
+                logger.debug("FTS resync after payload edit failed for %s: %s", point_id, e)
             return True
 
     async def update_payload(self, point_id: str, patch: dict[str, Any]) -> bool:

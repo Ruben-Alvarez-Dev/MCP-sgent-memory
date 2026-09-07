@@ -1,7 +1,7 @@
 """SQLite + FTS5 storage for conversation threads.
 
 Raw conversations go to SQLite (exact retrieval, full-text search).
-Vectors go to Qdrant (semantic search only).
+Dense vectors go to the memory_db points table (semantic search only).
 Both linked by thread_id.
 
 Schema:
@@ -11,18 +11,18 @@ Schema:
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
 import threading
-import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
 _db_lock = threading.Lock()
 _db_path: str = ""
+_schema_ready: bool = False
 
 
 def _get_db_path() -> str:
@@ -31,14 +31,18 @@ def _get_db_path() -> str:
         base = os.getenv("MEMORY_SERVER_DIR", os.path.expanduser("~/.memory"))
         data_dir = os.getenv("DATA_DIR", os.path.join(base, "data"))
         os.makedirs(data_dir, exist_ok=True)
-        _db_path = os.path.join(data_dir, "conversations.db")
+        # M2-storage (STO-02): conversations now live in the unified memory.db.
+        # Schema unchanged — threads/messages/messages_fts coexist with the
+        # dense-memory `points` table in the same file (WAL, multi-process safe).
+        _db_path = os.path.join(data_dir, "memory.db")
     return _db_path
 
 
 def set_db_path(path: str) -> None:
     """Override default DB path (for testing or config injection)."""
-    global _db_path
+    global _db_path, _schema_ready
     _db_path = path
+    _schema_ready = False
 
 
 def _connect(db_path: str) -> sqlite3.Connection:
@@ -107,12 +111,18 @@ def _init_db(db_path: str) -> None:
 
 def _ensure_db() -> str:
     """Get DB path, creating the DB and running migrations if needed."""
+    global _schema_ready
     path = _get_db_path()
-    if not os.path.exists(path):
+    if not _schema_ready:
+        # E2E audit 2026-09-07 (P0-2): ALWAYS ensure the schema. The old
+        # file-existence guard skipped _init_db on pre-existing DBs created
+        # points-first by MemoryDB, so threads/messages never came into being
+        # in production ("no such table: threads"). Every statement in
+        # _init_db is CREATE ... IF NOT EXISTS → idempotent; migrations are
+        # guarded too. Runs once per process; set_db_path() resets the flag.
         _init_db(path)
-    else:
-        # Run migrations on existing DB (e.g. agent_scope column)
         _run_migrations(path)
+        _schema_ready = True
     return path
 
 
@@ -146,7 +156,7 @@ def save_thread(thread_id: str, messages: list[dict], summary: str = "", agent_s
     Returns:
         {"thread_id": str, "message_count": int, "status": str, "agent_scope": str}
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     db_path = _ensure_db()
 
     with _db_lock:
@@ -195,7 +205,7 @@ def save_thread(thread_id: str, messages: list[dict], summary: str = "", agent_s
             conn.close()
 
 
-def get_thread(thread_id: str) -> Optional[dict]:
+def get_thread(thread_id: str) -> dict | None:
     """Retrieve a full conversation thread by ID.
 
     Returns:

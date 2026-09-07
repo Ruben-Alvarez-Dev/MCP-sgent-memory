@@ -1,0 +1,15 @@
+change: M8-cleanup
+title: "M8-Cleanup Final: Zero embedding dependencies"
+description: |
+  Eliminación completa de módulos embedding.py y embedding_cache.py.
+  Remoción de columna vector del schema memory.db.
+  Reescritura de tests skippeados para API FTS5-only.
+  Actualización de documentación.
+proposers: [agnn]
+requester: agent
+created: 2026-09-07
+schema: jsonschema
+scope: mcp-agent-memory
+status: proposal
+gates:
+  - GATE_M8

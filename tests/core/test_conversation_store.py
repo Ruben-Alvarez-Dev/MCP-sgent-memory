@@ -4,20 +4,16 @@ Tests the basic flow: save → get → search → list → status.
 No mocks — uses real SQLite and real Qdrant (if available).
 """
 import sys
-import os
-import json
-import tempfile
-import pytest
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from shared.conversation_db import (
-    save_thread, get_thread, search_fts, list_threads, thread_count, set_db_path
-)
+from shared.conversation_db import get_thread, list_threads, save_thread, search_fts, set_db_path, thread_count
 
 
 @pytest.fixture(autouse=True)

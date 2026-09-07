@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import pytest
+
 from shared.retrieval.code_map import generate_code_map
 
 # --- Test Fixtures ---

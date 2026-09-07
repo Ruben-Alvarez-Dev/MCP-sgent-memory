@@ -1,0 +1,12 @@
+plugins: asyncio-1.4.0, anyio-4.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 6 items
+
+tests/core/test_agent_scope_qdrant.py::test_scoped_creates_separate_collections PASSED [ 16%]
+tests/core/test_agent_scope_qdrant.py::test_scoped_isolates_agents PASSED [ 33%]
+tests/core/test_agent_scope_qdrant.py::test_parse_agent_level PASSED     [ 50%]
+tests/core/test_agent_scope_qdrant.py::test_level_map PASSED             [ 66%]
+tests/core/test_agent_scope_qdrant.py::test_hybrid_creates_level_collections PASSED [ 83%]
+tests/core/test_agent_scope_qdrant.py::test_hybrid_isolates_by_level_and_agent PASSED [100%]
+
+============================== 6 passed in 7.46s ===============================

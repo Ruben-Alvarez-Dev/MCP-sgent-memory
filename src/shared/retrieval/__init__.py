@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Retrieval Router — decides WHAT to retrieve, FROM WHERE, and HOW MUCH.
 
 The brain of vk-cache. Routes each query through:
@@ -11,29 +12,24 @@ The brain of vk-cache. Routes each query through:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
-import httpx
 import os
-import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("agent-memory.retrieval")
 
-from ..llm import classify_intent, QueryIntent, get_llm, rank_by_relevance
-from ..embedding import get_embedding, bm25_tokenize
-from .index_repo import build_repo_index_points, upsert_repository_index
+from ..llm import QueryIntent, classify_intent
+from ..memory_db import MemoryDB
+from ..scope import iter_namespaced_files, normalize_scope
 from .pruner import prune_content
 from .repo_map import get_repo_map
-from ..qdrant_client import QdrantClient
 
 # ── Configuration ──────────────────────────────────────────────────
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")  # legacy env name, now a memory.db collection
 CONV_COLLECTION = os.getenv("CONV_COLLECTION", "L2_conversations")
 L3_FACTS_COLLECTION = os.getenv("L3_FACTS_COLLECTION", "L3_facts")
 _MSD = os.getenv("MEMORY_SERVER_DIR", "")
@@ -41,14 +37,19 @@ L3_DECISIONS_PATH = os.getenv(
     "L3_DECISIONS_PATH",
     os.path.join(_MSD, "data", "memory", "L3_decisions") if _MSD else str(Path.home() / ".memory" / "L3_decisions")
 )
+# M9: FTS5-only retrieval — bm25 ranks are not cosine similarities, so a hard
+# score cutoff no longer applies to the engine path. Kept for env parity; read
+# but unused by the engine query.
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
 
-_qdrant_clients: dict[str, QdrantClient] = {}
-def _get_scoped_client(collection: str) -> QdrantClient:
-    if collection not in _qdrant_clients:
-        _qdrant_clients[collection] = QdrantClient(QDRANT_URL, collection, 1024)
-    return _qdrant_clients[collection]
+_db_clients: dict[str, MemoryDB] = {}
+
+def _get_db(collection: str) -> MemoryDB:
+    """Shared MemoryDB handles, one per logical collection (same process)."""
+    if collection not in _db_clients:
+        _db_clients[collection] = MemoryDB(None, collection, 1024)
+    return _db_clients[collection]
 
 
 # ── Retrieval Profiles ────────────────────────────────────────────
@@ -174,8 +175,9 @@ async def retrieve(
     open_files: list[str] | None = None,
     agent_scope: str = "shared",
 ) -> ContextPack:
+    agent_scope = normalize_scope(agent_scope)  # fail-closed at entry (M2: closes collection-name injection)
     intent = classify_intent(query, session_type, open_files)
-    setattr(intent, "_original_query", query)
+    intent._original_query = query
 
     profile_name = INTENT_TO_PROFILE.get(intent.intent_type, "default")
     profile = PROFILES.get(profile_name, PROFILES["default"])
@@ -206,7 +208,7 @@ async def _retrieve_parallel(
             tasks["L1"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=1, agent_scope=agent_scope))
         elif level == 2:
             tasks["L2"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=2, agent_scope=agent_scope))
-            tasks["L2_decisions"] = asyncio.create_task(_retrieve_L3_decisions(intent, k))
+            tasks["L2_decisions"] = asyncio.create_task(_retrieve_L3_decisions(intent, k, agent_scope))
         elif level == 3:
             tasks["L3"] = asyncio.create_task(_retrieve_hybrid(intent, k, level=3, agent_scope=agent_scope))
         elif level == 4:
@@ -229,10 +231,11 @@ async def _retrieve_parallel(
 async def _retrieve_hybrid(
     intent: QueryIntent, k: int, level: int | None = None, collection: str | None = None, agent_scope: str = "shared"
 ) -> list[ContextItem]:
-    """Production-grade Hybrid Search: Dense Vector + Sparse BM25.
+    """Hybrid search over memory.db: dense cosine + deterministic hash fallback.
 
-    Uses /points/search (returns proper scores in Qdrant v1.13).
-    Sparse BM25 is applied as a second pass when available.
+    M2 (ISO-05): scope filtering is ENGINE-LEVEL. Own + shared are merged via
+    a single bound IN clause — sibling scopes are unreachable BY THE ENGINE,
+    never by Python post-filtering.
     """
     query_text = (
         " ".join(intent.entities)
@@ -242,23 +245,23 @@ async def _retrieve_hybrid(
     if not query_text:
         return []
 
-    target_coll = f"{collection or QDRANT_COLLECTION}_{agent_scope}" if agent_scope and agent_scope != "shared" else (collection or QDRANT_COLLECTION)
-    search_filter = (
-        {"must": [{"key": "layer", "match": {"value": level}}]}
-        if level is not None
-        else None
-    )
+    scope = normalize_scope(agent_scope)  # fail-closed (was: concatenated into collection name)
+    target_coll = collection or QDRANT_COLLECTION
+    visible = [scope, "shared", "merged"] if scope != "shared" else ["shared", "merged"]
+    must: list[dict] = [
+        {"key": "agent_scope", "match": {"any": visible}}  # M5: trunk (merged) is public
+    ]
+    if level is not None:
+        must.append({"key": "layer", "match": {"value": level}})
 
     results: list[ContextItem] = []
-
     try:
-        client = _get_scoped_client(target_coll)
-        vector = get_embedding(query_text)
-        search_results = await client.search(
-            vector,
+        db = _get_db(target_coll)
+        # M9: FTS5-only engine search — query text in, bm25 out (no vector).
+        search_results = await db.search(
+            query_text,
             limit=k,
-            score_threshold=MIN_SCORE,
-            filter=search_filter,
+            filter={"must": must},
         )
         for p in search_results:
             payload = p.get("payload", {})
@@ -278,7 +281,8 @@ async def _retrieve_hybrid(
     return results
 
 
-async def _retrieve_L3_decisions(intent: QueryIntent, k: int) -> list[ContextItem]:
+async def _retrieve_L3_decisions(intent: QueryIntent, k: int, agent_scope: str = "shared") -> list[ContextItem]:
+    """ISO-04 enforced: shared tree (minus _scopes/) + own scope dir. Never siblings."""
     L3_decisions_path = Path(L3_DECISIONS_PATH)
     if not L3_decisions_path.exists():
         return []
@@ -286,7 +290,7 @@ async def _retrieve_L3_decisions(intent: QueryIntent, k: int) -> list[ContextIte
     query_terms = set(w.lower() for w in intent.entities)
     if not query_terms:
         return []
-    for md_file in L3_decisions_path.rglob("*.md"):
+    for md_file in iter_namespaced_files(L3_decisions_path, agent_scope, "*.md"):
         try:
             content = md_file.read_text()
             if any(word in content.lower() for word in query_terms):
@@ -332,26 +336,13 @@ def _rank_and_fuse(
             all_items.append(item)
     all_items.sort(key=lambda x: x.combined_score, reverse=True)
 
-    # SPEC-4.1: LLM ranking for complex queries
-    if intent.needs_ranking and len(all_items) > 5:
-        try:
-            query_text = getattr(intent, "_original_query", "") or " ".join(intent.entities)
-            ranked = rank_by_relevance(
-                query=query_text,
-                items=[{"content": item.content, "item": item} for item in all_items],
-                top_k=profile.token_budget // 500,
-            )
-            all_items = [r["item"] for r in ranked]
-        except Exception as e:
-            logger.debug("LLM ranking failed, using score-based order: %s", e)
-
     return all_items
 
 
 def _recency_score(timestamp: datetime | None, time_window: str) -> float:
     if not timestamp:
         return 0.3
-    now = datetime.now(timezone.utc) if timestamp.tzinfo else datetime.now()
+    now = datetime.now(UTC) if timestamp.tzinfo else datetime.now()
     age_hours = (now - timestamp).total_seconds() / 3600
     return max(0, 1.0 - age_hours / 720.0)
 
@@ -388,7 +379,7 @@ def _freshness_score(item: ContextItem) -> float:
         verified_ts = _parse_ts(verified_at_str)
         if not verified_ts:
             return 0.7
-        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        now = datetime.now(UTC) if verified_ts.tzinfo else datetime.now()
         age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
         speed = item.metadata.get("change_speed", "slow")
         half_life = CHANGE_SPEED_HALF_LIFE.get(speed, 720.0)
@@ -412,7 +403,7 @@ def _freshness_tag(item: ContextItem) -> str:
         verified_ts = _parse_ts(verified_at_str)
         if not verified_ts:
             return "✅ VERIFIED"
-        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        now = datetime.now(UTC) if verified_ts.tzinfo else datetime.now()
         age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
         if age_hours < 1:
             return "✅ VERIFIED just now"
@@ -493,12 +484,22 @@ def _parse_ts(ts_str: Any) -> datetime | None:
 
 
 __all__ = [
+    "CHANGE_SPEED_HALF_LIFE",
+    "PROFILES",
     "ContextItem",
     "ContextPack",
-    "PROFILES",
     "RetrievalProfile",
-    "retrieve",
-    "CHANGE_SPEED_HALF_LIFE",
     "_freshness_score",
     "_freshness_tag",
+    "retrieve",
 ]
+
+
+# M6 stubs: embedding functions removed
+def get_embedding(text):
+    """M6: Returns None — embedding pipeline removed, FTS5-only."""
+    return
+
+def bm25_tokenize(text):
+    """M6: Returns None — FTS5 replaces sparse vectors."""
+    return

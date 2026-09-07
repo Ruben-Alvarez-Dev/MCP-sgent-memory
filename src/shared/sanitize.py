@@ -38,7 +38,6 @@ from typing import Any
 
 class SanitizeError(ValueError):
     """Raised when input cannot be safely sanitized."""
-    pass
 
 
 # ── Constants ──────────────────────────────────────────────────────

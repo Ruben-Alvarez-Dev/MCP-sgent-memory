@@ -1,0 +1,7 @@
+BOOTSTRAP_QDRANT=true
+BOOTSTRAP_EMB=true
+BOOTSTRAP_LLM=false
+BOOTSTRAP_VENV=/Users/manu/.mcp-agent-memory/.venv
+BOOTSTRAP_INSTALL_DIR=/Users/manu/.mcp-agent-memory
+BOOTSTRAP_ERRORS=1
+BOOTSTRAP_WARNINGS=0

@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Unified MCP Memory Server — Single entry point for all memory services.
 
 Consolidates L0-capture, L0-to-L4-consolidation, L5-routing, L2-conversations, L3-facts, L3-decisions,
@@ -10,24 +11,32 @@ Each module's register_tools() function handles tool registration.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.logging_config import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger("agent-memory.unified")
-from shared.config import Config
-from shared.qdrant_client import QdrantClient
 from mcp.server.fastmcp import FastMCP
+
+from shared.config import Config
+from shared.memory_db import MemoryDB
 
 mcp = FastMCP("agent-memory")
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
+from shared.identity import bind_identity
+
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 _initialized = False
 
 # ── Register all module tools via public API ────────────────────
@@ -62,7 +71,11 @@ for import_name, dir_name, prefix in [(n, d, f"{n}_") for n, d in _MODULES]:
         if not hasattr(mod, "register_tools"):
             _failed.append((import_name, "no register_tools()"))
             continue
-        mod.register_tools(mcp, qdrant, config, prefix=prefix)
+        if import_name in ("L3_decisions", "Lx_reasoning"):
+            # M2: FS-only modules dropped the vestigial store parameter
+            mod.register_tools(mcp, config, prefix=prefix)
+        else:
+            mod.register_tools(mcp, store, config, prefix=prefix)
         count = len(mcp._tool_manager._tools) - sum(t for _, t in _loaded)
         _loaded.append((import_name, len(mcp._tool_manager._tools)))
     except Exception as e:
@@ -106,17 +119,12 @@ async def _ensure_initialized() -> None:
         if d:
             Path(d).mkdir(parents=True, exist_ok=True)
 
-    # 2. Ensure all Qdrant collections exist
-    collections = {
-        "L0_L4_memory": (config.qdrant_url, config.embedding_dim),
-        "L2_conversations": (config.qdrant_url, config.embedding_dim),
-        "L3_facts": (config.qdrant_url, config.embedding_dim),
-    }
-    for coll_name, (url, dim) in collections.items():
+    # 2. Ensure memory.db schema for all logical collections (M2: same file)
+    for coll_name in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
         try:
-            client = QdrantClient(url, coll_name, dim)
-            await client.ensure_collection(sparse=True)
-            logger.info(f"Collection '{coll_name}' ready")
+            client = MemoryDB(None, coll_name, config.embedding_dim)
+            await client.ensure_collection()
+            logger.info(f"Collection '{coll_name}' ready (memory.db)")
         except Exception as e:
             logger.warning(f"Collection '{coll_name}' init failed: {e}")
 
@@ -139,27 +147,21 @@ async def _ensure_initialized() -> None:
 async def health_check() -> dict:
     """Check health of all memory subsystems."""
     await _ensure_initialized()
-    import asyncio
     checks = {}
 
-    # Qdrant
+    # memory.db (M2)
     try:
-        checks["qdrant"] = await qdrant.health()
+        checks["memory_db"] = await store.health()
     except Exception as e:
-        checks["qdrant"] = f"error: {e}"
+        checks["memory_db"] = f"error: {e}"
 
-    # Embedding
-    try:
-        from shared.embedding import get_embedding
-        vec = get_embedding("health check")
-        checks["embedding"] = len(vec) == config.embedding_dim
-    except Exception as e:
-        checks["embedding"] = f"error: {e}"
+    # Embedding removed in M6 — FTS5-only retrieval
+    checks["embedding"] = "removed (FTS5)"
 
-    # Collection counts
+    # Collection counts (engine-filtered by shared scope for a public oracle)
     for coll in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
         try:
-            c = QdrantClient(config.qdrant_url, coll, config.embedding_dim)
+            c = MemoryDB(None, coll, config.embedding_dim)
             checks[f"{coll}_count"] = await c.count()
         except Exception:
             checks[f"{coll}_count"] = -1
@@ -178,6 +180,7 @@ async def health_check() -> dict:
     checks["modules_loaded"] = len(_loaded)
     checks["modules_failed"] = len(_failed)
     checks["tools_total"] = len(mcp._tool_manager._tools)
+    checks["identity"] = IDENTITY.as_dict()  # M4: identity observability (agent_id, mode)
     checks["status"] = "ok" if not _failed else "degraded"
     return checks
 
@@ -185,6 +188,7 @@ async def health_check() -> dict:
 def main() -> None:
     import logging
     import os
+
     from shared.logging_config import setup_logging
     setup_logging()
     logger = logging.getLogger("agent-memory")
@@ -193,31 +197,61 @@ def main() -> None:
     # Runs in a background thread alongside the MCP stdio server.
     # Plugin hooks call these endpoints via fetch() to trigger automatic
     # memory operations without involving the LLM.
+    #
+    # Multi-client deployments (E2E audit 2026-09-07): set
+    # MEMORY_API_DISABLED=1 in clients that don't consume the Backpack
+    # hooks — :8890 is a single-bind port and only one instance can own it.
+    api_disabled = os.getenv("MEMORY_API_DISABLED") == "1"
     try:
-        from shared.api_server import start_api_server
-
-        # Import the tool functions from loaded modules.
-        # These modules were loaded above via importlib, so they exist in sys.modules.
-        L0_capture_mod = sys.modules.get("L0_capture")
-        L0_to_L4_consolidation_mod = sys.modules.get("L0_to_L4_consolidation")
-        L2_conversations_mod = sys.modules.get("L2_conversations")
-        L5_routing_mod = sys.modules.get("L5_routing")
-
-        if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
-            start_api_server(
-                ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
-                L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
-                L0_to_L4_consolidation_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
-                save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
-                consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
-                request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
-                port=int(os.environ.get("AUTOMEM_API_PORT", "8890")),
-            )
-            logger.info("Backpack API sidecar started")
+        if api_disabled:
+            logger.info("Backpack API sidecar disabled (MEMORY_API_DISABLED=1)")
         else:
-            logger.warning("Backpack API skipped: not all modules loaded")
+            from shared.api_server import start_api_server
+
+            # Import the tool functions from loaded modules.
+            # These modules were loaded above via importlib, so they exist in sys.modules.
+            L0_capture_mod = sys.modules.get("L0_capture")
+            L0_to_L4_consolidation_mod = sys.modules.get("L0_to_L4_consolidation")
+            L2_conversations_mod = sys.modules.get("L2_conversations")
+            L5_routing_mod = sys.modules.get("L5_routing")
+
+            if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
+                start_api_server(
+                    ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
+                    L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
+                    L0_to_L4_consolidation_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
+                    save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
+                    consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
+                    request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
+                    port=int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890")),
+                )
+                logger.info("Backpack API sidecar started")
+            else:
+                logger.warning("Backpack API skipped: not all modules loaded")
     except Exception as e:
         logger.warning("Backpack API failed to start (non-fatal): %s", e)
+
+    # ── Usage telemetry (adoption + latency) ───────────────────────
+    # Single interception point: FastMCP's lowlevel bridge captured
+    # `mcp.call_tool` at init (server.py:312), but it delegates to
+    # `self._tool_manager.call_tool` on EVERY call (server.py:350) with
+    # dynamic attribute lookup — so patching the manager intercepts all tools.
+    try:
+        from shared.usage import record_tool
+
+        _tool_manager = mcp._tool_manager
+        _original_call_tool = _tool_manager.call_tool
+
+        async def _counting_call_tool(name, arguments, context=None, convert_result=False):
+            t0 = time.perf_counter()
+            try:
+                return await _original_call_tool(name, arguments, context=context, convert_result=convert_result)
+            finally:
+                record_tool(name, (time.perf_counter() - t0) * 1000)
+
+        _tool_manager.call_tool = _counting_call_tool
+    except Exception as e:  # telemetry must never block the server
+        logger.warning("Usage telemetry disabled: %s", e)
 
     logger.info("Starting MCP server on stdio")
     mcp.run(transport="stdio")

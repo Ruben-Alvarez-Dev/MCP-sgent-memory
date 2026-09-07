@@ -3,6 +3,9 @@
 # Keeps stdin open for stdio transport via FIFO
 cd "$(dirname "$0")"
 
+# Ensure log directory exists before redirecting output
+mkdir -p data/logs
+
 FIFO=/tmp/mcp-server-stdin
 rm -f "$FIFO"
 mkfifo "$FIFO"

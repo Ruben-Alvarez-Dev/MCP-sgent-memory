@@ -2,7 +2,7 @@
 # MCP-agent-memory — Installer
 #
 # Two-phase install:
-#   Phase 1: bootstrap.sh  → venv, Qdrant, embedding, LLM models
+#   Phase 1: bootstrap.sh  → venv (M9: FTS5-only engine, no model binaries)
 #   Phase 2: app-install.sh → config, MCP client setup, verification
 #
 # Usage (one-liner, no clone needed):
@@ -12,12 +12,6 @@
 # Or from inside the cloned repo:
 #   bash install.sh
 #   bash install.sh ~/my-custom-path
-#
-# Skip LLM model download (4.4GB):
-#   SKIP_LLM=1 bash install.sh
-#
-# Use Q8 embedding precision instead of default Q4:
-#   MODEL_PRECISION=Q8 bash install.sh
 #
 # Run only app config (skip infrastructure):
 #   bash install.sh --app-only
@@ -54,7 +48,7 @@ if [ ! -f "$INSTALL_DIR/src/unified/server/main.py" ]; then
     tar -xzf "$TMPDIR/src.tar.gz" -C "$TMPDIR/repo" --strip-components=1
     rm -rf "$TMPDIR/repo/.git"
 
-    # Copy only what's needed (skip 61MB qdrant binary, docs, bench)
+    # Copy only what's needed (skip heavy engine sources, docs, bench)
     mkdir -p "$INSTALL_DIR"
     rm -rf "$INSTALL_DIR/engine/llama.cpp" 2>/dev/null || true
     for item in src install config deps install.sh run-daemon.sh pyproject.toml bin tests README.md .python-version .gitignore; do

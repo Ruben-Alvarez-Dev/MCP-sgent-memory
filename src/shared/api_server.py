@@ -6,7 +6,7 @@ Plugin hooks call these endpoints via fetch() to trigger automatic memory
 operations without involving the LLM.
 
 Architecture:
-    OpenCode hooks → fetch() → http://127.0.0.1:8890/api/* → Python functions → Qdrant
+    OpenCode hooks → fetch() → http://127.0.0.1:8890/api/* → Python functions → MemoryDB
 
 Uses stdlib http.server + threading — same pattern as observe.py dashboard.
 """
@@ -18,8 +18,12 @@ import json
 import logging
 import os
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
+
+from shared.memory_db import MemoryDB
 
 logger = logging.getLogger("agent-memory.api")
 
@@ -34,56 +38,82 @@ _save_conversation_fn: Callable | None = None
 _consolidate_fn: Callable | None = None
 _request_context_fn: Callable | None = None
 
-# v1.4: verify-memories uses Qdrant directly (no MCP tool needed)
-QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "L0_L4_memory")
+# v1.5: verify-memories uses MemoryDB (SQLite engine) directly — no MCP tool needed.
+# Qdrant is demolished; reads go through MemoryDB.scroll/get with a MANDATORY
+# engine filter (fail-closed). L0_L4_memory rows are written with
+# agent_scope="shared" (see L0_capture._store_memory), so "shared" is the scope.
+_VERIFY_COLLECTION = "L0_L4_memory"
+
+_verify_db: MemoryDB | None = None  # lazy — keeps module import side-effect free
+
+
+def _get_verify_db() -> MemoryDB:
+    """Lazily build the MemoryDB handle for the verify endpoint."""
+    global _verify_db
+    if _verify_db is None:
+        from shared.config import Config
+        from shared.memory_db import MemoryDB
+
+        _verify_db = MemoryDB(None, _VERIFY_COLLECTION, Config.from_env().embedding_dim)
+    return _verify_db
+
+
+def _set_payload_sync(db: MemoryDB, point_id: str, payload: dict) -> int:
+    """Legacy set_payload parity (Qdrant API shape): payload column only.
+
+    M9: the vector column no longer exists, but this narrow UPDATE remains the
+    right shape — it touches payload only, leaving agent_scope, user_id and
+    created_at intact. Same connection
+    and lock discipline as MemoryDB._upsert_one. Precedent for direct engine
+    access where the public API can't express the operation: _verify_stale()
+    in L0_to_L4_consolidation (ISO-11: payload keys are not filterable).
+    Merged keys are pre-validated payload keys + standard verification fields,
+    so skipping _validate_payload_keys is safe.
+    """
+    with db._lock, db._conn:
+        cur = db._conn.execute(
+            "UPDATE points SET payload=? WHERE collection=? AND id=?",
+            (json.dumps(payload), db.collection, point_id),
+        )
+        return cur.rowcount
 
 
 async def _verify_memories(body: dict) -> dict:
-    """v1.4: Verify memories against current state.
+    """v1.5: Verify memories against current state (MemoryDB backend).
 
     For each memory (or stale memories in scope):
-    1. Fetch from Qdrant
+    1. Fetch from MemoryDB
     2. Check if the fact is still true (file_check for slow/fast)
     3. Update verified_at, verification_status, access_count
 
     Returns counts: verified, stale, errors.
     """
-    from datetime import datetime, timezone
-    import httpx
+    from datetime import datetime
+
+    db = _get_verify_db()
+    await db.ensure_collection()
 
     memory_ids = body.get("memory_ids", [])
     scope = body.get("scope", "")
 
     if not memory_ids and not scope:
-        # Auto-mode: find stale memories to verify
+        # Auto-mode: find stale memories to verify.
+        # Engine filter is MANDATORY on scroll (fail-closed). 'verification_status'
+        # is a payload key, not engine-filterable (ISO-11) — the scope predicate
+        # lives INSIDE the engine filter; the status predicate is applied only to
+        # the already agent_scope-scoped result set (no unscoped read happens).
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/scroll",
-                    json={
-                        "limit": 20,
-                        "with_payload": True,
-                        "filter": {
-                            "should": [
-                                # never_verified items
-                                {
-                                    "key": "verification_status",
-                                    "match": {"value": "never_verified"},
-                                },
-                                # Items not verified in 48h
-                                {
-                                    "key": "verification_status",
-                                    "match": {"value": "verified"},
-                                },
-                            ]
-                        },
-                    },
-                    timeout=5.0,
-                )
-                if resp.status_code == 200:
-                    points = resp.json().get("result", {}).get("points", [])
-                    memory_ids = [p["id"] for p in points]
+            rows = await db.scroll(
+                filter={"must": [{"key": "agent_scope", "match": {"value": "shared"}}]},
+                limit=50,
+            )
+            memory_ids = [
+                p["memory_id"]
+                for p in rows
+                if p.get("memory_id")
+                and p.get("verification_status", "never_verified")
+                in ("never_verified", "verified")
+            ]
         except Exception:
             pass
 
@@ -93,98 +123,76 @@ async def _verify_memories(body: dict) -> dict:
     verified_count = 0
     stale_count = 0
     errors = []
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
-    async with httpx.AsyncClient() as client:
-        for mid in memory_ids[:20]:  # Cap at 20 per batch
-            try:
-                # Fetch the point
-                resp = await client.post(
-                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points",
-                    json={"ids": [mid], "with_payload": True},
-                    timeout=3.0,
-                )
-                if resp.status_code != 200:
-                    errors.append(f"fetch failed for {mid}")
-                    continue
+    for mid in memory_ids[:20]:  # Cap at 20 per batch
+        try:
+            # Fetch the point
+            rec = await db.get(mid, filter={"must": [{"key": "agent_scope", "match": {"any": ["shared", "merged"]}}]})
+            if rec is None:
+                errors.append(f"not found: {mid}")
+                continue
 
-                points = resp.json().get("result", [])
-                if not points:
-                    errors.append(f"not found: {mid}")
-                    continue
+            payload = rec.get("payload", {})
+            speed = payload.get("change_speed", "slow")
+            status = payload.get("verification_status", "never_verified")
+            current_access = payload.get("access_count", 0)
 
-                payload = points[0].get("payload", {})
-                speed = payload.get("change_speed", "slow")
-                status = payload.get("verification_status", "never_verified")
-                current_access = payload.get("access_count", 0)
+            # Verification logic based on change_speed
+            new_status = "verified"
+            verification_source = "file_check"
 
-                # Verification logic based on change_speed
-                new_status = "verified"
-                verification_source = "file_check"
-
-                if speed == "realtime":
-                    # Realtime facts are stale by definition if >1h old
-                    verified_at = payload.get("verified_at")
-                    if verified_at:
-                        verified_ts = datetime.fromisoformat(
-                            verified_at.replace("Z", "+00:00")
-                        )
-                        age_hours = (
-                            datetime.now(timezone.utc) - verified_ts
-                        ).total_seconds() / 3600
-                        if age_hours > 1:
-                            new_status = "stale"
-                    else:
+            if speed == "realtime":
+                # Realtime facts are stale by definition if >1h old
+                verified_at = payload.get("verified_at")
+                if verified_at:
+                    verified_ts = datetime.fromisoformat(
+                        verified_at.replace("Z", "+00:00")
+                    )
+                    age_hours = (
+                        datetime.now(UTC) - verified_ts
+                    ).total_seconds() / 3600
+                    if age_hours > 1:
                         new_status = "stale"
-                    verification_source = "time_check"
-
-                elif speed == "never":
-                    # Immutable facts: mark verified once, never re-check
-                    new_status = "verified"
-                    verification_source = "immutable"
-
-                # For slow/fast: we trust that if the memory exists and is recent
-                # enough, it's verified. A full file_check would require parsing
-                # content for file paths — that's v1.5 territory.
-                # For now: mark as verified and update timestamp.
-                # This alone is valuable: it creates the verification cycle.
-
-                # Update the point
-                updated_payload = {
-                    **payload,
-                    "verification_status": new_status,
-                    "verified_at": now_iso,
-                    "verification_source": verification_source,
-                    "access_count": current_access + 1,
-                    "updated_at": now_iso,
-                }
-
-                # Use set_payload to update only the changed fields (no need to re-send vector)
-                resp = await client.post(
-                    f"{QDRANT_URL}/collections/{QDRANT_COLLECTION}/points/payload",
-                    json={
-                        "points": [mid],
-                        "payload": {
-                            "verification_status": new_status,
-                            "verified_at": now_iso,
-                            "verification_source": verification_source,
-                            "access_count": current_access + 1,
-                            "updated_at": now_iso,
-                        },
-                    },
-                    timeout=3.0,
-                )
-
-                if resp.status_code in (200, 201):
-                    if new_status == "stale":
-                        stale_count += 1
-                    else:
-                        verified_count += 1
                 else:
-                    errors.append(f"update failed for {mid}: {resp.status_code}")
+                    new_status = "stale"
+                verification_source = "time_check"
 
-            except Exception as e:
-                errors.append(f"error for {mid}: {str(e)[:100]}")
+            elif speed == "never":
+                # Immutable facts: mark verified once, never re-check
+                new_status = "verified"
+                verification_source = "immutable"
+
+            # For slow/fast: we trust that if the memory exists and is recent
+            # enough, it's verified. A full file_check would require parsing
+            # content for file paths — that's v1.5 territory.
+            # For now: mark as verified and update timestamp.
+            # This alone is valuable: it creates the verification cycle.
+
+            # Update the point (payload-only, vector preserved)
+            updated_payload = {
+                **payload,
+                "verification_status": new_status,
+                "verified_at": now_iso,
+                "verification_source": verification_source,
+                "access_count": current_access + 1,
+                "updated_at": now_iso,
+            }
+
+            rowcount = await asyncio.to_thread(
+                _set_payload_sync, db, mid, updated_payload
+            )
+
+            if rowcount:
+                if new_status == "stale":
+                    stale_count += 1
+                else:
+                    verified_count += 1
+            else:
+                errors.append(f"update failed for {mid}: not found")
+
+        except Exception as e:
+            errors.append(f"error for {mid}: {str(e)[:100]}")
 
     return {
         "verified": verified_count,
@@ -208,10 +216,24 @@ def _run_async(coro: Any) -> Any:
     return _event_loop.run_until_complete(coro)
 
 
+def _check_http_token(headers) -> bool:
+    """ISO-17: when MEMORY_HTTP_TOKEN is set, X-Memory-Token must match.
+    Constant-time compare. Unset env = localhost trust + WARN at startup."""
+    expected = os.getenv("MEMORY_HTTP_TOKEN", "")
+    if not expected:
+        return True
+    provided = headers.get("X-Memory-Token", "")
+    import hmac as _hmac
+    return _hmac.compare_digest(expected, provided)
+
+
 class _ApiHandler(BaseHTTPRequestHandler):
     """Thin HTTP handler that delegates to MCP tool functions."""
 
     def do_GET(self) -> None:
+        if self.path != "/api/health" and not _check_http_token(self.headers):
+            self._json_response(401, {"error": "invalid or missing X-Memory-Token"})
+            return
         if self.path == "/api/health":
             self._json_response(200, {
                 "status": "ok",
@@ -229,6 +251,9 @@ class _ApiHandler(BaseHTTPRequestHandler):
             self._json_response(404, {"error": "not found"})
 
     def do_POST(self) -> None:
+        if not _check_http_token(self.headers):
+            self._json_response(401, {"error": "invalid or missing X-Memory-Token"})
+            return
         body = self._read_body()
         if body is None:
             return
@@ -319,6 +344,8 @@ def start_api_server(
     request_context_fn: Callable | None = None,
     port: int | None = None,
 ) -> HTTPServer:
+    if not os.getenv("MEMORY_HTTP_TOKEN"):
+        logger.warning("api_server: MEMORY_HTTP_TOKEN unset — sidecar trusts localhost (ISO-17)")
     """Start the HTTP API server in a background thread.
 
     Call BEFORE mcp.run(transport="stdio") which blocks the main thread.
@@ -330,7 +357,7 @@ def start_api_server(
         save_conversation_fn: L2_conversations.save_conversation function
         consolidate_fn: L0_to_L4_consolidation.consolidate function
         request_context_fn: L5_routing.request_context function (optional)
-        port: Port to listen on (default: AUTOMEM_API_PORT env var or 8890)
+        port: Port to listen on (default: MEMORY_API_PORT env var or 8890)
 
     Returns:
         The HTTPServer instance (for testing / graceful shutdown).
@@ -346,7 +373,7 @@ def start_api_server(
     _request_context_fn = request_context_fn
 
     if port is None:
-        port = int(os.environ.get("AUTOMEM_API_PORT", "8890"))
+        port = int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890"))
 
     server = HTTPServer(("127.0.0.1", port), _ApiHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="backpack-api")

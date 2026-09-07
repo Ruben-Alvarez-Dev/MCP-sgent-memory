@@ -3,10 +3,8 @@
 Verifies that MCP tools return the correct Pydantic model shapes.
 No external dependencies — tests the interface, not the implementation.
 """
-import sys
-import os
 import json
-import pytest
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,10 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from shared.result_models import (
-    SaveConversationResult, SearchResult, ThreadListResult, ConversationStatusResult
-)
-
+from shared.result_models import ConversationStatusResult, SaveConversationResult, SearchResult, ThreadListResult
 
 # ── SaveConversationResult ──────────────────────────────────────
 

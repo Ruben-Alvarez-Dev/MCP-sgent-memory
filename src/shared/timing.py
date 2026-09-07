@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Timing utilities for MCP tool debugging.
 
 Provides a decorator and context manager for measuring latency
@@ -7,9 +8,9 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
-
+from typing import Any
 
 DEBUG = os.getenv("MCP_DEBUG", "0") == "1"
 
@@ -22,12 +23,12 @@ class Timer:
         self._start: float | None = None
         self._current_phase: str | None = None
 
-    def start(self, phase: str) -> "Timer":
+    def start(self, phase: str) -> Timer:
         self._current_phase = phase
         self._start = time.perf_counter()
         return self
 
-    def stop(self) -> "Timer":
+    def stop(self) -> Timer:
         if self._start is not None and self._current_phase is not None:
             elapsed = (time.perf_counter() - self._start) * 1000
             self.phases[self._current_phase] = round(elapsed, 1)
@@ -57,7 +58,7 @@ def timed(func: Callable | None = None, *, phases: list[str] | None = None):
         async def my_tool(content: str, timer: Timer = None) -> dict:
             t = timer or Timer()
             t.start("embed")
-            vec = await safe_embed(content)
+            vec = await None
             t.stop()
             result = {"status": "stored", ...}
             result.update(t.to_dict())

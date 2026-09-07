@@ -6,9 +6,9 @@ FastMCP serializes these automatically as MCP structured output.
 
 from __future__ import annotations
 
-from typing import Any, Optional
-from pydantic import BaseModel, Field
+from typing import Any
 
+from pydantic import BaseModel, Field
 
 # ── L0_capture ───────────────────────────────────────────────────────
 
@@ -33,7 +33,6 @@ class HeartbeatResult(BaseModel):
 class L0CaptureStatusResult(BaseModel):
     daemon: str = "L0_capture"
     status: str = "RUNNING"
-    qdrant: str = "OK"
     llama_cpp: str = "OK"
     L0_events_jsonl: int = 0
     stored_memories: int = 0
@@ -90,7 +89,7 @@ class ContextShiftResult(BaseModel):
 class VkCacheStatusResult(BaseModel):
     daemon: str = "L5_routing"
     status: str = "RUNNING"
-    qdrant: str = "OK"
+    storage: str = "memory.db"
     active_reminders: int = 0
 
 

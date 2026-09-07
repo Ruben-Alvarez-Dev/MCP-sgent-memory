@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-memory-core"
 version = "2.1.0"
-description = "Core memory infrastructure for AI agents — embedding, retrieval, sanitization, Qdrant client"
+description = "Single-file agent memory (memory.db): engine-level tenant isolation, deterministic retrieval, no daemons"
 requires-python = ">=3.12"
 license = "MIT"
 readme = "README.md"
@@ -13,8 +13,6 @@ readme = "README.md"
 dependencies = [
     "mcp>=1.27",
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "httpx>=0.27",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
 ]
@@ -30,6 +28,11 @@ dev = [
     "ruff>=0.4",
 ]
 
+# NOTE (M5 audit): this project is NOT pip-installable as a wheel — the servers
+# use path-based imports (sys.path.insert "src") and the server packages carry
+# no __init__.py. The supported deployment is the venv-in-repo flow
+# (install/bootstrap.sh + config/mcp.json pointing at src/). This pyproject
+# exists for tooling configuration (pytest, ruff) and project metadata.
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["shared*"]
@@ -38,6 +41,14 @@ include = ["shared*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 log_cli = false
+markers = [
+    "unit: pure unit tests, no I/O",
+    "contract: interface and schema contract tests",
+    "integration: tests against real memory.db / services",
+    "nightly: heavy suites (adversarial full, eval, e2e)",
+    "isolation: tenant-isolation adversarial subset (runs in CI)",
+    "req: requirement-traceable test (use with req ID, e.g. -m 'req')",
+]
 
 [tool.ruff]
 target-version = "py312"

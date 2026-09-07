@@ -1,13 +1,12 @@
 #!/bin/bash
 # lifecycle.sh — Data lifecycle management for MCP Memory Server
 #
-# Handles: JSONL rotation, old thinking sessions cleanup, Qdrant backup,
+# Handles: JSONL rotation, old thinking sessions cleanup,
 #          stale staging files, heartbeat/reminders pruning.
 #
 # Usage:
 #   ./scripts/lifecycle.sh                # Run all cleanup tasks
 #   ./scripts/lifecycle.sh --dry-run      # Preview what would be cleaned
-#   ./scripts/lifecycle.sh --backup       # Only Qdrant backup
 #   ./scripts/lifecycle.sh --status       # Show data stats
 #
 # Cron (weekly):
@@ -24,18 +23,15 @@ THOUGHTS_MAX_AGE_DAYS="${THOUGHTS_MAX_AGE_DAYS:-30}"  # Delete sessions older th
 STAGING_MAX_AGE_HOURS="${STAGING_MAX_AGE_HOURS:-168}"  # 7 days
 HEARTBEATS_MAX_AGE_DAYS="${HEARTBEATS_MAX_AGE_DAYS:-7}"
 REMINDERS_MAX_AGE_DAYS="${REMINDERS_MAX_AGE_DAYS:-90}"
-QDRANT_BACKUP_KEEP="${QDRANT_BACKUP_KEEP:-3}"          # Keep last N snapshots
 VAULT_MAX_AGE_DAYS="${VAULT_MAX_AGE_DAYS:-90}"
 
 DRY_RUN=false
-BACKUP_ONLY=false
 STATUS_ONLY=false
 DATA_DIR="${PROJECT_ROOT}/data"
 
 for arg in "$@"; do
     case "$arg" in
         --dry-run|-n) DRY_RUN=true ;;
-        --backup|-b)  BACKUP_ONLY=true ;;
         --status|-s)  STATUS_ONLY=true ;;
     esac
 done
@@ -98,14 +94,6 @@ if $STATUS_ONLY; then
         echo "  🔔 Reminders:        ${COUNT} files, ${SIZE} (max age: ${REMINDERS_MAX_AGE_DAYS}d)"
     fi
     
-    # Qdrant
-    QDRANT="$PROJECT_ROOT/src/shared/qdrant/data"
-    if [ -d "$QDRANT" ]; then
-        SIZE=$(du -sh "$QDRANT" 2>/dev/null | cut -f1 | tr -d ' ')
-        SNAPSHOTS=$(find "$PROJECT_ROOT/src/shared/qdrant/snapshots" -name "*.snapshot" 2>/dev/null | wc -l | tr -d ' ')
-        echo "  🗄️  Qdrant:           ${SIZE} (${SNAPSHOTS} snapshots, keep: ${QDRANT_BACKUP_KEEP})"
-    fi
-    
     # Engram
     ENG="$DATA_DIR/memory/L3_decisions"
     if [ -d "$ENG" ]; then
@@ -126,44 +114,6 @@ if $STATUS_ONLY; then
     TOTAL=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 | tr -d ' ')
     echo ""
     echo "  ${B}Total: ${TOTAL}${X}"
-    exit 0
-fi
-
-# ── Backup mode ─────────────────────────────────────────────────────
-
-if $BACKUP_ONLY; then
-    log "${B}📦 Qdrant Backup${X}"
-    SNAP_DIR="$PROJECT_ROOT/src/shared/qdrant/snapshots"
-    mkdir -p "$SNAP_DIR"
-    
-    # Create snapshot via API
-    SNAP_NAME="auto-$(date '+%Y%m%d-%H%M%S')"
-    RESULT=$(curl -s -X POST "http://127.0.0.1:6333/snapshots" \
-        -H "Content-Type: application/json" \
-        -d "{\"snapshot_name\": \"$SNAP_NAME\"}" 2>/dev/null || echo '{"error": "Qdrant not reachable"}')
-    
-    if echo "$RESULT" | grep -q '"ok"'; then
-        ok "Snapshot created: $SNAP_NAME"
-    else
-        warn "Snapshot failed: $RESULT"
-    fi
-    
-    # Rotate old snapshots
-    COUNT=$(find "$SNAP_DIR" -name "*.snapshot" 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$COUNT" -gt "$QDRANT_BACKUP_KEEP" ]; then
-        REMOVE=$((COUNT - QDRANT_BACKUP_KEEP))
-        find "$SNAP_DIR" -name "*.snapshot" -type f | sort | head -n "$REMOVE" | while read f; do
-            if $DRY_RUN; then
-                log "DRY RUN: would remove $(basename "$f")"
-            else
-                rm -f "$f"
-                log "Removed old snapshot: $(basename "$f")"
-            fi
-        done
-        ok "Rotated ${REMOVE} old snapshots"
-    else
-        skip "Snapshot rotation: ${COUNT}/${QDRANT_BACKUP_KEEP} — no cleanup needed"
-    fi
     exit 0
 fi
 
@@ -301,122 +251,15 @@ else
     skip "Reminders: directory not found"
 fi
 
-# 6. Qdrant Point Purge (L0/L1 only, never touch L3/L4)
-log "🗄️  Qdrant Point Purge (L0/L1 stale points)"
-PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
-QDRANT_URL="${QDRANT_URL:-http://127.0.0.1:6333}"
-L1_MAX_AGE_DAYS="${L1_MAX_AGE_DAYS:-30}"
-L0_MAX_AGE_DAYS="${L0_MAX_AGE_DAYS:-90}"
-if command -v "$PYTHON" &>/dev/null; then
-    PURGE_RESULT=$("$PYTHON" -c "
-import json, urllib.request, sys, time
-from datetime import datetime, timezone, timedelta
-
-url = '${QDRANT_URL}'
-l1_max = int('${L1_MAX_AGE_DAYS}')
-l0_max = int('${L0_MAX_AGE_DAYS}')
-dry = $( [ "$DRY_RUN" = true ] && echo 'True' || echo 'False' )
-now = time.time()
-total_purged = 0
-
-for col in ['L0_L4_memory', 'L3_facts', 'L2_conversations']:
-    try:
-        # Scroll points with layer info
-        body = json.dumps({'limit': 100, 'with_payload': True}).encode()
-        req = urllib.request.Request(f'{url}/collections/{col}/points/scroll', data=body, headers={'Content-Type': 'application/json'})
-        resp = urllib.request.urlopen(req)
-        data = json.loads(resp.read())
-        points = data.get('result', {}).get('points', [])
-        
-        ids_to_delete = []
-        for p in points:
-            payload = p.get('payload', {})
-            layer = payload.get('layer', '')
-            created = payload.get('created_at', '')
-            
-            # Never purge L3 or L4
-            if layer in ('L3_SEMANTIC', 'L4_CONSOLIDATED'):
-                continue
-            
-            # Check age
-            if not created:
-                continue
-            try:
-                ct = datetime.fromisoformat(created.replace('Z', '+00:00')).timestamp()
-            except:
-                continue
-            
-            age_days = (now - ct) / 86400
-            max_age = l0_max if layer == 'L0_RAW' else l1_max
-            
-            if age_days > max_age:
-                ids_to_delete.append(p.get('id', ''))
-        
-        if ids_to_delete:
-            if dry:
-                print(f'  {col}: DRY RUN would purge {len(ids_to_delete)} points')
-            else:
-                del_body = json.dumps({'points': ids_to_delete}).encode()
-                del_req = urllib.request.Request(f'{url}/collections/{col}/points/delete', data=del_body, headers={'Content-Type': 'application/json'}, method='POST')
-                urllib.request.urlopen(del_req)
-                print(f'  {col}: purged {len(ids_to_delete)} points')
-                total_purged += len(ids_to_delete)
-        else:
-            print(f'  {col}: no stale points')
-    except Exception as e:
-        print(f'  {col}: error - {e}')
-
-print(f'Total purged: {total_purged}')
-" 2>&1)
-    echo "$PURGE_RESULT"
-else
-    skip "Qdrant purge: python3 not found"
-fi
-
-# 7. Qdrant Backup
-log "🗄️  Qdrant Backup"
-SNAP_DIR="$PROJECT_ROOT/src/shared/qdrant/snapshots"
-mkdir -p "$SNAP_DIR"
-SNAP_NAME="auto-$(date '+%Y%m%d-%H%M%S')"
-RESULT=$(curl -s -X POST "http://127.0.0.1:6333/snapshots" \
-    -H "Content-Type: application/json" \
-    -d "{\"snapshot_name\": \"$SNAP_NAME\"}" 2>/dev/null || echo '{"error": "Qdrant not reachable"}')
-
-if echo "$RESULT" | grep -q '"ok"'; then
-    ok "Snapshot created: $SNAP_NAME"
-else
-    warn "Snapshot failed (Qdrant may be down): $RESULT"
-fi
-
-# Rotate old snapshots
-SNAP_COUNT=$(find "$SNAP_DIR" -name "*.snapshot" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$SNAP_COUNT" -gt "$QDRANT_BACKUP_KEEP" ]; then
-    REMOVE=$((SNAP_COUNT - QDRANT_BACKUP_KEEP))
-    find "$SNAP_DIR" -name "*.snapshot" -type f | sort | head -n "$REMOVE" | while read f; do
-        if $DRY_RUN; then
-            log "DRY RUN: would remove snapshot $(basename "$f")"
-        else
-            rm -f "$f"
-            log "Removed old snapshot: $(basename "$f")"
-        fi
-    done
-    ok "Rotated ${REMOVE} old snapshots"
-else
-    skip "Snapshots: ${SNAP_COUNT}/${QDRANT_BACKUP_KEEP} — no rotation needed"
-fi
-
-# ── Summary ─────────────────────────────────────────────────────────
+# ── Summary ─────────────────────────────────────────────────────────────
 TOTAL_SIZE=$(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 | tr -d ' ')
-QDRANT_SIZE=$(du -sh "$PROJECT_ROOT/src/shared/qdrant/data" 2>/dev/null | cut -f1 | tr -d ' ')
 echo ""
 log "${B}═══════════════════════════════════════════${X}"
 log "${G}✅ Lifecycle complete${X}"
 echo "  Data dir:   ${TOTAL_SIZE}"
-echo "  Qdrant:     ${QDRANT_SIZE}"
 echo "  Config:"
 echo "    JSONL max:       ${JSONL_MAX_LINES} lines"
 echo "    Thoughts max:    ${THOUGHTS_MAX_AGE_DAYS} days"
 echo "    Staging max:     ${STAGING_MAX_AGE_HOURS} hours"
 echo "    Heartbeats max:  ${HEARTBEATS_MAX_AGE_DAYS} days"
-echo "    Snapshots keep:  ${QDRANT_BACKUP_KEEP}"
 log "${B}═══════════════════════════════════════════${X}"

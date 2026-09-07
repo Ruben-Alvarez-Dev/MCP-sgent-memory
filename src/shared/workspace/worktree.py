@@ -1,7 +1,7 @@
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Tuple
+
 
 class WorktreeManager:
     """
@@ -15,7 +15,7 @@ class WorktreeManager:
         if not (self.repo_root / ".git").exists():
             raise ValueError(f"Not a valid git repository: {self.repo_root}")
 
-    def _run_git(self, *args, cwd: Path = None) -> Tuple[bool, str, str]:
+    def _run_git(self, *args, cwd: Path = None) -> tuple[bool, str, str]:
         """Runs a git command and returns (success, stdout, stderr)."""
         target_cwd = cwd or self.repo_root
         process = subprocess.run(
@@ -80,7 +80,7 @@ class WorktreeManager:
             
         return success
         
-    def run_command(self, worktree_path: Path, command: str) -> Tuple[bool, str, str]:
+    def run_command(self, worktree_path: Path, command: str) -> tuple[bool, str, str]:
         """
         Executes a shell command inside the isolated worktree.
         Crucial for running tests, linters, or builds safely.

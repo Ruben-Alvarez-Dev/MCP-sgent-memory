@@ -7,8 +7,8 @@ Usage:
     from shared.config import Config
 
     config = Config.from_env()
-    print(config.qdrant_url)       # http://127.0.0.1:6333
-    print(config.embedding_dim)    # 1024
+    print(config.qdrant_collection)  # main memory.db collection
+    print(config.embedding_dim)      # 1024
 
     errors = config.validate()
     if errors:
@@ -18,18 +18,16 @@ Usage:
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
 class Config:
     """Type-safe configuration loaded from environment variables."""
 
-    # ── Qdrant ────────────────────────────────────────────────
-    qdrant_url: str = "http://127.0.0.1:6333"
-    qdrant_collection: str = "L0_L4_memory"
+    # ── Storage (M2: single memory.db, no daemon) ────────────
+    qdrant_collection: str = "L0_L4_memory"  # legacy env name QDRANT_COLLECTION
 
     # ── Embedding ─────────────────────────────────────────────
     embedding_backend: str = "llama_server"
@@ -39,7 +37,6 @@ class Config:
     embedding_cache_size: int = 512
 
     # ── LLM ───────────────────────────────────────────────────
-    llm_backend: str = "llama_cpp"
     llm_model: str = "qwen2.5:7b"
 
     # ── Paths ─────────────────────────────────────────────────
@@ -76,8 +73,7 @@ class Config:
         server_dir = os.getenv("MEMORY_SERVER_DIR", "")
 
         return cls(
-            # Qdrant
-            qdrant_url=os.getenv("QDRANT_URL", "http://127.0.0.1:6333"),
+            # Storage (M2: single memory.db — no daemon URL)
             qdrant_collection=os.getenv("QDRANT_COLLECTION", "L0_L4_memory"),
             # Embedding
             embedding_backend=os.getenv("EMBEDDING_BACKEND", "llama_server"),
@@ -86,7 +82,6 @@ class Config:
             llama_server_url=os.getenv("LLAMA_SERVER_URL", "http://127.0.0.1:8081"),
             embedding_cache_size=int(os.getenv("EMBEDDING_CACHE_SIZE", "512")),
             # LLM
-            llm_backend=os.getenv("LLM_BACKEND", "llama_cpp"),
             llm_model=os.getenv("LLM_MODEL", "qwen2.5:7b"),
             # Paths
             server_dir=server_dir,
@@ -115,21 +110,7 @@ class Config:
         """Validate configuration. Returns list of error messages."""
         errors: list[str] = []
 
-        # URLs
-        if not self.qdrant_url:
-            errors.append("QDRANT_URL is empty")
-        elif not self.qdrant_url.startswith(("http://", "https://")):
-            errors.append(f"QDRANT_URL must be http(s) URL, got {self.qdrant_url}")
-        else:
-            # Validate port is in valid range
-            try:
-                from urllib.parse import urlparse
-                port = urlparse(self.qdrant_url).port
-                if port is not None and not (1 <= port <= 65535):
-                    errors.append(f"QDRANT_URL port out of range: {port}")
-            except ValueError:
-                errors.append(f"QDRANT_URL has invalid port number")
-                pass
+        # URLs (M2: no storage daemon — nothing to validate)
 
         # Embedding backend
         valid_embed_backends = {"llama_cpp", "llama_server", "http", "noop"}
@@ -137,9 +118,6 @@ class Config:
             errors.append(f"EMBEDDING_BACKEND must be one of {valid_embed_backends}, got '{self.embedding_backend}'")
 
         # LLM backend
-        valid_llm_backends = {"llama_cpp"}
-        if self.llm_backend not in valid_llm_backends:
-            errors.append(f"LLM_BACKEND must be one of {valid_llm_backends}, got '{self.llm_backend}'")
 
         # Embedding dimension
         standard_dims = {256, 384, 512, 768, 1024, 1536}

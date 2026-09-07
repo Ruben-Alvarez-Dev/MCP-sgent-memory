@@ -1,5 +1,4 @@
 import sys
-import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -7,8 +6,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from shared.retrieval import _rank_and_fuse, ContextItem, RetrievalProfile
 from shared.llm.config import QueryIntent
+from shared.retrieval import ContextItem, RetrievalProfile, _rank_and_fuse
+
 
 def _default_profile():
     return RetrievalProfile(

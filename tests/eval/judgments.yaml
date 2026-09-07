@@ -1,0 +1,264 @@
+version: 1
+eval: eval-40
+corpus: tests/eval/fixture_corpus.py (38 docs, ids eval-1..eval-38)
+entries:
+- q: dónde está definida la clase AuthService
+  lang: es
+  intent: code_lookup
+  relevant:
+  - eval-2
+  notes: AuthService no existe en el repo; el análogo real es la validación de identidad/agentes en sanitize.py
+    (sanitize_user_id).
+- q: qué hace la función build_repo_index_points
+  lang: es
+  intent: code_lookup
+  relevant:
+  - eval-9
+  notes: Símbolo muerto (pre-M2); sucesor real build_repo_map en src/shared/retrieval/repo_map.py.
+- q: mostrame el módulo de consolidación L0_to_L4
+  lang: es
+  intent: code_lookup
+  relevant:
+  - eval-17
+  notes: Docstring del módulo L0_to_L4_consolidation (consolidation & dream daemon).
+- q: dónde se calcula combined_score
+  lang: es
+  intent: code_lookup
+  relevant:
+  - eval-7
+  notes: Fórmula v1.4 en _rank_and_fuse (level_weight*score*0.5 + recency + freshness).
+- q: archivo de configuración de Qdrant
+  lang: es
+  intent: code_lookup
+  relevant:
+  - eval-27
+  - eval-19
+  notes: 'La config de Qdrant es legacy (config/mcp.json, QDRANT_URL 6333): lo explica la decisión M2-storage;
+    README aún lo menciona en arquitectura.'
+- q: where is the AuthService class defined
+  lang: en
+  intent: code_lookup
+  relevant:
+  - eval-2
+  notes: Dead symbol; closest real analogue is auth/user-id validation in sanitize.py.
+- q: show me the sanitize module
+  lang: en
+  intent: code_lookup
+  relevant:
+  - eval-1
+  notes: Principios del módulo sanitize.py (OWASP, unicode, NFKC).
+- q: which file implements bm25_tokenize
+  lang: en
+  intent: code_lookup
+  relevant:
+  - eval-8
+  notes: 'M9 remap: bm25_tokenize vive en shared/retrieval/__init__.py; el chunk eval-8 (_retrieve_hybrid)
+    es el consumidor lexical más cercano.'
+- q: find the heartbeat function in L0_capture
+  lang: en
+  intent: code_lookup
+  relevant:
+  - eval-4
+  notes: heartbeat() en src/L0_capture/server/main.py; señal de vida + prefetch de embeddings.
+- q: where is FTS5 search implemented
+  lang: en
+  intent: code_lookup
+  relevant:
+  - eval-10
+  - eval-11
+  notes: 'conversation_db.py: tabla virtual messages_fts + search_fts/_fts_escape.'
+- q: por qué usamos Qdrant en vez de SQLite
+  lang: es
+  intent: decision_recall
+  relevant:
+  - eval-27
+  notes: La decisión real es la inversa (SQLite en vez de Qdrant, M2-storage); el doc cubre el tradeoff
+    completo.
+- q: qué decidimos sobre el modelo de embeddings
+  lang: es
+  intent: decision_recall
+  relevant:
+  - eval-28
+  notes: Decisión BGE-M3 1024d vs MiniLM 384d, servido por llama-server :8081.
+- q: por qué el vault es bilingüe
+  lang: es
+  intent: decision_recall
+  relevant:
+  - eval-29
+  notes: Contenido en idioma de origen, tags en inglés canónico; búsqueda híbrida multilingüe.
+- q: decidimos eliminar el micro-LLM
+  lang: es
+  intent: decision_recall
+  relevant:
+  - eval-30
+  notes: 'RET-04 (M3): jubilación de rank_by_relevance y el micro-LLM del ranking.'
+- q: why did we choose BGE-M3 over MiniLM
+  lang: en
+  intent: decision_recall
+  relevant:
+  - eval-28
+  notes: Benchmarks 0.72 vs 0.56 cosine, multilingüe es/en, 1024 dims.
+- q: what did we decide about scope isolation
+  lang: en
+  intent: decision_recall
+  relevant:
+  - eval-31
+  - eval-14
+  notes: Decisión ISO-05 (engine-level) + implementación scope_jail_path/assert_contained.
+- q: why is there an HTTP sidecar on port 8890
+  lang: en
+  intent: decision_recall
+  relevant:
+  - eval-32
+  - eval-20
+  notes: Decisión del sidecar Backpack API + su implementación en api_server.py.
+- q: what did we decide about the dream cooldown
+  lang: en
+  intent: decision_recall
+  relevant:
+  - eval-33
+  notes: 'MEM-03: background dream con cooldown y estado persistente en state.json.'
+- q: cómo añado una memoria semántica
+  lang: es
+  intent: how_to
+  relevant:
+  - eval-5
+  - eval-3
+  notes: Tool memorize de L0_capture + su validador validate_memorize.
+- q: cómo busco conversaciones pasadas
+  lang: es
+  intent: how_to
+  relevant:
+  - eval-11
+  - eval-10
+  notes: search_fts sobre la tabla FTS5 de conversation_db.
+- q: cómo se consolida la memoria entre capas
+  lang: es
+  intent: how_to
+  relevant:
+  - eval-17
+  notes: 'Daemon L0_to_L4: promociones L1→L4, dream, ISO-06 no-ops.'
+- q: de qué manera guardo una decisión
+  lang: es
+  intent: how_to
+  relevant:
+  - eval-3
+  notes: validate_save_decision (L3_decisions.save_decision) — validación de título/categoría/tags/scope.
+- q: how do i save a conversation thread
+  lang: en
+  intent: how_to
+  relevant:
+  - eval-12
+  notes: save_thread(thread_id, messages, summary, agent_scope) en conversation_db.
+- q: how to check pending reminders
+  lang: en
+  intent: how_to
+  relevant:
+  - eval-18
+  notes: check_reminders(agent_id) en L5_routing.
+- q: what's the best way to request context
+  lang: en
+  intent: how_to
+  relevant:
+  - eval-6
+  - eval-20
+  notes: retrieve() del retrieval router + endpoints del sidecar para hooks.
+- q: how do i delete a semantic memory
+  lang: en
+  intent: how_to
+  relevant:
+  - eval-16
+  notes: MemoryDB.delete con filtro atómico (anti-TOCTOU).
+- q: falla la conexión con qdrant en 6333
+  lang: es
+  intent: error_diagnosis
+  relevant:
+  - eval-27
+  notes: 'Diagnóstico: Qdrant fue demolido en M2; nada debe seguir hablando al 6333.'
+- q: error al generar embedings del servidor
+  lang: es
+  intent: error_diagnosis
+  relevant:
+  - eval-15
+  notes: 'M9 remap: la generación de embeddings fue demolidida (M6, cero embeddings). El análogo real
+    más cercano es el chunk FTS5 two-phase que la sustituyó.'
+- q: el hook no dispara la consolidación
+  lang: es
+  intent: error_diagnosis
+  relevant:
+  - eval-17
+  - eval-22
+  notes: Consolidación L0_to_L4 + la conversación sobre hooks/sidecar/turn_count.
+- q: roto el ranking de resultados
+  lang: es
+  intent: error_diagnosis
+  relevant:
+  - eval-7
+  - eval-30
+  notes: Fórmula combined_score + decisión de retirar el micro-LLM del ranking.
+- q: embedding server timeout on port 8091
+  lang: en
+  intent: error_diagnosis
+  relevant:
+  - eval-15
+  notes: 'M9 remap: sin embedding server desde M6; el chunk FTS5 two-phase es el camino de recuperación
+    que lo sustituyó.'
+- q: qdrant connection refused
+  lang: en
+  intent: error_diagnosis
+  relevant:
+  - eval-27
+  - eval-19
+  notes: 'Esperado: Qdrant demolido (M2); README aún lo dibuja en la arquitectura legacy.'
+- q: retrival returns emtpy results
+  lang: en
+  intent: error_diagnosis
+  relevant:
+  - eval-8
+  - eval-15
+  notes: _retrieve_hybrid (umbral MIN_SCORE, filtros) + hash_vector como fallback determinista.
+- q: consolidaton never runs
+  lang: en
+  intent: error_diagnosis
+  relevant:
+  - eval-17
+  notes: 'Daemon de consolidación: promociones, dream y condiciones de arranque.'
+- q: qué dijimos antes sobre el vault
+  lang: es
+  intent: conversation_recall
+  relevant:
+  - eval-21
+  - eval-29
+  notes: Resumen de la conversación del vault + decisión bilingüe.
+- q: lo que hablamos de los hooks
+  lang: es
+  intent: conversation_recall
+  relevant:
+  - eval-22
+  notes: Resumen de la conversación sobre hooks de OpenCode y el sidecar.
+- q: mencionamos el problema de los reminders
+  lang: es
+  intent: conversation_recall
+  relevant:
+  - eval-23
+  notes: 'Resumen: duplicados en check_reminders y degradación hash de push_reminder.'
+- q: what did we say about sampling support
+  lang: en
+  intent: conversation_recall
+  relevant:
+  - eval-24
+  notes: 'Resumen: sampling solo afecta al LLM de consolidación, no a retrieval.'
+- q: we discussed sqlite-vec earlier
+  lang: en
+  intent: conversation_recall
+  relevant:
+  - eval-25
+  - eval-34
+  notes: Resumen de la discusión + decisión diferida (>50k puntos).
+- q: what did we cover about isolation leaks
+  lang: en
+  intent: conversation_recall
+  relevant:
+  - eval-26
+  - eval-14
+  notes: Resumen del audit M1 + scope_jail_path/assert_contained como fix.

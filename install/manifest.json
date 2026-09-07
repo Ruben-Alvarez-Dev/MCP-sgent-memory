@@ -21,9 +21,7 @@
     "models/**",
     "backups/**",
     ".venv/**",
-    "vault/**",
-    "qdrant/storage/**",
-    "data/qdrant/**"
+    "vault/**"
   ],
   "collections": [
     {"name": "L0_L4_memory", "dimension": 1024, "sparse": true},
@@ -37,7 +35,6 @@
     {"name": "pydantic-settings", "import": "pydantic_settings", "critical": true},
     {"name": "python-dotenv", "import": "dotenv", "critical": false},
     {"name": "pyyaml", "import": "yaml", "critical": false},
-    {"name": "qdrant-client", "import": "qdrant_client", "critical": false},
     {"name": "pygments", "import": "pygments", "critical": false}
   ]
 }

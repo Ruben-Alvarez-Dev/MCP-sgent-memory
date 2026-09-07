@@ -1,25 +1,23 @@
-"""Timeline backbone — three storage strategies (A, B, C).
+"""Timeline backbone — two storage strategies (A, C).
 
 Timeline = ordered sequence of events across all agents.
 The "columna vertebral" of the multi-agent system.
 
 Option A: SQLite table (simple, queryable, FTS5)
-Option B: Qdrant + SQLite (semantic search + ordering)
 Option C: JSONL append-only (existing raw_events.jsonl)
 
-All three share the same interface for easy swapping.
+Both share the same interface for easy swapping.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
 import threading
-import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +117,7 @@ class SQLiteTimeline(TimelineBackend):
 
     def append(self, event_type: str, agent_id: str = "system",
                content: str = "", metadata: dict | None = None) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         meta_json = json.dumps(metadata or {})
         with self._lock:
             conn = self._connect()
@@ -187,86 +185,6 @@ class SQLiteTimeline(TimelineBackend):
 
 
 # ════════════════════════════════════════════════════════════════
-# Option B: Qdrant + SQLite (semantic search + ordering)
-# ════════════════════════════════════════════════════════════════
-
-
-class HybridTimeline(TimelineBackend):
-    """Timeline with Qdrant for semantic search + SQLite for ordering.
-
-    SQLite stores the ordered timeline (timestamp, metadata).
-    Qdrant stores vectors for semantic search.
-    Both linked by event ID.
-    """
-
-    def __init__(self, db_path: str, qdrant_url: str, embedding_dim: int = 1024):
-        self._sqlite = SQLiteTimeline(db_path)
-        self._qdrant_url = qdrant_url
-        self._embedding_dim = embedding_dim
-        self._collection = "timeline"
-        self._qdrant_client = None
-
-    async def _get_qdrant(self):
-        if self._qdrant_client is None:
-            from shared.qdrant_client import QdrantClient
-            self._qdrant_client = QdrantClient(self._qdrant_url, self._collection, self._embedding_dim)
-            await self._qdrant_client.ensure_collection(sparse=False)
-        return self._qdrant_client
-
-    async def _embed(self, text: str) -> list[float]:
-        from shared.embedding import safe_embed
-        return await safe_embed(text)
-
-    def append(self, event_type: str, agent_id: str = "system",
-               content: str = "", metadata: dict | None = None) -> dict:
-        # SQLite append (sync)
-        result = self._sqlite.append(event_type, agent_id, content, metadata)
-        # Qdrant append (needs async wrapper)
-        # For sync interface, we skip Qdrant — caller should use async version
-        return result
-
-    async def append_async(self, event_type: str, agent_id: str = "system",
-                           content: str = "", metadata: dict | None = None) -> dict:
-        """Append with both SQLite and Qdrant."""
-        result = self._sqlite.append(event_type, agent_id, content, metadata)
-        event_id = str(result["id"])
-        try:
-            qdrant = await self._get_qdrant()
-            vec = await self._embed(content)
-            await qdrant.upsert(event_id, vec, {
-                "event_id": event_id,
-                "event_type": event_type,
-                "agent_id": agent_id,
-                "timestamp": result["timestamp"],
-            })
-        except Exception as e:
-            logger.warning("Qdrant timeline append failed: %s", e)
-        return result
-
-    def query(self, agent_id: str | None = None, event_type: str | None = None,
-              limit: int = 50) -> list[dict]:
-        return self._sqlite.query(agent_id, event_type, limit)
-
-    def search(self, query: str, limit: int = 20) -> list[dict]:
-        # Fallback to FTS5 (semantic search needs async)
-        return self._sqlite.search(query, limit)
-
-    async def search_semantic(self, query: str, limit: int = 20) -> list[dict]:
-        """Semantic search via Qdrant."""
-        try:
-            qdrant = await self._get_qdrant()
-            vec = await self._embed(query)
-            results = await qdrant.search(vec, limit=limit, score_threshold=0.3)
-            return [r.get("payload", {}) for r in results]
-        except Exception as e:
-            logger.warning("Qdrant timeline search failed: %s", e)
-            return self._sqlite.search(query, limit)
-
-    def count(self) -> int:
-        return self._sqlite.count()
-
-
-# ════════════════════════════════════════════════════════════════
 # Option C: JSONL append-only
 # ════════════════════════════════════════════════════════════════
 
@@ -285,7 +203,7 @@ class JSONLTimeline(TimelineBackend):
 
     def append(self, event_type: str, agent_id: str = "system",
                content: str = "", metadata: dict | None = None) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         event = {
             "timestamp": now,
             "event_type": event_type,
@@ -293,9 +211,8 @@ class JSONLTimeline(TimelineBackend):
             "content": content,
             "metadata": metadata or {},
         }
-        with self._lock:
-            with open(self._path, "a") as f:
-                f.write(json.dumps(event) + "\n")
+        with self._lock, open(self._path, "a") as f:
+            f.write(json.dumps(event) + "\n")
         return {"timestamp": now, "status": "appended"}
 
     def query(self, agent_id: str | None = None, event_type: str | None = None,
@@ -316,9 +233,8 @@ class JSONLTimeline(TimelineBackend):
     def count(self) -> int:
         if not os.path.exists(self._path):
             return 0
-        with self._lock:
-            with open(self._path) as f:
-                return sum(1 for _ in f)
+        with self._lock, open(self._path) as f:
+            return sum(1 for _ in f)
 
     def _read_all(self) -> list[dict]:
         if not os.path.exists(self._path):
@@ -345,16 +261,12 @@ def create_timeline(backend: str = "sqlite", **kwargs) -> TimelineBackend:
     """Create a timeline backend.
 
     Args:
-        backend: "sqlite" (A), "hybrid" (B), or "jsonl" (C)
-        **kwargs: Backend-specific args (db_path, qdrant_url, jsonl_path)
+        backend: "sqlite" (A) or "jsonl" (C)
+        **kwargs: Backend-specific args (db_path, jsonl_path)
     """
     if backend == "sqlite":
         db_path = kwargs.get("db_path", "data/timeline.db")
         return SQLiteTimeline(db_path)
-    elif backend == "hybrid":
-        db_path = kwargs.get("db_path", "data/timeline.db")
-        qdrant_url = kwargs.get("qdrant_url", "http://127.0.0.1:6333")
-        return HybridTimeline(db_path, qdrant_url)
     elif backend == "jsonl":
         jsonl_path = kwargs.get("jsonl_path", "data/timeline.jsonl")
         return JSONLTimeline(jsonl_path)

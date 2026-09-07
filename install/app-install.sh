@@ -5,7 +5,7 @@
 #   - config/.env (server configuration)
 #   - config/mcp.json (MCP client configuration)
 #   - Client config auto-merge (opencode, claude, cursor, etc.)
-#   - Verification (imports, config, Qdrant, embedding, tests)
+#   - Verification (imports, config, memory.db, tests)
 #
 # Requires: bootstrap.sh must have been run first (creates .venv, .bootstrap-status)
 #
@@ -36,10 +36,9 @@ echo ""
 # ── Load bootstrap status ─────────────────────────────────────────
 if [ -f "$INSTALL_DIR/.bootstrap-status" ]; then
     source "$INSTALL_DIR/.bootstrap-status"
-    pass "Bootstrap status loaded (Qdrant=$BOOTSTRAP_QDRANT, Emb=$BOOTSTRAP_EMB, LLM=$BOOTSTRAP_LLM)"
+    pass "Bootstrap status loaded"
 else
     warn "No .bootstrap-status found — infrastructure may not be set up"
-    BOOTSTRAP_QDRANT=false; BOOTSTRAP_EMB=false; BOOTSTRAP_LLM=false
     BOOTSTRAP_VENV="$INSTALL_DIR/.venv"
 fi
 
@@ -66,21 +65,14 @@ if [ -f "$INSTALL_DIR/config/.env" ]; then
     chmod 600 "$INSTALL_DIR/config/.env" 2>/dev/null || true
     # Validate existing .env has required keys
     MISSING=""
-    for key in QDRANT_URL EMBEDDING_BACKEND LLAMA_SERVER_URL EMBEDDING_DIM; do
+    for key in MEMORY_SERVER_DIR; do
         grep -q "^${key}=" "$INSTALL_DIR/config/.env" 2>/dev/null || MISSING="$MISSING $key"
     done
     if [ -n "$MISSING" ]; then
         warn "config/.env missing keys:$MISSING — appending defaults"
         cat >> "$INSTALL_DIR/config/.env" << EOF
 # Appended by app-install.sh $(date +%Y-%m-%d)
-QDRANT_URL=${QDRANT_URL:-http://127.0.0.1:6333}
-QDRANT_COLLECTION=${QDRANT_COLLECTION:-L0_L4_memory}
-EMBEDDING_BACKEND=llama_server
-LLAMA_SERVER_URL=http://127.0.0.1:8081
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIM=1024
-LLM_BACKEND=${LLM_BACKEND:-llama_cpp}
-LLM_MODEL=qwen2.5-7b-instruct-Q4_K_M.gguf
+MEMORY_SERVER_DIR=$INSTALL_DIR
 EOF
         pass "config/.env updated with missing keys"
     else
@@ -88,23 +80,9 @@ EOF
     fi
 else
     cat > "$INSTALL_DIR/config/.env" << EOF
-QDRANT_URL=http://127.0.0.1:6333
-QDRANT_COLLECTION=L0_L4_memory
-EMBEDDING_BACKEND=llama_server
-LLAMA_SERVER_URL=http://127.0.0.1:8081
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIM=1024
-LLM_BACKEND=llama_cpp
-LLM_MODEL=qwen2.5-7b-instruct-Q4_K_M.gguf
 MEMORY_SERVER_DIR=$INSTALL_DIR
 VAULT_PATH=$INSTALL_DIR/data/vault
-ENGRAM_PATH=$INSTALL_DIR/data/memory/engram
-DREAM_PATH=$INSTALL_DIR/data/memory/dream
-THOUGHTS_PATH=$INSTALL_DIR/data/memory/thoughts
-HEARTBEATS_PATH=$INSTALL_DIR/data/memory/heartbeats
-REMINDERS_PATH=$INSTALL_DIR/data/memory/reminders
 STAGING_BUFFER=$INSTALL_DIR/data/staging_buffer
-AUTOMEM_JSONL=$INSTALL_DIR/data/raw_events.jsonl
 EOF
     chmod 600 "$INSTALL_DIR/config/.env"
     pass "config/.env created"
@@ -122,12 +100,7 @@ MCP_JSON='{
       "args": ["-u", "'"$INSTALL_DIR"'/src/unified/server/main.py"],
       "env": {
         "PYTHONPATH": "'"$INSTALL_DIR"'/src",
-        "MEMORY_SERVER_DIR": "'"$INSTALL_DIR"'",
-        "QDRANT_URL": "http://127.0.0.1:6333",
-        "EMBEDDING_BACKEND": "llama_server",
-        "LLAMA_SERVER_URL": "http://127.0.0.1:8081",
-        "EMBEDDING_MODEL": "bge-m3",
-        "EMBEDDING_DIM": "1024"
+        "MEMORY_SERVER_DIR": "'"$INSTALL_DIR"'"
       }
     }
   }
@@ -195,7 +168,6 @@ VERIFY_TOTAL=$((VERIFY_TOTAL+1))
 if $PYTHON -c "
 import sys; sys.path.insert(0,'$INSTALL_DIR/src')
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
 from shared.sanitize import sanitize_text
 print('imports_ok')
 " 2>/dev/null | grep -q "imports_ok"; then
@@ -220,46 +192,22 @@ else
     fail "Config validation"
 fi
 
-# 3. Qdrant connectivity (only if bootstrap says it's up)
+# 3. Memory DB (memory.db)
 VERIFY_TOTAL=$((VERIFY_TOTAL+1))
-if [ "$BOOTSTRAP_QDRANT" = true ]; then
-    if $PYTHON -c "
+if $PYTHON -c "
 import sys, asyncio; sys.path.insert(0,'$INSTALL_DIR/src')
-from shared.config import Config; from shared.qdrant_client import QdrantClient
+from shared.memory_db import MemoryDB
 async def test():
-    c = Config.from_env()
-    q = QdrantClient(c.qdrant_url, c.qdrant_collection, c.embedding_dim)
-    return await q.health()
-print('qdrant_ok' if asyncio.run(test()) else 'qdrant_fail')
-" 2>/dev/null | grep -q "qdrant_ok"; then
-        pass "Qdrant connectivity"
-        VERIFY_OK=$((VERIFY_OK+1))
-    else
-        fail "Qdrant connectivity"
-    fi
+    db = MemoryDB(None, 'L0_L4_memory', 1024)
+    await db.ensure_collection()
+    return await db.health()
+print('memory_db_ok' if asyncio.run(test()) else 'memory_db_fail')
+" 2>/dev/null | grep -q "memory_db_ok"; then
+    pass "Memory DB (memory.db)"
+    VERIFY_OK=$((VERIFY_OK+1))
 else
-    warn "Qdrant not available — skipped"
+    fail "Memory DB (memory.db)"
 fi
-
-# 4. Embedding generation
-VERIFY_TOTAL=$((VERIFY_TOTAL+1))
-if [ "$BOOTSTRAP_EMB" = true ]; then
-    set -a; [ -f "$INSTALL_DIR/config/.env" ] && source "$INSTALL_DIR/config/.env"; set +a
-    if $PYTHON -c "
-import sys; sys.path.insert(0,'$INSTALL_DIR/src')
-from shared.embedding import get_embedding
-v = get_embedding('test')
-print(f'embed_ok dim={len(v)}' if len(v)==1024 else f'embed_fail dim={len(v)}')
-" 2>/dev/null | grep -q "embed_ok"; then
-        pass "Embedding generation (1024 dims)"
-        VERIFY_OK=$((VERIFY_OK+1))
-    else
-        fail "Embedding generation"
-    fi
-else
-    warn "Embedding server not available — skipped"
-fi
-echo ""
 
 # ── Step 4/4: Unit tests ──────────────────────────────────────────
 echo -e "${BOLD}[4/4] Unit tests${NC}"
@@ -289,18 +237,6 @@ fi
 echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
 echo ""
 
-# ── Service startup hints ─────────────────────────────────────────
-if [ "$BOOTSTRAP_QDRANT" = false ] || [ "$BOOTSTRAP_EMB" = false ]; then
-    echo -e "${BOLD}Services not running — start manually if needed:${NC}"
-    echo ""
-    if [ "$BOOTSTRAP_QDRANT" = false ] && [ -f "$INSTALL_DIR/bin/qdrant" ]; then
-        echo -e "  ${CYAN}Qdrant:${NC}    $INSTALL_DIR/bin/qdrant --config-path $INSTALL_DIR/bin/config.yaml"
-    fi
-    if [ "$BOOTSTRAP_EMB" = false ] && [ -f "$INSTALL_DIR/engine/bin/llama-server" ]; then
-        echo -e "  ${CYAN}Embedding:${NC} $INSTALL_DIR/engine/bin/llama-server -m $INSTALL_DIR/models/bge-m3-Q4_K_M.gguf --port 8081 --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable"
-    fi
-    echo ""
-else
-    echo -e "${GREEN}${BOLD}All services running. Restart your MCP client.${NC}"
-fi
+# ── Final hint ────────────────────────────────────────────────────
+echo -e "${GREEN}${BOLD}No daemons required (SQLite + FTS5). Restart your MCP client.${NC}"
 echo ""

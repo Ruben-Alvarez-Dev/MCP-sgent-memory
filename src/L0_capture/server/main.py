@@ -1,27 +1,34 @@
-"""L0_capture — Real-time Memory Ingestion Daemon."""
+# M7: Embedding imports removed. FTS5-only retrieval.
+"""L0_capture — Real-time Memory Ingestion Daemon (M2-storage port).
+
+Storage is shared.memory_db.MemoryDB (SQLite, collection 'L0_L4_memory');
+events.jsonl remains the ingestion source of truth (storage is memory.db)
+(STO-03) and is append-only — never rewritten from here.
+"""
 
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.config import Config
-from shared.qdrant_client import QdrantClient
+from shared.memory_db import MemoryDB
 from shared.models import HeartbeatStatus, MemoryItem, MemoryLayer, MemoryScope, MemoryType, RawEvent, RawEventType
-from shared.embedding import async_embed, safe_embed, bm25_tokenize
-from shared.sanitize import validate_memorize, validate_ingest_event
-from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult
+from shared.result_models import HeartbeatResult, IngestResult, L0CaptureStatusResult, MemorizeResult
+from shared.sanitize import validate_ingest_event, validate_memorize
+from shared.scope import assert_contained
 
 config = Config.from_env()
-qdrant = QdrantClient(config.qdrant_url, config.qdrant_collection, config.embedding_dim)
+db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
+from shared.identity import bind_identity
+
+IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 JSONL_PATH = config.L0_events_jsonl
 PROMOTION_INTERVAL = config.L0_capture_promote_every
 STAGING_BUFFER = Path(config.tmp_path) if config.tmp_path else Path("")
@@ -34,10 +41,20 @@ async def _store_memory(item: MemoryItem) -> bool:
     import logging
     _log = logging.getLogger(__name__)
     try:
-        await qdrant.ensure_collection()
-        vector = item.embedding if item.embedding else await safe_embed(item.content)
-        sparse = bm25_tokenize(item.content)
-        await qdrant.upsert(item.memory_id, vector, item.model_dump(mode="json"), sparse=sparse)
+        await db.ensure_collection()
+        vector = None  # M6: embeddings removed
+        sparse = None  # M6: FTS5 replaces sparse vectors
+        payload = dict(item.model_dump(mode="json"))
+        # M5/M2: effective identity scope instead of a hardcoded public write.
+        # Bound servers tag their OWN tenant scope (data stays private to the
+        # engine-level filter); unbound (open) servers keep the legacy public
+        # default so existing retrieval filters still see their memories.
+        agent_scope = IDENTITY.assert_agent("default")  # ISO-15: bound→own scope
+        if IDENTITY.mode != "bound":
+            agent_scope = "shared"  # open mode: no verified tenant → public
+        payload["agent_scope"] = agent_scope
+        # user_id passthrough: preserved automatically if the item payload carried one
+        await db.upsert(item.memory_id, payload, sparse=sparse)
         return True
     except Exception as e:
         _log.error("Failed to store memory %s: %s", item.memory_id, e)
@@ -59,7 +76,7 @@ def _append_raw_jsonl(event: RawEvent) -> None:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
 async def memorize(content: str, mem_type: str = "fact", scope: str = "session", scope_id: str = "current", importance: float = 0.5, tags: str = "") -> dict:
     """Store a memory. L0_capture ingests it immediately."""
-    from shared.timing import Timer, DEBUG
+    from shared.timing import DEBUG, Timer
     t = Timer()
     clean = validate_memorize(content, mem_type, scope, tags)
     scope_map = {"session": MemoryScope.SESSION, "agent": MemoryScope.AGENT, "domain": MemoryScope.DOMAIN, "personal": MemoryScope.PERSONAL, "global-core": MemoryScope.GLOBAL_CORE}
@@ -100,19 +117,16 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
     
     Optional: pass prefetch_queries to pre-compute embeddings for upcoming searches.
     """
-    # Prefetch embeddings in background (non-blocking)
-    if prefetch_queries:
-        try:
-            from shared.embedding import async_embed_batch
-            import asyncio
-            asyncio.create_task(async_embed_batch(prefetch_queries))
-        except Exception:
-            pass  # Prefetch is best-effort
-    
+    # M5/H2: identity gate BEFORE any I/O (ISO-13) — rejects foreign/traversal
+    # agent_ids while the server is bound; shape-validates them in open mode.
+    agent_id = IDENTITY.assert_agent(agent_id)
     status = HeartbeatStatus(agent_id=agent_id, session_id=session_id, turn_count=turn_count, status="active")
     hb_dir = Path(config.L1_working_path)
     hb_dir.mkdir(parents=True, exist_ok=True)
-    (hb_dir / f"{agent_id}.json").write_text(status.model_dump_json(indent=2))
+    # M5/H2: fail-closed containment — a traversal/absolute agent_id can never
+    # name a heartbeat file outside the L1 jail, even if shape checks regress.
+    path = assert_contained(hb_dir / f"{agent_id}.json", hb_dir)
+    path.write_text(status.model_dump_json(indent=2))
     promote_due = turn_count > 0 and turn_count % PROMOTION_INTERVAL == 0
     return HeartbeatResult(status="active", agent_id=agent_id, turn_count=turn_count, promotion_due=promote_due)
 
@@ -120,22 +134,31 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def status() -> L0CaptureStatusResult:
     """Show L0_capture daemon status — always ON regardless of agent state."""
-    qdrant_ok = await qdrant.health()
+    await db.ensure_collection()  # idempotent; makes count() safe on a virgin DB
+    db_ok = await db.health()
     try:
-        from shared.embedding import _get_llama_cmd
-        llama_ok = _get_llama_cmd() is not None
+                llama_ok = False
     except (ImportError, OSError):
         llama_ok = False
     raw_events = sum(1 for _ in open(JSONL_PATH)) if Path(JSONL_PATH).exists() else 0
-    memory_count = await qdrant.count() if qdrant_ok else 0
+    memory_count = await db.count() if db_ok else 0
     staging = sum(1 for _ in STAGING_BUFFER.glob("*.json")) if STAGING_BUFFER.exists() else 0
-    return L0CaptureStatusResult(daemon="L0_capture", status="RUNNING", qdrant="OK" if qdrant_ok else "DOWN", llama_cpp="OK" if llama_ok else "NOT_INSTALLED", L0_events_jsonl=raw_events, stored_memories=memory_count, staged_change_sets=staging)
+    # L0CaptureStatusResult.qdrant kept for model compatibility; storage is
+    # MemoryDB now, so the field is explicitly 'n/a' (never 'OK'/'DOWN').
+    return L0CaptureStatusResult(daemon="L0_capture", status="RUNNING", llama_cpp="OK" if llama_ok else "NOT_INSTALLED", L0_events_jsonl=raw_events, stored_memories=memory_count, staged_change_sets=staging)
 
 
-def register_tools(target_mcp: FastMCP, target_qdrant: QdrantClient, target_config: Config, prefix: str = "") -> None:
-    global qdrant, config
-    qdrant = target_qdrant
+def register_tools(target_mcp: FastMCP, target_qdrant, target_config: Config, prefix: str = "") -> None:
+    """Register L0_capture tools. Positional signature is a public contract.
+
+    target_qdrant is IGNORED (M2-storage: SQLite MemoryDB replaced the Qdrant
+    daemon); it stays in the signature for positional compatibility with the
+    unified server.
+    """
+    global config, db
     config = target_config
+    if db.embedding_dim != config.embedding_dim:
+        db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
     target_mcp.add_tool(memorize, name=f"{prefix}memorize")
     target_mcp.add_tool(ingest_event, name=f"{prefix}ingest_event")
     target_mcp.add_tool(heartbeat, name=f"{prefix}heartbeat")
@@ -148,3 +171,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# M6 stub

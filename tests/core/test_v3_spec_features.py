@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
 import asyncio
+import importlib.util
 import json
 import sys
 import types
@@ -12,12 +12,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import pytest
+
+from shared import retrieval
 from shared.models.repo import RepoNode
 from shared.retrieval import get_repo_map, prune_content
-import shared.retrieval as retrieval
 
-
-import pytest
 pytestmark = pytest.mark.skip(reason="Legacy V3 spec test - superseded by Fusion Code Maps")
 
 def test_repo_node_model_exists():

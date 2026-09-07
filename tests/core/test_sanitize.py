@@ -1,9 +1,13 @@
 """Tests for input sanitization — the security backbone."""
 import pytest
+
 from shared.sanitize import (
-    sanitize_text, sanitize_filename, sanitize_folder, sanitize_user_id,
-    sanitize_thread_id, sanitize_tags, validate_json_field, validate_enum,
-    normalize_query, SanitizeError, SAFE_VAULT_FOLDERS,
+    SanitizeError,
+    sanitize_filename,
+    sanitize_folder,
+    sanitize_tags,
+    sanitize_text,
+    validate_json_field,
 )
 
 
@@ -174,21 +178,21 @@ class TestVaultPathTraversal:
 
 
 class TestConfigPortValidation:
-    """Verify config rejects invalid port numbers."""
+    """M2-storage: Qdrant daemon is demolished — there is no storage URL to
+    validate. `QDRANT_URL` is ignored and validate() raises no storage errors."""
 
-    def test_validates_port_range(self):
-        """Port out of 1-65535 range should produce an error."""
-        import os
+    def test_no_storage_url_validation(self):
+        """QDRANT_URL (even malformed) produces no validation errors in M2."""
         import importlib
+        import os
         old = os.environ.pop("QDRANT_URL", None)
         try:
             os.environ["QDRANT_URL"] = "http://127.0.0.1:99999"
-            # Force re-import to pick up new env var
             import shared.config as cfg_mod
             importlib.reload(cfg_mod)
             errors = cfg_mod.Config.from_env().validate()
-            assert any("port" in e.lower() for e in errors), (
-                f"Expected port error, got: {errors}"
+            assert not any("qdrant" in e.lower() or "port" in e.lower() for e in errors), (
+                f"Storage daemon validation should be gone, got: {errors}"
             )
         finally:
             if old is not None:

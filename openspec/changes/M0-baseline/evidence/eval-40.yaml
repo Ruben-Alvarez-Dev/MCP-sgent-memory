@@ -1,0 +1,62 @@
+# eval-40 — retrieval parity query list (M0: queries frozen, judgments TBD in M3)
+# Corpus fixture + relevance judgments land in M3 against the frozen fixture DB.
+# Current Qdrant holds 2 points: recall-over-empty is degenerate by construction.
+version: 1
+languages: {es: 20, en: 20}
+intents:
+  code_lookup: 10
+  decision_recall: 8
+  how_to: 8
+  error_diagnosis: 8   # 4 with typos
+  conversation_recall: 6
+queries:
+  # code_lookup (ES)
+  - {q: "dónde está definida la clase AuthService", lang: es, intent: code_lookup}
+  - {q: "qué hace la función build_repo_index_points", lang: es, intent: code_lookup}
+  - {q: "mostrame el módulo de consolidación L0_to_L4", lang: es, intent: code_lookup}
+  - {q: "dónde se calcula combined_score", lang: es, intent: code_lookup}
+  - {q: "archivo de configuración de Qdrant", lang: es, intent: code_lookup}
+  # code_lookup (EN)
+  - {q: "where is the AuthService class defined", lang: en, intent: code_lookup}
+  - {q: "show me the sanitize module", lang: en, intent: code_lookup}
+  - {q: "which file implements bm25_tokenize", lang: en, intent: code_lookup}
+  - {q: "find the heartbeat function in L0_capture", lang: en, intent: code_lookup}
+  - {q: "where is FTS5 search implemented", lang: en, intent: code_lookup}
+  # decision_recall (ES)
+  - {q: "por qué usamos Qdrant en vez de SQLite", lang: es, intent: decision_recall}
+  - {q: "qué decidimos sobre el modelo de embeddings", lang: es, intent: decision_recall}
+  - {q: "por qué el vault es bilingüe", lang: es, intent: decision_recall}
+  - {q: "decidimos eliminar el micro-LLM", lang: es, intent: decision_recall}
+  # decision_recall (EN)
+  - {q: "why did we choose BGE-M3 over MiniLM", lang: en, intent: decision_recall}
+  - {q: "what did we decide about scope isolation", lang: en, intent: decision_recall}
+  - {q: "why is there an HTTP sidecar on port 8890", lang: en, intent: decision_recall}
+  - {q: "what did we decide about the dream cooldown", lang: en, intent: decision_recall}
+  # how_to (ES)
+  - {q: "cómo añado una memoria semántica", lang: es, intent: how_to}
+  - {q: "cómo busco conversaciones pasadas", lang: es, intent: how_to}
+  - {q: "cómo se consolida la memoria entre capas", lang: es, intent: how_to}
+  - {q: "de qué manera guardo una decisión", lang: es, intent: how_to}
+  # how_to (EN)
+  - {q: "how do i save a conversation thread", lang: en, intent: how_to}
+  - {q: "how to check pending reminders", lang: en, intent: how_to}
+  - {q: "what's the best way to request context", lang: en, intent: how_to}
+  - {q: "how do i delete a semantic memory", lang: en, intent: how_to}
+  # error_diagnosis (ES, 2 with typos)
+  - {q: "falla la conexión con qdrant en 6333", lang: es, intent: error_diagnosis}
+  - {q: "error al generar embedings del servidor", lang: es, intent: error_diagnosis}
+  - {q: "el hook no dispara la consolidación", lang: es, intent: error_diagnosis}
+  - {q: "roto el ranking de resultados", lang: es, intent: error_diagnosis}
+  # error_diagnosis (EN, 2 with typos)
+  - {q: "embedding server timeout on port 8091", lang: en, intent: error_diagnosis}
+  - {q: "qdrant connection refused", lang: en, intent: error_diagnosis}
+  - {q: "retrival returns emtpy results", lang: en, intent: error_diagnosis}
+  - {q: "consolidaton never runs", lang: en, intent: error_diagnosis}
+  # conversation_recall (ES)
+  - {q: "qué dijimos antes sobre el vault", lang: es, intent: conversation_recall}
+  - {q: "lo que hablamos de los hooks", lang: es, intent: conversation_recall}
+  - {q: "mencionamos el problema de los reminders", lang: es, intent: conversation_recall}
+  # conversation_recall (EN)
+  - {q: "what did we say about sampling support", lang: en, intent: conversation_recall}
+  - {q: "we discussed sqlite-vec earlier", lang: en, intent: conversation_recall}
+  - {q: "what did we cover about isolation leaks", lang: en, intent: conversation_recall}

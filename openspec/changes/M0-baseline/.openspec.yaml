@@ -1,0 +1,4 @@
+name: M0-baseline
+skip_specs: true
+schema: spec-driven
+reason_skip: Measurement and scaffolding only. No system behavior changes.

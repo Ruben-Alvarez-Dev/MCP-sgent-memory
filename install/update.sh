@@ -17,18 +17,14 @@ if [ "$DETECT_HAS_DATA" = true ]; then
   bash $SCRIPT_DIR/backup.sh $INSTALL_DIR || exit 1
 fi
 
-echo "=== Step 3: Stop services ==="
-bash $SCRIPT_DIR/../install/services.sh $INSTALL_DIR 6333 stop 8081 2>/dev/null || true
-sleep 2
-
-echo "=== Step 4: Update code ==="
+echo "=== Step 3: Update code ==="
 if [ -d "$SOURCE_DIR/src" ]; then
   cp -a $SOURCE_DIR/src $INSTALL_DIR/
   echo "  Updated src/"
 fi
 if [ -d "$SOURCE_DIR/install" ]; then
   mkdir -p $INSTALL_DIR/install
-  for f in detect.sh backup.sh update.sh services.sh verify.sh config.sh deps.sh manifest.json; do
+  for f in detect.sh backup.sh update.sh verify.sh config.sh deps.sh manifest.json; do
     [ -f "$SOURCE_DIR/install/$f" ] && cp "$SOURCE_DIR/install/$f" "$INSTALL_DIR/install/"
   done
   echo "  Updated install/"
@@ -55,11 +51,7 @@ if [ -d "$INSTALL_DIR/.venv" ]; then
   echo "  Updated deps"
 fi
 
-echo "=== Step 7: Start services ==="
-bash $SCRIPT_DIR/../install/services.sh $INSTALL_DIR 6333 start 8081
-sleep 5
-
-echo "=== Step 8: Verify ==="
+echo "=== Step 7: Verify ==="
 bash $SCRIPT_DIR/../install/verify.sh $INSTALL_DIR 2>/dev/null || ERRORS=$((ERRORS+1))
 
 echo ""

@@ -14,7 +14,6 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import pytest
 
 
 # ── L0 Capture ─────────────────────────────────────────────────────
@@ -22,8 +21,9 @@ import pytest
 
 class TestL0Capture:
     def test_register_tools_creates_mcp_tools(self):
-        from L0_capture.server.main import register_tools
         from mcp.server.fastmcp import FastMCP
+
+        from L0_capture.server.main import register_tools
         fake_mcp = MagicMock(spec=FastMCP)
         fake_qdrant = MagicMock()
         fake_config = MagicMock()
@@ -154,6 +154,7 @@ class TestL5Routing:
 
     def test_request_context_signature(self):
         import inspect
+
         import L5_routing.server.main as l5
         sig = inspect.signature(l5.request_context)
         params = list(sig.parameters.keys())
@@ -169,8 +170,12 @@ class TestResultModelConsistency:
     def test_all_status_models_have_daemon(self):
         """All *StatusResult models should have a 'daemon' field."""
         from shared.result_models import (
-            L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-            ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult,
+            ConsolidationStatusResult,
+            ConversationStatusResult,
+            L0CaptureStatusResult,
+            L3DecisionsStatusResult,
+            L3FactsStatusResult,
+            VkCacheStatusResult,
         )
         for cls in [L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
                     ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult]:
@@ -181,8 +186,12 @@ class TestResultModelConsistency:
     def test_all_status_models_default_to_running(self):
         """All *StatusResult models default to 'RUNNING'."""
         from shared.result_models import (
-            L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
-            ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult,
+            ConsolidationStatusResult,
+            ConversationStatusResult,
+            L0CaptureStatusResult,
+            L3DecisionsStatusResult,
+            L3FactsStatusResult,
+            VkCacheStatusResult,
         )
         for cls in [L0CaptureStatusResult, L3FactsStatusResult, L3DecisionsStatusResult,
                     ConsolidationStatusResult, VkCacheStatusResult, ConversationStatusResult]:

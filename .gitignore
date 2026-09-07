@@ -93,3 +93,6 @@ storage/
 !data/Lx-persistent/people/
 !data/Lx-persistent/templates/
 !data/Lx-persistent/README.md
+
+# Session/subagent working artifacts (audit fix: were accidentally tracked)
+tmp/

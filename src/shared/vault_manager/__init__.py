@@ -1,9 +1,28 @@
 from __future__ import annotations
-from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES, EN_TO_ES, ES_TO_EN, LAYER_MAP, TYPE_CODES, get_all_disk_folders, get_all_en_folders, get_layer, get_type_code)
+
 from ..sanitize import SanitizeError
+from ..vault_constants import (
+    EN_TO_ES,
+    ES_TO_EN,
+    FOLDER_DECISIONS,
+    FOLDER_ENTITIES,
+    FOLDER_EPISODES,
+    FOLDER_INBOX,
+    FOLDER_KNOWLEDGE,
+    FOLDER_NOTES,
+    FOLDER_PEOPLE,
+    FOLDER_TEMPLATES,
+    LAYER_MAP,
+    TYPE_CODES,
+    get_all_disk_folders,
+    get_all_en_folders,
+    get_layer,
+    get_type_code,
+)
+
 """Vault Manager — Obsidian vault with catastrophe-proof writes.
 
-Manages the human-readable vault that complements Qdrant.
+Manages the human-readable vault of the memory system.
 All writes are atomic, backed up, and integrity-checked.
 
 Usage:
@@ -20,9 +39,6 @@ Usage:
     # Process inbox
     vault.process_inbox()
 
-    # Full rebuild from Qdrant
-    vault.rebuild()
-
     # Integrity check
     report = vault.integrity_check()
 """
@@ -31,11 +47,11 @@ Usage:
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
-import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -259,7 +275,7 @@ class VaultManager:
                 existing = dest.read_text(encoding="utf-8")
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(existing)
-                    f.write(f"\n\n---\n\n## System Note ({datetime.now(timezone.utc).isoformat()})\n\n")
+                    f.write(f"\n\n---\n\n## System Note ({datetime.now(UTC).isoformat()})\n\n")
                     f.write(content)
 
                 os.replace(tmp_path, str(dest))
@@ -328,7 +344,7 @@ class VaultManager:
                 classification = self._classify_note(body, frontmatter)
 
                 # Generate frontmatter
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 data = {
                     "type": classification["type"],
                     "layer": classification.get("layer", 0),
@@ -391,7 +407,7 @@ class VaultManager:
         knowledge_score = sum(1 for w in knowledge_words if w in body_lower)
 
         # Extract potential tags from keywords
-        tech_keywords = ["auth", "jwt", "qdrant", "embedding", "retrieval", "llm", "docker",
+        tech_keywords = ["auth", "jwt", "embedding", "retrieval", "llm", "docker",
                         "api", "vault", "obsidian", "hybrid", "bm25", "compliance"]
         for kw in tech_keywords:
             if kw in body_lower:
@@ -456,7 +472,7 @@ class VaultManager:
         Returns report dict.
         """
         report = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "files_expected": 0,
             "files_found": 0,
             "missing": [],
@@ -543,93 +559,6 @@ class VaultManager:
 
         return report
 
-    # ── Rebuild from Qdrant ────────────────────────────────────────
-
-    def rebuild(self, qdrant_url: str = "http://127.0.0.1:6333") -> dict:
-        """Rebuild entire vault from Qdrant data.
-
-        This is the catastrophe recovery protocol.
-        """
-        import httpx
-
-        result = {
-            "files_rebuilt": 0,
-            "errors": [],
-        }
-
-        # Move current vault to trash
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        trash_backup = TRASH_DIR / f"pre-rebuild-{timestamp}"
-        if self.Lx_persistent_path.exists():
-            trash_backup.mkdir(parents=True, exist_ok=True)
-            for item in self.Lx_persistent_path.iterdir():
-                if item.name == ".system":
-                    continue
-                item.rename(trash_backup / item.name)
-
-        # Rebuild structure
-        self._ensure_structure()
-
-        # Fetch all points from Qdrant
-        collections = ["L0_L4_memory", "L2_conversations", "L3_facts"]
-
-        for collection in collections:
-            try:
-                with httpx.Client() as client:
-                    resp = client.post(
-                        f"{qdrant_url}/collections/{collection}/points/scroll",
-                        json={"limit": 10000, "with_payload": True},
-                    )
-                    if resp.status_code != 200:
-                        result["errors"].append(f"Failed to scroll {collection}: {resp.status_code}")
-                        continue
-
-                    points = resp.json().get("result", {}).get("points", [])
-                    for point in points:
-                        payload = point.get("payload", {})
-                        content = payload.get("content", "")
-                        if not content:
-                            continue
-
-                        layer = payload.get("layer", 0)
-                        mem_type = payload.get("type", "")
-                        created = payload.get("created_at", "")
-
-                        # Determine folder
-                        folder = self._layer_to_folder(layer, mem_type)
-
-                        # Generate filename
-                        filename = f"{mem_type}_{point['id']}.md"
-
-                        # Extract wikilinks
-                        wikilinks = re.findall(r'\[\[([^\]]+)\]\]', content)
-
-                        data = {
-                            "type": mem_type,
-                            "layer": layer,
-                            "created": created or datetime.now(timezone.utc).isoformat(),
-                            "confidence": payload.get("confidence", 0.5),
-                            "source": "qdrant-rebuild",
-                            "tags": payload.get("tags", []),
-                            "content": content,
-                        }
-                        if wikilinks:
-                            data["related"] = wikilinks
-
-                        try:
-                            self.write_note(folder, filename, data, "system")
-                            result["files_rebuilt"] += 1
-                        except Exception as e:
-                            result["errors"].append(f"Failed to write {folder}/{filename}: {e}")
-
-            except Exception as e:
-                result["errors"].append(f"Failed to fetch {collection}: {e}")
-
-        # Run integrity check
-        self.integrity_check()
-
-        return result
-
     def _layer_to_folder(self, layer: int, mem_type: str) -> str:
         """Map memory layer/type to vault folder."""
         if mem_type == "decision":
@@ -640,9 +569,7 @@ class VaultManager:
             return FOLDER_EPISODES
         elif layer == 3:
             return FOLDER_DECISIONS
-        elif layer == 4:
-            return FOLDER_KNOWLEDGE
-        elif layer == 5:
+        elif layer == 4 or layer == 5:
             return FOLDER_KNOWLEDGE
         else:
             return FOLDER_KNOWLEDGE
@@ -685,7 +612,7 @@ class VaultManager:
         # Build frontmatter
         fm_lines = ["---"]
         fm_lines.append(f"author: {author}")
-        fm_lines.append(f"created: {datetime.now(timezone.utc).isoformat()}")
+        fm_lines.append(f"created: {datetime.now(UTC).isoformat()}")
 
         for key, value in data.items():
             if isinstance(value, list):
@@ -806,7 +733,7 @@ class VaultManager:
 
     def _backup_file(self, path: Path):
         """Backup a file before modification."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         backup_dir = BACKUPS_DIR / timestamp
         backup_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(path), str(backup_dir / path.name))
@@ -838,7 +765,7 @@ class VaultManager:
             "folder": folder,
             "filename": filename,
             "author": author,
-            "last_modified": datetime.now(timezone.utc).isoformat(),
+            "last_modified": datetime.now(UTC).isoformat(),
         }
         self._save_manifest(manifest)
 
@@ -874,7 +801,7 @@ class VaultManager:
 
     def _log_repair(self, message: str):
         """Append to repair log."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         line = f"- [{timestamp}] {message}"
         if REPAIR_LOG.exists():
             content = REPAIR_LOG.read_text()

@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class TaskStatus(str, Enum):
@@ -26,10 +26,10 @@ class TaskInfo:
     status: TaskStatus = TaskStatus.PENDING
     progress: float = 0.0
     result: Any = None
-    error: Optional[str] = None
+    error: str | None = None
     created_at: float = field(default_factory=time.time)
-    completed_at: Optional[float] = None
-    duration_ms: Optional[float] = None
+    completed_at: float | None = None
+    duration_ms: float | None = None
 
 
 class TaskTracker:
@@ -65,7 +65,7 @@ class TaskTracker:
         self._asyncio_tasks[tid] = task
         return info
 
-    def get_status(self, task_id: str) -> Optional[TaskInfo]:
+    def get_status(self, task_id: str) -> TaskInfo | None:
         """Get current status of a task."""
         return self._tasks.get(task_id)
 
@@ -82,7 +82,7 @@ class TaskTracker:
 
 
 # Module-level singleton
-_tracker: Optional[TaskTracker] = None
+_tracker: TaskTracker | None = None
 
 
 def get_tracker() -> TaskTracker:

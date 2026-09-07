@@ -1,31 +1,18 @@
-"""LLM Backend configuration and factory.
+"""Deterministic query intent classifier.
 
-Auto-detects and configures the LLM backend based on environment variables.
+The program runs with ZERO local generation models: this module only hosts
+the deterministic intent classifier used by retrieval routing.
 
 Usage:
-    from shared.llm import get_llm, get_small_llm, classify_intent
+    from shared.llm import classify_intent
 
-    llm = get_llm()                    # auto-select from env (principal)
-    small = get_small_llm()            # micro-LLM para ranking/verificación
     intent = classify_intent(query)    # clasificador determinista (<5ms)
-
-Environment variables:
-    LLM_BACKEND   — Backend type: llama_cpp (default: llama_cpp)
-    LLM_MODEL     — Model name/identifier (backend-specific meaning)
-    SMALL_LLM_MODEL — Micro-LLM model (default: qwen3.5:2b)
-    LLAMA_SERVER_PORT — llama.cpp server port (default: 8080)
-    LLAMA_MODEL   — llama.cpp model filename
 """
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
-from typing import Optional
-
-from .base import LLMBackend
-
 
 # ── Query Intent Classifier (determinista, <5ms) ──────────────────
 
@@ -72,8 +59,13 @@ def classify_intent(
 
     # Intent type detection
     if any(kw in q for kw in ["why did we", "why do we use", "why not",
-                               "decidimos", "elegimos", "cambiamos",
-                               "qué decidimos", "por qué usamos"]):
+                               "we decided", "decision", "decisions",
+                               "rationale", "choice",
+                               "decidimos", "decisión",
+                               "decisiones", "decidir", "elegimos",
+                               "cambiamos", "qué decidimos",
+                               "por qué usamos", "acuerdo", "motivo",
+                               "razón"]):
         intent.intent_type = "decision_recall"
         intent.time_window = "historical"
         intent.needs_ranking = True
@@ -114,10 +106,13 @@ def classify_intent(
         intent.needs_external = True
         intent.time_window = "recent"
 
-    # Entity extraction (CamelCase, UPPER_SNAKE)
+    # Entity extraction (CamelCase, UPPER_SNAKE, UPPER_SNAKE_DIGITS)
     camel_matches = re.findall(r'[A-Z][a-zA-Z]+(?:[A-Z][a-zA-Z]+)*', query)
-    snake_matches = re.findall(r'[A-Z_]{2,}', query)
-    code_entities = list(set(camel_matches + snake_matches))
+    # Digits included so FTS5, ports (6333), etc. are captured whole
+    snake_matches = re.findall(r'[A-Z_0-9]{2,}', query)
+    # M3: sorted() — list(set(...)) varied with PYTHONHASHSEED per process,
+    # making the embedded query text (and retrieval) non-reproducible.
+    code_entities = sorted(set(camel_matches + snake_matches))
 
     # Fallback: keyword extraction for natural language queries (español, english)
     if not code_entities:
@@ -136,8 +131,13 @@ def classify_intent(
             "no", "si", "mi", "tu", "lo", "le", "me", "te", "nos",
             "fue", "ser", "hay", "mas", "tambien", "todo", "todos",
         }
-        tokens = re.findall(r'[a-záéíóúüñA-Z]{3,}', q)
-        code_entities = [t for t in tokens if t not in STOP_WORDS][:10]
+        # Alphanumeric tokens; pure digits only valid at 4+ chars,
+        # 3-char tokens must contain letters (ports like "808" stay out).
+        tokens = re.findall(r'[a-záéíóúüñA-Z0-9_]{3,}', q)
+        code_entities = [
+            t for t in tokens
+            if t not in STOP_WORDS and (len(t) >= 4 or not t.isdigit())
+        ][:10]
 
     intent.entities = code_entities
 
@@ -156,172 +156,3 @@ def classify_intent(
         intent.scope = "this_project"
 
     return intent
-
-
-# ── LLM Backend factory ───────────────────────────────────────────
-
-def get_llm(backend: str | None = None, **kwargs) -> LLMBackend:
-    """Get the PRIMARY LLM backend (for consolidation, generation, reasoning).
-
-    Args:
-        backend: Force a specific backend ("llama_cpp").
-                 If None, auto-detects from LLM_BACKEND env var.
-        **kwargs: Additional arguments passed to the backend constructor.
-
-    Returns:
-        An initialized LLMBackend instance.
-    """
-    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
-    backend_name = backend_name.lower().strip()
-
-    if backend_name == "llama_cpp":
-        return _get_llama_cpp(**kwargs)
-    else:
-        raise ValueError(
-            f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
-        )
-
-
-def get_small_llm(backend: str | None = None, **kwargs) -> LLMBackend:
-    """Get the SMALL LLM backend (for ranking, verification, routing).
-
-    Defaults to a micro-LLM model optimized for speed (qwen3.5:2b).
-
-    Args:
-        backend: Force a specific backend. If None, auto-detects.
-        **kwargs: Additional arguments (e.g., model="qwen3.5:2b").
-
-    Returns:
-        An initialized LLMBackend instance for lightweight tasks.
-    """
-    backend_name = backend or os.getenv("LLM_BACKEND", "llama_cpp")
-    backend_name = backend_name.lower().strip()
-
-    # Default micro-LLM model
-    default_model = os.getenv("SMALL_LLM_MODEL", "qwen3.5:2b")
-    if "model" not in kwargs:
-        kwargs["model"] = default_model
-
-    if backend_name == "llama_cpp":
-        return _get_llama_cpp(**kwargs)
-    else:
-        raise ValueError(
-            f"Unknown LLM backend: {backend_name!r}. "
-            f"Only supported: llama_cpp"
-        )
-
-
-def _get_llama_cpp(**kwargs) -> LLMBackend:
-    """Create llama.cpp backend.
-    
-    If a local .gguf model is found, manages its own llama-server subprocess.
-    If not, connects to an already-running external llama-server.
-    """
-    from .llama_cpp import LlamaCppBackend
-
-    backend = LlamaCppBackend(**kwargs)
-
-    # Case 1: Local .gguf found — use bundled binary
-    if backend._server_bin and backend._model_path and backend._model_path.exists():
-        return backend
-
-    # Case 2: No local model — check if external server is already running
-    if backend.is_available():
-        return backend
-
-    # Case 3: Nothing available
-    raise RuntimeError(
-        "No LLM available.\n"
-        "  Either:\n"
-        "    1. Place a .gguf model in models/ and llama-server in engine/bin/\n"
-        "    2. Start an external llama-server on port 8080 (or set LLAMA_SERVER_PORT)\n"
-        f"  Searched models in: {backend._models_dir()}/\n"
-        f"  Server bin: {backend._server_bin or 'not found'}"
-    )
-
-
-def list_available_backends() -> dict[str, bool]:
-    """Check which backends are available.
-
-    Returns:
-        Dict of backend name -> availability.
-    """
-    results = {}
-
-    try:
-        llama = _get_llama_cpp()
-        results["llama_cpp"] = llama.is_available()
-    except Exception:
-        results["llama_cpp"] = False
-
-    return results
-
-
-# ── LLM Ranking (SPEC-4.1) ───────────────────────────────────────
-
-def rank_by_relevance(
-    query: str,
-    items: list[dict],
-    top_k: int = 10,
-    content_key: str = "content",
-) -> list[dict]:
-    """Rank items by relevance to query using micro-LLM.
-
-    Uses get_small_llm() for fast ranking (~50-200ms).
-    Falls back gracefully if LLM not available.
-
-    Args:
-        query: The search query.
-        items: List of dicts with at least a 'content' key.
-        top_k: Max items to return.
-        content_key: Key in items dict that holds the text.
-
-    Returns:
-        Items reordered by relevance (most relevant first).
-    """
-    if len(items) <= top_k:
-        return items  # No ranking needed
-
-    try:
-        llm = get_small_llm()
-        if not llm.is_available():
-            return items  # LLM not available, return unranked
-    except Exception:
-        return items
-
-    # Build ranking prompt
-    numbered = []
-    for i, item in enumerate(items[:30]):  # Max 30 items to rank
-        text = str(item.get(content_key, ""))[:200]
-        numbered.append(f"{i + 1}. {text}")
-
-    prompt = (
-        f"Rank these items by relevance to: {query}\n\n"
-        f"Items:\n{chr(10).join(numbered)}\n\n"
-        f"Return ONLY the numbers in order of relevance, comma-separated. "
-        f"Example: 3,1,5,2,4"
-    )
-
-    try:
-        response = llm.ask(prompt, max_tokens=128, temperature=0.0)
-        # Parse numbers from response
-        nums = re.findall(r'\d+', response.strip())
-        indices = [int(n) - 1 for n in nums if 0 < int(n) <= len(items)]
-
-        # Reorder by ranking
-        ranked = []
-        seen = set()
-        for idx in indices:
-            if idx not in seen:
-                ranked.append(items[idx])
-                seen.add(idx)
-
-        # Append any items not ranked
-        for i, item in enumerate(items):
-            if i not in seen:
-                ranked.append(item)
-
-        return ranked[:top_k]
-    except Exception:
-        return items  # Ranking failed, return unranked

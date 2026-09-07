@@ -6,7 +6,6 @@ import ast
 import re
 from pathlib import Path
 
-
 _TS_LINE_COMMENT = re.compile(r"^\s*//")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _PY_DEF = re.compile(r"^(\s*)(async\s+def|def)\s+([A-Za-z_]\w*)\s*\(.*", re.MULTILINE)

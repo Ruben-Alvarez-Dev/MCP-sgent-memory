@@ -11,13 +11,11 @@ Layout (same in dev and prod):
     ├── config/.env
     ├── data/
     │   ├── memory/          ← L3_decisions, dream, thoughts, heartbeats, reminders
-    │   ├── qdrant/          ← vector DB storage
     │   ├── logs/            ← service logs
     │   ├── raw_events.jsonl ← L0 audit trail
     │   └── staging_buffer/  ← temp staging
     ├── engine/              ← llama.cpp binaries
     ├── models/              ← .gguf embedding models
-    ├── bin/                 ← Qdrant binary
     ├── src/ (or directly)   ← server code + shared/
     └── vault/               ← Obsidian vault
 
@@ -99,7 +97,7 @@ def _setup_data_paths(root: Path) -> None:
         data, mem,
         mem / "L3_decisions", mem / "dream", mem / "thoughts",
         mem / "heartbeats", mem / "reminders",
-        data / "qdrant", data / "logs", data / "staging_buffer",
+        data / "logs", data / "staging_buffer",
     ]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -108,6 +106,7 @@ def _setup_data_paths(root: Path) -> None:
         # Data paths
         "DATA_DIR": str(data),
         "MEMORY_DIR": str(mem),
+        "MEMORY_EVENTS_JSONL": str(data / "raw_events.jsonl"),  # M5 audit: was AUTOMEM_JSONL (unread legacy name)
         "AUTOMEM_JSONL": str(data / "raw_events.jsonl"),
         "STAGING_BUFFER": str(data / "staging_buffer"),
         "L3_DECISIONS_PATH": str(mem / "L3_decisions"),
@@ -115,9 +114,6 @@ def _setup_data_paths(root: Path) -> None:
         "THOUGHTS_PATH": str(mem / "thoughts"),
         "HEARTBEATS_PATH": str(mem / "heartbeats"),
         "REMINDERS_PATH": str(mem / "reminders"),
-
-        # Qdrant
-        "QDRANT_DATA": str(data / "qdrant"),
 
         # Logs
         "LOG_DIR": str(data / "logs"),
@@ -167,9 +163,7 @@ def load_env() -> Path:
             value = value.strip()
 
             # Remove quotes
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
+            if value.startswith('"') and value.endswith('"') or value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
 
             # Expand $VAR references to already-set env vars
@@ -189,7 +183,7 @@ def load_env() -> Path:
     return env_file if env_file else Path("")
 
 
-def get_config() -> "Config":
+def get_config() -> Config:
     """Load env and return a Config instance. Convenience function."""
     from shared.config import Config
     load_env()

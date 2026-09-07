@@ -7,6 +7,9 @@
 # (strict boot would raise IdentityError anyway — this just fails earlier
 # with a clear message).
 #
+# Usage:
+#   scripts/launch-unified.sh [agent_id]      # arg wins over $MEMORY_AGENT_ID
+#
 # One-time setup:
 #   scripts/register_agent.py register <agent_id>     # prints the token ONCE
 #   security add-generic-password -s "memory-zero/<agent_id>" -a "$USER" -w '<token>'
@@ -15,7 +18,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export MEMORY_SERVER_DIR="${MEMORY_SERVER_DIR:-$PROJECT_ROOT}"
 
-AGENT_ID="${MEMORY_AGENT_ID:-}"
+AGENT_ID="${1:-${MEMORY_AGENT_ID:-}}"
 if [ -z "$AGENT_ID" ]; then
     echo "ERROR: MEMORY_AGENT_ID is required (strict launcher)" >&2
     exit 1
@@ -30,6 +33,7 @@ if [ -z "$TOKEN" ]; then
     exit 1
 fi
 
+export MEMORY_AGENT_ID="$AGENT_ID"
 export MEMORY_AGENT_TOKEN="$TOKEN"
 export MEMORY_IDENTITY_MODE="${MEMORY_IDENTITY_MODE:-strict}"
 

@@ -196,29 +196,37 @@ def main() -> None:
     # Runs in a background thread alongside the MCP stdio server.
     # Plugin hooks call these endpoints via fetch() to trigger automatic
     # memory operations without involving the LLM.
+    #
+    # Multi-client deployments (E2E audit 2026-09-07): set
+    # MEMORY_API_DISABLED=1 in clients that don't consume the Backpack
+    # hooks — :8890 is a single-bind port and only one instance can own it.
+    api_disabled = os.getenv("MEMORY_API_DISABLED") == "1"
     try:
-        from shared.api_server import start_api_server
-
-        # Import the tool functions from loaded modules.
-        # These modules were loaded above via importlib, so they exist in sys.modules.
-        L0_capture_mod = sys.modules.get("L0_capture")
-        L0_to_L4_consolidation_mod = sys.modules.get("L0_to_L4_consolidation")
-        L2_conversations_mod = sys.modules.get("L2_conversations")
-        L5_routing_mod = sys.modules.get("L5_routing")
-
-        if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
-            start_api_server(
-                ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
-                L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
-                L0_to_L4_consolidation_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
-                save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
-                consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
-                request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
-                port=int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890")),
-            )
-            logger.info("Backpack API sidecar started")
+        if api_disabled:
+            logger.info("Backpack API sidecar disabled (MEMORY_API_DISABLED=1)")
         else:
-            logger.warning("Backpack API skipped: not all modules loaded")
+            from shared.api_server import start_api_server
+
+            # Import the tool functions from loaded modules.
+            # These modules were loaded above via importlib, so they exist in sys.modules.
+            L0_capture_mod = sys.modules.get("L0_capture")
+            L0_to_L4_consolidation_mod = sys.modules.get("L0_to_L4_consolidation")
+            L2_conversations_mod = sys.modules.get("L2_conversations")
+            L5_routing_mod = sys.modules.get("L5_routing")
+
+            if L0_capture_mod and L0_to_L4_consolidation_mod and L2_conversations_mod:
+                start_api_server(
+                    ingest_event_fn=getattr(L0_capture_mod, "ingest_event", None),
+                    L0_capture_heartbeat_fn=getattr(L0_capture_mod, "heartbeat", None),
+                    L0_to_L4_consolidation_heartbeat_fn=getattr(L0_to_L4_consolidation_mod, "heartbeat", None),
+                    save_conversation_fn=getattr(L2_conversations_mod, "save_conversation", None),
+                    consolidate_fn=getattr(L0_to_L4_consolidation_mod, "consolidate", None),
+                    request_context_fn=getattr(L5_routing_mod, "request_context", None) if L5_routing_mod else None,
+                    port=int(os.environ.get("MEMORY_API_PORT") or os.environ.get("AUTOMEM_API_PORT", "8890")),
+                )
+                logger.info("Backpack API sidecar started")
+            else:
+                logger.warning("Backpack API skipped: not all modules loaded")
     except Exception as e:
         logger.warning("Backpack API failed to start (non-fatal): %s", e)
 

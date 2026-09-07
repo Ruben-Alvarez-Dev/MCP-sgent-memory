@@ -376,6 +376,12 @@ scripts/generate-mcp-config.sh --install
 from the Keychain at boot and runs the server with `MEMORY_IDENTITY_MODE=strict`.
 Rotate anytime: re-run steps 1–2 (the registry keeps sha256 hashes only).
 
+**Multi-client deployment**: register one agent per client (`pi-agent`,
+`claude-agent`, …) — each instance boots strict under its own scope. The
+Backpack HTTP sidecar (:8890) is single-bind: keep it enabled only in the
+client whose hooks consume it (default: opencode) and set
+`MEMORY_API_DISABLED=1` in the rest.
+
 - `data/agents.json` — identity registry with `0600` permissions; stores **sha256 hashes only** (the token is never persisted in the file nor logged).
 - **Modes**: `open` (default, emits a visible WARN) | `strict` — missing or invalid credentials abort boot before any tool is registered (fail-closed).
 - **Scopes**: engine-level filters with filesystem jail and the 5-level namespace `c:x/p:y/a:z/s:w/u:v` (fixed order, levels optional).

@@ -16,32 +16,35 @@ Test: `test_kb_writes_under_memory_namespace`
 canónico y sanidad idénticos al flujo documentado en el README del KB.
 Test: `test_kb_tools_use_vault_manager`
 
-## KB-03 — Flujo Inbox bilingüe real
+## KB-03 — Captura en el inbox del usuario con frontmatter Dataview
 
-**Given** una nota en `Memory/Inbox/` con tag `#conocimiento` en español,
-**When** `process_inbox` corre,
-**Then** la nota se renombra a `L3_KNOWLEDGE_<ts>_<id>_ES.md` en
-`Memory/Conocimiento/` y se crea el espejo `…_EN.md` traducido en la
-estructura EN equivalente.
-Test: `test_kb_inbox_classification_bilingual`
+**Given** un hecho capturado por MCP con importance/importance registrada,
+**When** se materializa la captura,
+**Then** aparece como nota en `00 Inbox/` con frontmatter Dataview-compatible
+(source: memory:<id>, agent, created, importance, estado: captura,
+tags: [memoria, origin/agent, <mem_type>]) y título destilado del contenido.
+Test: `test_kb_capture_lands_in_inbox_with_frontmatter`
 
-## KB-04 — Promoción L3→wiki durante consolidación
+## KB-04 — Promoción a BORRADOR de wiki (supervisada, no invasiva)
 
-**Given** un hecho L3 con `importance ≥ 0.8` (o marcado `promote=true`) que
-sobrevive a un ciclo de consolidación,
+**Given** un hecho L3 con `importance ≥ 0.8` superviviente de ≥2 ciclos de
+consolidación,
 **When** el ciclo termina,
-**Then** se materializa como nota wiki en `Memory/Wiki/` con frontmatter
-(source: memory_id, scope, created, tags), enlace `[[…]]` a su origen y
-marcador idempotente (re-consolidar no duplica notas).
-Test: `test_kb_promotion_idempotent`
+**Then** se materializa en `20 Wiki/` como borrador que CONFORMA con la
+plantilla Wiki.md del usuario (secciones Concepto/Gotchas/Relacionadas),
+frontmatter `estado: borrador-agente, verificado: false`, ensamblado
+estructuralmente desde hechos (sin prosa generada); el refinado a
+"destilado propio" (estado: verificado) es humano. Re-consolidar no duplica.
+Test: `test_kb_promotion_idempotent_and_template_conformant`
 
-## KB-05 — Integridad con alcance al namespace
+## KB-05 — Integridad con alcance al flujo del agente
 
-**Given** el vault personal contiene notas propias del usuario,
+**Given** el vault contiene notas del usuario y notas del agente,
 **When** `integrity_check` corre,
-**Then** solo audita `Memory/` (formato frontmatter, enlaces rotos internos,
-espejos ES/EN sincronizados) y NUNCA reporta ni toca notas del usuario.
-Test: `test_kb_integrity_scoped_to_memory_namespace`
+**Then** solo audita las notas con `tags: [memoria]` / `origin/agent`
+(frontmatter válido, source resoluble, enlaces internos del agente) y NUNCA
+reporta ni toca las notas del humano.
+Test: `test_kb_integrity_scoped_to_agent_notes`
 
 ## KB-06 — Trazabilidad bidireccional
 

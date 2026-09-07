@@ -83,7 +83,7 @@ async def consolidate_l1_l2(
         payload["source_ids"] = [m.get("id") for m in items]
 
         ep_id = f"ep-{hashlib.sha256(key.encode()).hexdigest()[:12]}"
-        await db.upsert(ep_id, None, payload)
+        await db.upsert(ep_id, payload=payload)
         episode_ids.append(ep_id)
 
     return episode_ids
@@ -143,7 +143,7 @@ async def consolidate_l2_l3(db: MemoryDB) -> list[str]:
 
             ent_key = f"{scope}:{entity['name']}"
             ent_id = f"ent-{hashlib.sha256(ent_key.encode()).hexdigest()[:12]}"
-            await db.upsert(ent_id, None, entity_payload)
+            await db.upsert(ent_id, payload=entity_payload)
             l3_ids.append(ent_id)
 
             db._upsert_entity(entity["name"], entity["type"], scope, 3)
@@ -213,7 +213,7 @@ async def consolidate_l3_l4(db: MemoryDB, min_cooccurrence: int = 3) -> list[str
 
         narr_key = f"{e1}:{e2}"
         narr_id = f"narr-{hashlib.sha256(narr_key.encode()).hexdigest()[:12]}"
-        await db.upsert(narr_id, None, narrative_payload)
+        await db.upsert(narr_id, payload=narrative_payload)
         l4_ids.append(narr_id)
 
         db._upsert_relation(e1, e2, "uses", scope, strength=min(1.0, count / 10.0))

@@ -408,12 +408,15 @@ class MemoryDB:
     async def upsert(
         self,
         point_id: str,
-        vector: list[float] | None,
-        payload: dict[str, Any],
+        vector: list[float] | None = None,
+        payload: dict[str, Any] | None = None,
         sparse: dict | None = None,
         wait: bool = True,
         allow_reserved_scope: bool = False,
     ) -> None:
+        """Insert/update one point. M7: vector optional for backward compat."""
+        if payload is None:
+            raise ValueError("payload is required")
         """Insert/update one point. vector=None/zero/dim-mismatch -> stored as NULL.
 
         ISO-16: writing into the trunk scope "merged" requires

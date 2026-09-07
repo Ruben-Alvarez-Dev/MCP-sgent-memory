@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Timing utilities for MCP tool debugging.
 
 Provides a decorator and context manager for measuring latency

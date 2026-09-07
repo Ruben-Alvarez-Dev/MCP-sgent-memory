@@ -222,7 +222,7 @@ async def _verify_stale() -> str | None:
         mem_id = payload.get("memory_id", "")
         if mem_id:
             vector = payload.get("embedding")
-            await db.upsert(mem_id, vector, updated)
+            await db.upsert(mem_id, updated)
             if new_status == "stale":
                 stale += 1
             else:
@@ -354,7 +354,7 @@ async def approve_promotion(point_ids: str, approved_by: str) -> dict:
         for s in sources
     ]
     base_payload["approved_at"] = datetime.now(UTC).isoformat()
-    await db.upsert(new_id, None, base_payload, allow_reserved_scope=True)
+    await db.upsert(new_id, base_payload, allow_reserved_scope=True)
 
     for s in sources:
         await db.update_payload(s["id"], {"merged_into": new_id})
@@ -410,7 +410,7 @@ async def force_promote(from_layer: int = 1, count: int = 10) -> dict:
         payload = new_item.model_dump(mode="json")
         payload["agent_scope"] = m.get("agent_scope", "shared")  # promoted rows inherit source scope
         vector = None
-        await db.upsert(new_item.memory_id, vector, payload)
+        await db.upsert(new_item.memory_id, payload)
         promoted += 1
 
     return {"status": "promoted", "from_layer": f"L{from_layer}", "to_layer": f"L{to_layer}", "count": promoted}

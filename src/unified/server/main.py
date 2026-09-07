@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Unified MCP Memory Server — Single entry point for all memory services.
 
 Consolidates L0-capture, L0-to-L4-consolidation, L5-routing, L2-conversations, L3-facts, L3-decisions,

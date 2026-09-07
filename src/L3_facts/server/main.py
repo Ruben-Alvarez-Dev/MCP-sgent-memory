@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """L3_facts — Semantic Memory."""
 from __future__ import annotations
 import json
@@ -28,7 +29,7 @@ async def add_memory(content: str, user_id: str = DEFAULT_USER, metadata: str = 
     mid = str(_uuid.uuid4())
     meta = json.loads(metadata) if metadata.strip().startswith("{") else {}
     await db.ensure_collection()
-    await db.upsert(mid, vector, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"metadata":meta,"created_at":datetime.now(UTC).isoformat(),"agent_scope":"shared"}, sparse=sparse)
+    await db.upsert(mid, {"memory_id":mid,"user_id":clean["user_id"],"content":clean["content"],"metadata":meta,"created_at":datetime.now(UTC).isoformat(),"agent_scope":"shared"}, sparse=sparse)
     return AddMemoryResult(status="stored", memory_id=mid)
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -78,6 +79,3 @@ if __name__ == "__main__": main()
 
 
 # M6 stub: embedding removed — FTS5-only retrieval
-async def safe_embed(text):
-    """M6: Returns None vector (embedding pipeline removed)."""
-    return

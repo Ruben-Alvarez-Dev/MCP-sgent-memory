@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Conversation Store — Thread persistence and search.
 
 Architecture:
@@ -74,9 +75,7 @@ async def save_conversation(
         # This prevents duplicates when saving the same thread multiple times
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"conv:{clean['thread_id']}"))
         await store.upsert(
-            point_id,
-            vector,
-            {
+            point_id, {
                 "thread_id": clean["thread_id"],
                 "summary": summary,
                 "agent_scope": agent_scope,
@@ -227,5 +226,3 @@ if __name__ == "__main__": main()
 
 
 # M6 stub
-async def safe_embed(text):
-    return None

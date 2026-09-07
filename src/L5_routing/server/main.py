@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """vk-cache — Unified Retrieval & Context Assembly (L5)."""
 from __future__ import annotations
 import json, logging, math, re
@@ -209,5 +210,3 @@ if __name__ == "__main__": main()
 
 
 # M6 stub
-async def safe_embed(text):
-    return None

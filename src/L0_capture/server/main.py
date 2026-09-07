@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """L0_capture — Real-time Memory Ingestion Daemon (M2-storage port).
 
 Storage is shared.memory_db.MemoryDB (SQLite, collection 'L0_L4_memory');
@@ -53,7 +54,7 @@ async def _store_memory(item: MemoryItem) -> bool:
             agent_scope = "shared"  # open mode: no verified tenant → public
         payload["agent_scope"] = agent_scope
         # user_id passthrough: preserved automatically if the item payload carried one
-        await db.upsert(item.memory_id, vector, payload, sparse=sparse)
+        await db.upsert(item.memory_id, payload, sparse=sparse)
         return True
     except Exception as e:
         _log.error("Failed to store memory %s: %s", item.memory_id, e)
@@ -173,5 +174,3 @@ if __name__ == "__main__":
 
 
 # M6 stub
-async def safe_embed(text):
-    return None

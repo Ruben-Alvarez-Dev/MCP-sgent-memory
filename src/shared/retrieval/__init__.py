@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Retrieval Router — decides WHAT to retrieve, FROM WHERE, and HOW MUCH.
 
 The brain of vk-cache. Routes each query through:

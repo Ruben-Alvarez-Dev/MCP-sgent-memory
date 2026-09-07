@@ -1,3 +1,4 @@
+# M7: Embedding imports removed. FTS5-only retrieval.
 """Unified Health Check — MCP Memory Server.
 
 Checks all critical services and reports status.

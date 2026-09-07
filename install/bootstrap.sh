@@ -3,11 +3,12 @@
 #
 # Sets up the shared infrastructure that ALL apps need:
 #   - Python virtual environment (with pyproject.toml deps)
-#   - Embedding server (BGE-M3 via llama.cpp)
+#
+# M9 (E2E audit 2026-09-07): the embedding server phase (llama.cpp + BGE-M3)
+# is GONE — the engine is FTS5-only; no model binaries are needed.
 #
 # Usage:
 #   bash install/bootstrap.sh [INSTALL_DIR]
-#   MODEL_PRECISION=Q8 bash install/bootstrap.sh ~/MCP-servers/MCP-agent-memory
 #
 # Idempotent: safe to run multiple times.
 set -euo pipefail
@@ -47,8 +48,8 @@ echo -e "${BOLD}║   MCP-agent-memory — Infrastructure Bootstrap             
 echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Step 1/4: Pre-flight ──────────────────────────────────────────
-echo -e "${BOLD}[1/4] Pre-flight checks${NC}"
+# ── Step 1/3: Pre-flight ──────────────────────────────────────────
+echo -e "${BOLD}[1/3] Pre-flight checks${NC}"
 echo "────────────────────────────────────────────────────────────"
 
 PYTHON_BIN=$(resolve_python)
@@ -71,8 +72,8 @@ fi
 pass "Source at $INSTALL_DIR"
 echo ""
 
-# ── Step 2/4: Virtual environment ────────────────────────────────
-echo -e "${BOLD}[2/4] Virtual environment${NC}"
+# ── Step 2/3: Virtual environment ────────────────────────────────
+echo -e "${BOLD}[2/3] Virtual environment${NC}"
 echo "────────────────────────────────────────────────────────────"
 
 VENV_DIR="$INSTALL_DIR/.venv"
@@ -149,82 +150,8 @@ from mcp.server.fastmcp import FastMCP
 " 2>/dev/null && pass "Core imports OK" || fail "Core imports failed"
 echo ""
 
-# ── Step 3/4: Embedding server ────────────────────────────────────
-echo -e "${BOLD}[3/4] Embedding server (BGE-M3)${NC}"
-echo "────────────────────────────────────────────────────────────"
-
-EMB_OK=false
-EMB_PORT="${EMB_PORT:-8081}"   # allow override when default port is occupied
-PRECISION=${MODEL_PRECISION:-Q4_K_M}
-
-if curl -s --max-time 3 http://127.0.0.1:$EMB_PORT/health 2>/dev/null | grep -q "ok"; then
-    pass "Embedding server running on :$EMB_PORT"
-    EMB_OK=true
-else
-    mkdir -p "$INSTALL_DIR/models"
-    case "$PRECISION" in
-        Q4|q4|Q4_K_M) MODEL="$INSTALL_DIR/models/bge-m3-Q4_K_M.gguf" ;;
-        Q8|q8|Q8_0)    MODEL="$INSTALL_DIR/models/bge-m3-q8_0.gguf" ;;
-        *)              MODEL="$INSTALL_DIR/models/bge-m3-Q4_K_M.gguf" ;;
-    esac
-    LLAMA_BIN="$INSTALL_DIR/engine/bin/llama-server"
-    if [ ! -f "$MODEL" ]; then
-        case "$PRECISION" in
-            Q4|q4|Q4_K_M) MODEL_URL="https://huggingface.co/gpustack/bge-m3-GGUF/resolve/main/bge-m3-Q4_K_M.gguf" ;;
-            Q8|q8|Q8_0)    MODEL_URL="https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/main/bge-m3-q8_0.gguf" ;;
-            *)              MODEL_URL="https://huggingface.co/gpustack/bge-m3-GGUF/resolve/main/bge-m3-Q4_K_M.gguf" ;;
-        esac
-        info "Downloading BGE-M3 model ($PRECISION)..."
-        if curl -L --progress-bar -o "$MODEL" "$MODEL_URL" 2>/dev/null; then
-            pass "Model downloaded ($(du -h "$MODEL" | awk '{print $1}'))"
-        else
-            fail "Model download failed (check internet or use MODEL_PRECISION=Q8 for local install)"
-        fi
-    else
-        pass "Model exists ($PRECISION, $(du -h "$MODEL" | awk '{print $1}'))"
-    fi
-    if [ -f "$LLAMA_BIN" ]; then
-        info "Starting embedding server on :$EMB_PORT..."
-        nohup "$LLAMA_BIN" -m "$MODEL" --port $EMB_PORT --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$INSTALL_DIR/embedding.log" 2>&1 &
-        sleep 3
-        if curl -s --max-time 5 http://127.0.0.1:$EMB_PORT/health 2>/dev/null | grep -q "ok"; then
-            pass "Embedding server started (PID $(pgrep -f llama-server | head -1))"
-            EMB_OK=true
-        else
-            fail "llama-server failed to start (check $INSTALL_DIR/embedding.log)"
-        fi
-    elif command -v cmake &>/dev/null; then
-        warn "llama-server binary not found — compiling llama.cpp (2-5 min)..."
-        LLAMA_SRC="$INSTALL_DIR/engine/llama.cpp"
-        mkdir -p "$INSTALL_DIR/engine/bin"
-        if [ ! -d "$LLAMA_SRC" ]; then
-            git clone --depth 1 https://github.com/ggerganov/llama.cpp "$LLAMA_SRC" -q
-        fi
-        cmake -B "$LLAMA_SRC/build" -S "$LLAMA_SRC" -DLLAMA_METAL=ON -DCMAKE_BUILD_TYPE=Release -DGGML_METAL_USE_BF16=OFF 2>>"$INSTALL_DIR/build.log" && \
-        cmake --build "$LLAMA_SRC/build" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) --target llama-server 2>>"$INSTALL_DIR/build.log"
-        if [ -f "$LLAMA_SRC/build/bin/llama-server" ]; then
-            cp "$LLAMA_SRC/build/bin/llama-server" "$LLAMA_BIN"
-            chmod +x "$LLAMA_BIN"
-            pass "llama-server compiled ($(du -h "$LLAMA_BIN" | awk '{print $1}'))"
-            nohup "$LLAMA_BIN" -m "$MODEL" --port $EMB_PORT --host 127.0.0.1 --embedding --pooling mean -ngl 99 --log-disable >> "$INSTALL_DIR/embedding.log" 2>&1 &
-            sleep 10
-            if curl -s --max-time 5 http://127.0.0.1:$EMB_PORT/health 2>/dev/null | grep -q "ok"; then
-                pass "Embedding server started (PID $(pgrep -f llama-server | head -1))"
-                EMB_OK=true
-            else
-                fail "llama-server compiled but failed to start"
-            fi
-        else
-            fail "cmake not found. Install cmake or provide pre-compiled llama-server."
-        fi
-    else
-        fail "llama-server binary not found and cmake unavailable"
-    fi
-fi
-echo ""
-
-# ── Step 4/4: Data directories ────────────────────────────────────
-echo -e "${BOLD}[4/4] Data directories${NC}"
+# ── Step 3/3: Data directories ────────────────────────────────────
+echo -e "${BOLD}[3/3] Data directories${NC}"
 echo "────────────────────────────────────────────────────────────"
 
 mkdir -p "$INSTALL_DIR/data/memory"/{L3_decisions,dream,thoughts,heartbeats,reminders}
@@ -232,7 +159,7 @@ mkdir -p "$INSTALL_DIR/data/staging_buffer"
 mkdir -p "$INSTALL_DIR/data/vault"/{Inbox,Decisiones,Conocimiento,Episodios,Entidades,Notes}
 pass "Data structure created"
 
-TOTAL_STEPS=4
+TOTAL_STEPS=3
 
 echo ""
 echo -e "${BOLD}════════════════════════════════════════════════════════════${NC}"
@@ -252,7 +179,6 @@ echo ""
 # Save infrastructure status for app-install.sh to consume
 STATUS_FILE="$INSTALL_DIR/.bootstrap-status"
 cat > "$STATUS_FILE" << EOF
-BOOTSTRAP_EMB=${EMB_OK:-false}
 BOOTSTRAP_VENV=$VENV_DIR
 BOOTSTRAP_INSTALL_DIR=$INSTALL_DIR
 BOOTSTRAP_ERRORS=$ERRORS

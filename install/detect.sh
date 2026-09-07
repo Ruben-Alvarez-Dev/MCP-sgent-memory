@@ -57,19 +57,13 @@ detect_metadata() {
             HAS_VAULT=true
         fi
     fi
-    if [ -d "$INSTALL_DIR/models" ]; then
-        MODEL_COUNT=$(find "$INSTALL_DIR/models" -name "*.gguf" 2>/dev/null | wc -l | tr -d ' ')
-        if [ "$MODEL_COUNT" -gt 0 ]; then
-            HAS_MODELS=true
-        fi
-    fi
     if [ -f "$INSTALL_DIR/install/manifest.json" ]; then
         PREV_VERSION=$(python3 -c "import json; print(json.load(open('$INSTALL_DIR/install/manifest.json')).get('version', 'unknown'))" 2>/dev/null || echo "unknown")
     fi
 
     export DETECT_HAS_DATA="$HAS_DATA"
     export DETECT_HAS_VAULT="$HAS_VAULT"
-    export DETECT_HAS_MODELS="$HAS_MODELS"
+    export DETECT_HAS_MODELS=false
     export DETECT_PREV_VERSION="$PREV_VERSION"
 }
 

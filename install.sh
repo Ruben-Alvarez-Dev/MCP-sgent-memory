@@ -2,7 +2,7 @@
 # MCP-agent-memory — Installer
 #
 # Two-phase install:
-#   Phase 1: bootstrap.sh  → venv + embedding server (BGE-M3 via llama.cpp)
+#   Phase 1: bootstrap.sh  → venv (M9: FTS5-only engine, no model binaries)
 #   Phase 2: app-install.sh → config, MCP client setup, verification
 #
 # Usage (one-liner, no clone needed):
@@ -12,9 +12,6 @@
 # Or from inside the cloned repo:
 #   bash install.sh
 #   bash install.sh ~/my-custom-path
-#
-# Use Q8 embedding precision instead of default Q4:
-#   MODEL_PRECISION=Q8 bash install.sh
 #
 # Run only app config (skip infrastructure):
 #   bash install.sh --app-only

@@ -2,15 +2,10 @@
 # config.sh — Configuration generation
 set -euo pipefail
 INSTALL_DIR="${1:?Usage: config.sh <install_dir>}"
-LLAMA_PORT="${3:-8081}"
 
 mkdir -p "$INSTALL_DIR/config" "$INSTALL_DIR/data"/{memory/{engram,dream,thoughts,heartbeats,reminders},staging_buffer} "$INSTALL_DIR/vault"
 
 cat > "$INSTALL_DIR/config/.env" << EOF
-EMBEDDING_BACKEND=llama_server
-EMBEDDING_MODEL=bge-m3
-EMBEDDING_DIM=1024
-LLAMA_SERVER_URL=http://127.0.0.1:$LLAMA_PORT
 VAULT_PATH=$INSTALL_DIR/vault
 STAGING_BUFFER=$INSTALL_DIR/data/staging_buffer
 # Migration: renamed from AUTOMEM_JSONL (legacy key still accepted as
@@ -27,11 +22,7 @@ cat > "$INSTALL_DIR/config/mcp.json" << EOF
       "args": ["-u", "$INSTALL_DIR/src/unified/server/main.py"],
       "env": {
         "PYTHONPATH": "$INSTALL_DIR/src",
-        "MEMORY_SERVER_DIR": "$INSTALL_DIR",
-        "EMBEDDING_BACKEND": "llama_server",
-        "LLAMA_SERVER_URL": "http://127.0.0.1:$LLAMA_PORT",
-        "EMBEDDING_MODEL": "bge-m3",
-        "EMBEDDING_DIM": "1024"
+        "MEMORY_SERVER_DIR": "$INSTALL_DIR"
       }
     }
   }

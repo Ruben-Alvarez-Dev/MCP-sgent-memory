@@ -23,7 +23,7 @@ import sqlite3
 from pathlib import Path
 
 from shared.retrieval import bm25_tokenize
-from shared.memory_db import MemoryDB, hash_vector
+from shared.memory_db import MemoryDB
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COLLECTION = "L0_L4_memory"

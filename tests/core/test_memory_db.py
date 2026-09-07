@@ -12,7 +12,7 @@ import sqlite3
 
 import pytest
 
-from shared.memory_db import MemoryDB, ScopeRequiredError, hash_vector
+from shared.memory_db import MemoryDB, ScopeRequiredError
 from shared.scope import ScopeError, scope_jail_path
 
 

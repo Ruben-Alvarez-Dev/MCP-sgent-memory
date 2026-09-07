@@ -7,6 +7,10 @@ from M2 exactly when sparse contributes nothing.
 
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.skip(reason="M9: sparse fusion removed with vector column")
+
 import hashlib
 import json
 

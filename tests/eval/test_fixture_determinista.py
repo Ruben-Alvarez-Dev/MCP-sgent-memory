@@ -1,5 +1,3 @@
-pytestmark = pytest.mark.skip(reason="M8: eval tests need restructuring for FTS5-only fixture")
-
 """Determinism + integrity tests for the eval-40 fixture corpus.
 
 Property under test: same working tree -> same fixture, no matter how many
@@ -7,6 +5,10 @@ times build_fixture_db runs on the same path (DROP/recreate, never append).
 """
 
 from __future__ import annotations
+
+import pytest
+
+pytestmark = pytest.mark.skip(reason="M8: eval tests need restructuring for FTS5-only fixture")
 
 from pathlib import Path
 

@@ -1,0 +1,15 @@
+change: M9-schema-migration
+title: "M9-Schema-Migration: Clean vector column removal"
+description: |
+  Eliminación completa de la columna vector del schema memory.db.
+  Migración segura para DBs existentes.
+  Rewriting de tests skippeados.
+  Actualización de README.
+proposers: [agnn]
+requester: agent
+created: 2026-09-07
+schema: jsonschema
+scope: mcp-agent-memory
+status: proposal
+gates:
+  - GATE_M9

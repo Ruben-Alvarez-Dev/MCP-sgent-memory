@@ -99,8 +99,7 @@ async def test_a16_trunk_public_read(tmp_path, monkeypatch):
 # ── approve_promotion tool contract ──────────────────────────────────
 
 
-@pytest.mark.skip(reason="M7: needs update for new upsert signature")
-    async def test_approve_promotion_tool_contract(tmp_path, monkeypatch):
+async def test_approve_promotion_tool_contract(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     l04 = _load("L04_m5", "src/L0_to_L4_consolidation/server/main.py")
     await l04.db.ensure_collection()

@@ -11,6 +11,7 @@ Each module's register_tools() function handles tool registration.
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -229,6 +230,28 @@ def main() -> None:
                 logger.warning("Backpack API skipped: not all modules loaded")
     except Exception as e:
         logger.warning("Backpack API failed to start (non-fatal): %s", e)
+
+    # ── Usage telemetry (adoption + latency) ───────────────────────
+    # Single interception point: FastMCP's lowlevel bridge captured
+    # `mcp.call_tool` at init (server.py:312), but it delegates to
+    # `self._tool_manager.call_tool` on EVERY call (server.py:350) with
+    # dynamic attribute lookup — so patching the manager intercepts all tools.
+    try:
+        from shared.usage import record_tool
+
+        _tool_manager = mcp._tool_manager
+        _original_call_tool = _tool_manager.call_tool
+
+        async def _counting_call_tool(name, arguments, context=None, convert_result=False):
+            t0 = time.perf_counter()
+            try:
+                return await _original_call_tool(name, arguments, context=context, convert_result=convert_result)
+            finally:
+                record_tool(name, (time.perf_counter() - t0) * 1000)
+
+        _tool_manager.call_tool = _counting_call_tool
+    except Exception as e:  # telemetry must never block the server
+        logger.warning("Usage telemetry disabled: %s", e)
 
     logger.info("Starting MCP server on stdio")
     mcp.run(transport="stdio")

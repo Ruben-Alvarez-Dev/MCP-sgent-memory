@@ -275,6 +275,15 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
         state["last_promote_l3_l4"] = 0
     results = await _run_consolidation_pass(state, now)
     _save_state(state)
+    # obsidian-kb-pipeline: pasada de captura/promoción al vault real
+    # (no-fatal por diseño: la consolidación nunca falla por la KB)
+    try:
+        from shared.kb import KBEngine
+        kb_summary = KBEngine(db).promote_pending()
+        if kb_summary.get("captured") or kb_summary.get("promoted"):
+            logger.info("KB promotion: %s", json.dumps(kb_summary, ensure_ascii=False)[:200])
+    except Exception as e:
+        logger.warning("KB promotion skipped (non-fatal): %s", e)
     return ConsolidateResult(status="consolidation complete", forced=force, results=results)
 
 

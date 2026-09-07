@@ -1,6 +1,6 @@
-# Design — obsidian-kb-pipeline (v2, post-análisis del vault real)
+# Design — obsidian-kb-pipeline (v3: refinería autónoma)
 
-## 0. Hallazgos que cambian el diseño (investigación del vault real)
+## 0. Hallazgos que cambiaron el diseño (investigación del vault real)
 
 - El vault `principal` es un **esqueleto Para recién creado y vacío** (0 notas
   en 00 Inbox/10 Diario/20 Wiki/30 Investigacion/50 Proyectos) — se construyó
@@ -14,66 +14,49 @@
   con secciones fijas (Concepto en 3 líneas / Configuración que uso /
   Gotchas / Relacionadas) y frontmatter (tipo, verificado, tags[wiki]).
 
-**Consecuencia arquitectónica**: el modelo correcto NO es "namespace cuarentena
-Memory/" (el vault ES el destino) ni "integración invasiva" (rompería el flujo
-Para). Es **respetar el flujo Para existente como interfaz**: la máquina
-captura en la entrada del flujo (00 Inbox) y promociona borradores marcados a
-20 Wiki; la denominación y refinado final son humanos — su epistemología
-("destilado propio") lo exige.
+**Decisión del usuario**: el sistema se AUTOGESTIONA — sin promociones
+manuales. La destilación y la prosa profesional corren vía perfiles agénticos
+(LLM del harness), nunca modelos locales (restricción dura memory-zero).
 
-## 1. Arquitectura final recomendada (v2)
-
-## 1. Cableado correcto (el triángulo roto → cerrado)
-
-```
-Hoy (roto):
-  tools vault_* ──escritura naive──> data/vault/ (huérfano)
-  VaultManager (bilingüe completo) ── código muerto
-  Obsidian real (~/.obsidian-vaults/principal) ── sin conexión
-
-Objetivo (v2 — integrado con el Para del usuario):
-  captura MCP ──> <principal>/00 Inbox/  (entrada al flujo Para, tags memoria)
-  consolidación L3 (importance ≥0.8, ≥2 ciclos) ──> <principal>/20 Wiki/ (borrador-agente)
-  humano refina ──> estado: verificado → wiki real (su epistemología)
-```
-
-## 2. Flujo y destino (v2 — integrado con el Para del usuario)
+## 1. Arquitectura final
 
 ```
 Agente (MCP)                    Vault del usuario (su flujo Para)
 ────────────                    ─────────────────────────────────
 captura (L0/L3) ──────────────> 00 Inbox/<tipo>-<slug>.md
-                                  tags: [memoria, origin/agent, …]
-                                  frontmatter: source, agent, created,
-                                  importance, estado: captura
-       │
-consolidación (importance ≥ 0.8
-y superviviente de ≥2 ciclos) ─> 20 Wiki/<slug>.md  (BORRADOR AGENTE)
-                                  sigue la plantilla Wiki.md del usuario
-                                  (Concepto en 3 líneas / Gotchas / …)
-                                  estado: borrador-agente, tags: [wiki, memoria]
-       │
-humano refina (destilado propio) ─> estado: verificado → wiki REAL
+                                  estado: captura · tags: [memoria, origin/agent]
+        │
+consolidación: importance ≥ 0.8
++ superviviente ≥2 ciclos ──────> 20 Wiki/Borradores-agente/<slug>.md
+                                  estado: borrador-agente (plantilla Wiki.md)
+        │
+kb-editor (perfil agéntico:
+pi -p, LLM de plan) ───────────> estado: pulido-agente
+                                  prosa profesional, hechos citados
+        │
+humano (OPCIONAL) ─────────────> estado: verificado (destilado propio)
 
-Diario / Investigacion / Proyectos / _Adjuntos: TERRITORIO HUMANO —
-el agente no escribe jamás (fase 2 opcional: indexación read-only
-para recall del agente, nunca escritura).
+Diario · Investigacion · Proyectos · _Adjuntos: TERRITORIO HUMANO —
+jamás se escribe (fase 2 opcional: indexación read-only para recall).
 ```
+
+**Cumplimiento de la restricción memory-zero**: la prosa la escribe el LLM del
+agente vía harness CLI headless (`pi -p`), jamás un modelo local. Los pasos 1-2
+son 100% deterministas (plantilla + hechos literales); el paso 3 solo REESCRIBE
+prosa sobre hechos ya citados (grounding) con gate de cobertura de citas.
+
+## 2. Config
 
 | Env | Valor | Rol |
 |---|---|---|
-| `MEMORY_OBSIDIAN_VAULT` | `~/.obsidian-vaults/principal` | destino real |
-| `MEMORY_KB_INBOX` | `00 Inbox` | entrada al flujo Para del usuario |
-| `MEMORY_KB_WIKI` | `20 Wiki` | destino de borradores promocionados |
-| `MEMORY_KB_IMPORTANCE` | `0.8` | umbral de promoción automática |
-| `MEMORY_KB_MIN_CYCLES` | `2` | supervivencia mínima antes de promocionar |
-| `MEMORY_API_DISABLED`… | — | el resto de envs sin cambios |
+| `MEMORY_OBSIDIAN_VAULT` | `~/.obsidian-vaults/principal` | destino real; vacío = fallback legacy |
+| `MEMORY_KB_INBOX` | `00 Inbox` | carpeta de capturas (flujo Para del usuario) |
+| `MEMORY_KB_WIKI` | `20 Wiki/Borradores-agente` | destino de borradores |
+| `MEMORY_KB_IMPORTANCE` | `0.8` | umbral de promoción |
+| `MEMORY_KB_MIN_AGE_DAYS` | `1` | supervivencia mínima antes de promover |
+| `MEMORY_KB_MAX_PER_RUN` | `10` | techo de escrituras por pasada del editor |
 
-Bilingüe ES/EN: **desactivado para el vault personal** (lector único, en
-español; el espejo EN era del KB de sistema). La traducción, si algún día se
-quiere, la hace el propio agente vía tool — no un proceso local.
-
-## 2b. Notas del agente: formato (conforma con la plantilla Wiki.md del usuario)
+## 3. Formato de notas (conforma con la plantilla Wiki.md del usuario)
 
 Captura (00 Inbox):
 ```yaml
@@ -88,7 +71,7 @@ tags: [memoria, origin/agent, <mem_type>]
 ---
 ```
 
-Borrador de wiki (20 Wiki):
+Borrador (20 Wiki/Borradores-agente):
 ```yaml
 ---
 tipo: wiki
@@ -101,90 +84,89 @@ tags: [wiki, memoria]
 # <título destilado>
 
 ## Concepto en 3 líneas
-<hecho(s) fundidos, lenguaje llano — estructural, no generado>
+<hecho(s) fundidos>
 
 ## Gotchas y cosas que la doc no cuenta
 <hechos tipo bug_fix/config agrupados>
 
 ## Relacionadas
-- [[<entidad>]] …
+- [[<entidad>]]
 ```
 
-El contenido del borrador se ENSAMBLA estructuralmente desde hechos
-(agrupación por similitud de tags/entidades, frases literales ya capturadas) —
-NO se genera prosa con modelos (restricción dura memory-zero). El refinado a
-"destilado propio" es humano: para eso está `estado: borrador-agente`.
+El borrador inicial lo ensambla el motor ESTRUCTURALMENTE desde hechos
+(agrupación por entidades/tags, frases literales ya capturadas) — sin prosa
+generada. El editor agéntico reescribe la prosa con calidad profesional SIN
+alterar frontmatter ni hechos, y sube a `estado: pulido-agente`.
 
-## 2c. Dataview (regalo al MOC del usuario)
+## 4. Dataview (regalo al MOC del usuario)
 
-Bloques listos para 🏠 Inicio.md:
 ```dataview
 TABLE source, importance, created FROM "00 Inbox"
 WHERE contains(tags, "memoria") SORT created DESC LIMIT 10
 ```
 ```dataview
-TABLE verificado, created FROM "20 Wiki"
-WHERE estado = "borrador-agente" SORT created DESC
-```
-```dataview
-LIST FROM #memoria WHERE estado = "verificado"
+TABLE estado, created FROM "20 Wiki"
+WHERE contains(tags, "memoria") SORT created DESC
 ```
 
-## 2d. Índice de trazabilidad (idempotencia + moves humanos)
+## 5. Índice de trazabilidad (idempotencia + moves humanos)
 
-`00 Inbox/.memory-index.json` — memory_id → {path, sha256(contenido), estado}.
-Si el humano MUEVE una nota (p.ej. la promueve a mano a otra carpeta), el
-frontmatter `source:` sobrevive al move → la re-resolución por escaneo
-(reconcile() en cada consolidación) actualiza el índice sin duplicar.
-Las carpetas del vault son del usuario: mover = su forma de curar, el sistema
-lo respeta y re-rastrea.
+`00 Inbox/.memory-index.json` — memory_id → {path, sha256, estado}. Si el
+humano MUEVE una nota, el frontmatter `source:` sobrevive → `reconcile()`
+(re-escaneo en cada pasada) actualiza el índice sin duplicar. Mover = su forma
+de curar; el sistema lo respeta y re-rastrea.
 
-## 3. Resurrección de VaultManager (cambios mínimos)
+## 6. Refinería autónoma — el editor agéntico
 
-- Constructor acepta path externo (ya lo hace) — instanciado por las tools
-  con `MEMORY_OBSIDIAN_VAULT`.
-- `write_note_bilingual` ya genera ES+EN; se añade frontmatter de trazabilidad
-  (`source: memory:<id>`, `agent_scope`, `created`) si no lo lleva.
-- `process_inbox` ya clasifica por tags (mapa del README del KB) — respetar
-  y testear contra la realidad del documento.
+`scripts/kb-editor.sh` → `pi -p "$(cat prompts/kb-editor.md)"` ejecutado en el
+cwd del vault. El prompt (perfil agéntico kb-editor) instruye:
+1. Listar `20 Wiki/Borradores-agente/*.md` con `estado: borrador-agente`
+2. Para cada uno (tope `MEMORY_KB_MAX_PER_RUN`): reescribir la prosa con
+   calidad profesional MANTENIENDO los hechos EXACTOS y el frontmatter;
+   subir estado a `pulido-agente`
+3. Nunca tocar ficheros fuera de esa carpeta ni notas sin tag `memoria`
 
-## 4. Promoción L3→wiki (KB-04)
+Agendado: launchd/cron tras cada ventana de consolidación, o invocado por el
+agente en sesión. Idempotente: solo procesa borradores nuevos.
 
-En el ciclo de consolidación (L0_to_L4), tras promover: los hechos con
-`importance ≥ 0.8` generan/actualizan nota wiki:
+## 7. Estados de una nota de conocimiento
 
-```
-20 Wiki/<slug>.md
----
-source: memory:<memory_id>
-agent_scope: <scope>
-created: <iso>
-tags: [wiki, <mem_type>]
----
-<content>
+| estado | quién | significado |
+|---|---|---|
+| captura | engine | aterrizada en 00 Inbox |
+| borrador-agente | engine | promovida a 20 Wiki con plantilla |
+| pulido-agente | editor agéntico | prosa profesional, hechos citados |
+| verificado | humano (opcional) | destilado propio — el sistema no lo requiere |
 
-## Origen
-[[00 Inbox/<captura-origen>]]
-```
+## 8. Gate de calidad del editor (KB-10)
 
-Idempotencia: índice `00 Inbox/.memory-index.json` (memory_id → path+hash);
-si el hash del contenido no cambió, no se reescribe.
+Secciones de plantilla presentes · todo `source:` citado existe en la DB ·
+sin duplicados por slug · markdown básico válido · los hechos del texto deben
+mapear a memory_ids fuente (cobertura de citas). Fallo → la nota vuelve a
+`borrador-agente` y se registra.
 
-## 5. Fallos y adversarios
+## 9. Modos de fallo y adversarios
 
 | Amenaza | Defensa |
 |---|---|
-| Escribir fuera de 00 Inbox / 20 Wiki (territorio humano) | jail resolve()+startswith sobre las dos rutas permitidas; test adversarial KB-08 |
-| Vault no existe / no es vault (sin `.obsidian`) | warn al arrancar + fallback legacy; no crash |
-| Duplicados por re-consolidación | índice idempotente KB-04 |
-| Nota del usuario con nombre colisionado | prefijo de namespace + slug con timestamp |
-| Vault en iCloud/latencias | escritura atómica (tmp+rename) |
-| Traducción EN sin LLM | el sistema no inventa traducción: ES canonico, EN espejo con marcador `translation: pending` si no hay traductor — decisión explícita anti-alucinación |
+| Alucinación del editor | grounding: solo cita memory_ids del cluster; gate de cobertura de citas |
+| Editor toca notas humanas | prompt + jail de carpeta; test hash pre/post |
+| Doble pulido / carreras | estados + lock por slug; idempotente |
+| Quema de cuota LLM | cola acotada por run; solo borradores nuevos |
+| CLI headless ausente | fallback: los borradores deterministas ya son válidos sin pulir |
+| Vault sin `.obsidian` / inexistente | warn + fallback legacy; no crash |
+| Escribir fuera de Inbox/Wiki | jail resolve()+startswith; adversarial KB-08 |
+| Duplicados por re-consolidación | índice idempotente + reconcile ante moves |
+| Escrituras parciales | tmp+rename atómico |
 
-## 6. Tareas serializadas (grupos orgánicos)
+## 10. Grupos de implementación (serializados)
 
-- **A — Cableado**: config + VaultManager resucitado + tools delegando (KB-01/02) · test jail
-- **B — Flujo de captura e inbox** (KB-03) · test captura→00 Inbox con frontmatter Dataview
-- **C — Promoción L3→borrador de wiki** (KB-04/06) · índice idempotente + reconcile ante moves humanos · test
-- **D — Integridad con alcance** (KB-05) + adversarial no-invasión (KB-08) · hash pre/post
+- **A — Cableado**: config + KBEngine (`shared/kb.py`): capture_to_inbox,
+  candidates, write_wiki_draft, promote_pending, reconcile, índice idempotente
+  (KB-01/03/04/06)
+- **B — No-invasión**: jail de rutas + adversarial hash pre/post (KB-05/08)
+- **C — Editor agéntico**: prompts/kb-editor.md + scripts/kb-editor.sh + gate
+  de calidad (KB-09/10)
+- **D — Integración**: hook en consolidación + tools del vault delegando +
+  deprecación de data/vault y data/Lx-persistent (E.2)
 - **E — E2E contra el vault real + GATE** (KB-07)

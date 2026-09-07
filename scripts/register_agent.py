@@ -5,10 +5,11 @@
     verify   <agent_id> <token>  Check a credential pair (exit 0/1).
     list                         List registered agents (no secrets).
 
-Example — wire an agent (harness mcp.json env block):
-    MEMORY_AGENT_ID=director-1
-    MEMORY_AGENT_TOKEN=<printed token>
-    MEMORY_IDENTITY_MODE=strict
+Example — wire an agent (strict, NO secrets in files):
+    scripts/register_agent.py register director-1      # prints the token ONCE
+    security add-generic-password -s "memory-zero/director-1" -a "$USER" -w '<token>'
+    # set MEMORY_AGENT_ID=director-1 in config/.env, then regenerate:
+    scripts/generate-mcp-config.sh --install           # launcher-based config
 """
 
 from __future__ import annotations
@@ -44,11 +45,11 @@ def main() -> int:
         if args.cmd == "register":
             token = reg.register(args.agent_id)
             print(f"✅ agent {args.agent_id!r} registered.")
-            print(f"TOKEN (shown ONCE — store it in the agent harness env now):\n{token}")
-            print("\nmcp.json env block:")
-            print(f'  "MEMORY_AGENT_ID": "{args.agent_id}",')
-            print(f'  "MEMORY_AGENT_TOKEN": "{token}",')
-            print('  "MEMORY_IDENTITY_MODE": "strict"')
+            print(f"TOKEN (shown ONCE — store it in the macOS Keychain now):\n{token}")
+            print("\nKeychain (secrets policy: never in mcp.json/.env):")
+            print(f'  security add-generic-password -s "memory-zero/{args.agent_id}" -a "$USER" -w \'<token>\'')
+            print("\nThen set MEMORY_AGENT_ID=" + args.agent_id + " in config/.env and run:")
+            print("  scripts/generate-mcp-config.sh --install")
             return 0
         if args.cmd == "verify":
             ok = reg.verify(args.agent_id, args.token)

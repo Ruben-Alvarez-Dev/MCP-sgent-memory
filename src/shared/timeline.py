@@ -11,14 +11,13 @@ Both share the same interface for easy swapping.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sqlite3
 import threading
-import logging
-from datetime import datetime, timezone
-from typing import Any, Optional
 from abc import ABC, abstractmethod
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,7 @@ class SQLiteTimeline(TimelineBackend):
 
     def append(self, event_type: str, agent_id: str = "system",
                content: str = "", metadata: dict | None = None) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         meta_json = json.dumps(metadata or {})
         with self._lock:
             conn = self._connect()
@@ -204,7 +203,7 @@ class JSONLTimeline(TimelineBackend):
 
     def append(self, event_type: str, agent_id: str = "system",
                content: str = "", metadata: dict | None = None) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         event = {
             "timestamp": now,
             "event_type": event_type,
@@ -212,9 +211,8 @@ class JSONLTimeline(TimelineBackend):
             "content": content,
             "metadata": metadata or {},
         }
-        with self._lock:
-            with open(self._path, "a") as f:
-                f.write(json.dumps(event) + "\n")
+        with self._lock, open(self._path, "a") as f:
+            f.write(json.dumps(event) + "\n")
         return {"timestamp": now, "status": "appended"}
 
     def query(self, agent_id: str | None = None, event_type: str | None = None,
@@ -235,9 +233,8 @@ class JSONLTimeline(TimelineBackend):
     def count(self) -> int:
         if not os.path.exists(self._path):
             return 0
-        with self._lock:
-            with open(self._path) as f:
-                return sum(1 for _ in f)
+        with self._lock, open(self._path) as f:
+            return sum(1 for _ in f)
 
     def _read_all(self) -> list[dict]:
         if not os.path.exists(self._path):

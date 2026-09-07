@@ -18,8 +18,10 @@ import json
 import logging
 import os
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 from shared.memory_db import MemoryDB
 
@@ -87,7 +89,7 @@ async def _verify_memories(body: dict) -> dict:
 
     Returns counts: verified, stale, errors.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     db = _get_verify_db()
     await db.ensure_collection()
@@ -122,7 +124,7 @@ async def _verify_memories(body: dict) -> dict:
     verified_count = 0
     stale_count = 0
     errors = []
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     for mid in memory_ids[:20]:  # Cap at 20 per batch
         try:
@@ -149,7 +151,7 @@ async def _verify_memories(body: dict) -> dict:
                         verified_at.replace("Z", "+00:00")
                     )
                     age_hours = (
-                        datetime.now(timezone.utc) - verified_ts
+                        datetime.now(UTC) - verified_ts
                     ).total_seconds() / 3600
                     if age_hours > 1:
                         new_status = "stale"

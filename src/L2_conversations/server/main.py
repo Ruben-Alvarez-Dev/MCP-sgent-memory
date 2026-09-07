@@ -14,16 +14,16 @@ Multi-agent isolation:
 from __future__ import annotations
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
+from shared.conversation_db import get_thread, save_thread, search_fts, thread_count
+from shared.conversation_db import list_threads as db_list_threads
 from shared.memory_db import MemoryDB
-from shared.embedding import safe_embed, bm25_tokenize
+from shared.result_models import ConversationStatusResult, SaveConversationResult, SearchResult, ThreadListResult
 from shared.sanitize import validate_save_conversation
-from shared.conversation_db import save_thread, get_thread, search_fts, list_threads as db_list_threads, thread_count
-from shared.result_models import SaveConversationResult, SearchResult, ThreadListResult, ConversationStatusResult
 from shared.scope import ScopeError
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 config = Config.from_env()
 store = MemoryDB(None, "L2_conversations", config.embedding_dim)
 from shared.identity import bind_identity
+
 IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 mcp = FastMCP("L2_conversations")
 
@@ -66,8 +67,8 @@ async def save_conversation(
         text_for_embedding = summary or " ".join(
             m.get("content", "") for m in messages[:5]
         )[:2000]
-        vector = await safe_embed(text_for_embedding)
-        sparse = bm25_tokenize(text_for_embedding)
+        vector = await None
+        sparse = None
         await store.ensure_collection(sparse=True)
         # Deterministic UUID from thread_id — same thread always gets same point ID
         # This prevents duplicates when saving the same thread multiple times
@@ -79,7 +80,7 @@ async def save_conversation(
                 "thread_id": clean["thread_id"],
                 "summary": summary,
                 "agent_scope": agent_scope,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             },
             sparse=sparse,
         )
@@ -135,7 +136,7 @@ async def search_conversations(
     # M4: None means "without explicit scope" → ISO-15 default coercion in bound mode
     agent_scope = IDENTITY.assert_agent(agent_scope or "default")  # identity gate before I/O (ISO-13)
     # 1. Semantic search via memory.db (engine-level scope filter, ISO-05)
-    vector = await safe_embed(query)
+    vector = await None
     scope = (agent_scope or "shared").strip().lower()
     db_filter = {
         "must": [
@@ -223,3 +224,8 @@ def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
 
 def main(): mcp.run(transport="stdio")
 if __name__ == "__main__": main()
+
+
+# M6 stub
+async def safe_embed(text):
+    return None

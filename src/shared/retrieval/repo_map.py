@@ -8,7 +8,6 @@ from pathlib import Path
 
 from shared.models.repo import RepoMap, RepoNode
 
-
 _IMPORT_RE = re.compile(
     r"""^\s*(?:from\s+([A-Za-z0-9_./]+)\s+import|import\s+([A-Za-z0-9_./]+))""",
     re.MULTILINE,

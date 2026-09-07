@@ -22,9 +22,8 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -49,7 +48,7 @@ class ServiceStatus:
 @dataclass
 class HealthReport:
     """Complete health report for the memory server ecosystem."""
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     services: list[ServiceStatus] = field(default_factory=list)
     overall_healthy: bool = False
 
@@ -67,8 +66,8 @@ class HealthReport:
 
 def _check_http(name: str, url: str, timeout: float = 3.0) -> ServiceStatus:
     """Generic HTTP health check."""
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     status = ServiceStatus(name=name)
     start = time.monotonic()
@@ -132,7 +131,6 @@ def check_embedding_pipeline() -> ServiceStatus:
     """Check embedding pipeline including circuit breaker."""
     status = ServiceStatus(name="embedding")
     try:
-        from shared.embedding import get_cache_stats, get_embedding
         stats = get_cache_stats()
         cb = stats.get("circuit_breaker", {})
         status.detail = (
@@ -150,7 +148,7 @@ def check_embedding_pipeline() -> ServiceStatus:
     return status
 
 
-def check_disk_usage(base_dir: Optional[str] = None) -> ServiceStatus:
+def check_disk_usage(base_dir: str | None = None) -> ServiceStatus:
     """Check disk usage of data directory."""
     status = ServiceStatus(name="disk")
     try:

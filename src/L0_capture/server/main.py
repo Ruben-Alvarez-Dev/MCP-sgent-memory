@@ -8,27 +8,25 @@ events.jsonl remains the ingestion source of truth (storage is memory.db)
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.config import Config
 from shared.memory_db import MemoryDB
 from shared.models import HeartbeatStatus, MemoryItem, MemoryLayer, MemoryScope, MemoryType, RawEvent, RawEventType
-from shared.embedding import async_embed, safe_embed, bm25_tokenize
-from shared.sanitize import validate_memorize, validate_ingest_event
-from shared.result_models import MemorizeResult, IngestResult, HeartbeatResult, L0CaptureStatusResult
+from shared.result_models import HeartbeatResult, IngestResult, L0CaptureStatusResult, MemorizeResult
+from shared.sanitize import validate_ingest_event, validate_memorize
 from shared.scope import assert_contained
 
 config = Config.from_env()
 db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
 from shared.identity import bind_identity
+
 IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 JSONL_PATH = config.L0_events_jsonl
 PROMOTION_INTERVAL = config.L0_capture_promote_every
@@ -43,8 +41,8 @@ async def _store_memory(item: MemoryItem) -> bool:
     _log = logging.getLogger(__name__)
     try:
         await db.ensure_collection()
-        vector = item.embedding if item.embedding else await safe_embed(item.content)
-        sparse = bm25_tokenize(item.content)
+        vector = None  # M6: embeddings removed
+        sparse = None  # M6: FTS5 replaces sparse vectors
         payload = dict(item.model_dump(mode="json"))
         # M5/M2: effective identity scope instead of a hardcoded public write.
         # Bound servers tag their OWN tenant scope (data stays private to the
@@ -77,7 +75,7 @@ def _append_raw_jsonl(event: RawEvent) -> None:
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False))
 async def memorize(content: str, mem_type: str = "fact", scope: str = "session", scope_id: str = "current", importance: float = 0.5, tags: str = "") -> dict:
     """Store a memory. L0_capture ingests it immediately."""
-    from shared.timing import Timer, DEBUG
+    from shared.timing import DEBUG, Timer
     t = Timer()
     clean = validate_memorize(content, mem_type, scope, tags)
     scope_map = {"session": MemoryScope.SESSION, "agent": MemoryScope.AGENT, "domain": MemoryScope.DOMAIN, "personal": MemoryScope.PERSONAL, "global-core": MemoryScope.GLOBAL_CORE}
@@ -118,15 +116,6 @@ async def heartbeat(agent_id: str, session_id: str = "", turn_count: int = 0, pr
     
     Optional: pass prefetch_queries to pre-compute embeddings for upcoming searches.
     """
-    # Prefetch embeddings in background (non-blocking)
-    if prefetch_queries:
-        try:
-            from shared.embedding import async_embed_batch
-            import asyncio
-            asyncio.create_task(async_embed_batch(prefetch_queries))
-        except Exception:
-            pass  # Prefetch is best-effort
-    
     # M5/H2: identity gate BEFORE any I/O (ISO-13) — rejects foreign/traversal
     # agent_ids while the server is bound; shape-validates them in open mode.
     agent_id = IDENTITY.assert_agent(agent_id)
@@ -147,8 +136,7 @@ async def status() -> L0CaptureStatusResult:
     await db.ensure_collection()  # idempotent; makes count() safe on a virgin DB
     db_ok = await db.health()
     try:
-        from shared.embedding import _get_llama_cmd
-        llama_ok = _get_llama_cmd() is not None
+                llama_ok = False
     except (ImportError, OSError):
         llama_ok = False
     raw_events = sum(1 for _ in open(JSONL_PATH)) if Path(JSONL_PATH).exists() else 0
@@ -182,3 +170,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# M6 stub
+async def safe_embed(text):
+    return None

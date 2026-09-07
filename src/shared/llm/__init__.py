@@ -8,6 +8,6 @@ program is the deterministic intent classifier used by retrieval routing.
     intent = classify_intent(query)          # deterministic classifier (<5ms)
 """
 
-from .config import classify_intent, QueryIntent
+from .config import QueryIntent, classify_intent
 
-__all__ = ["classify_intent", "QueryIntent"]
+__all__ = ["QueryIntent", "classify_intent"]

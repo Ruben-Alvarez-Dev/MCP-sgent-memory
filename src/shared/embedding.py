@@ -1,3 +1,6 @@
+# DEPRECATED (M6): Embedding module removed. Use FTS5 for retrieval.
+# Kept for backward compatibility.
+
 """Embedding abstraction — agnostic backend system.
 
 Provides a unified interface for generating embeddings with swappable backends:

@@ -32,11 +32,12 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
+from .entity import extract_entities
 from .scope import ScopeError, normalize_scope
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _FILTER_KEY_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _RESERVED_PAYLOAD_KEYS = frozenset({"id", "vector", "sparse_vectors", "payload"})
 _PAYLOAD_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -152,6 +153,72 @@ class MemoryDB:
                 """
                 CREATE INDEX IF NOT EXISTS idx_points_scope
                 ON points(collection, agent_scope, user_id, layer)
+                """
+            )
+            # STO-07: FTS5 full-text search on points content (M6)
+            # No content_rowid — we sync manually via _sync_fts_upsert using point_id.
+            self._conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS points_fts USING fts5(
+                  content
+                )
+                """
+            )
+            # FTS5: sync is handled in Python (not triggers) to tolerate corrupt payload JSON.
+            # Triggers would fail on json_extract of malformed payloads. Python-level sync
+            # catches the error and inserts empty content as fallback.
+            # STO-08: Entities table
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS entities(
+                  id TEXT NOT NULL PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  type TEXT NOT NULL CHECK(type IN (
+                    'class','function','module','concept','decision','pattern','constant'
+                  )),
+                  agent_scope TEXT NOT NULL,
+                  layer INTEGER NOT NULL,
+                  first_seen TEXT NOT NULL,
+                  last_seen TEXT NOT NULL,
+                  mention_count INTEGER DEFAULT 1
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_entities_scope ON entities(agent_scope)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type)"
+            )
+            # STO-09: Relations table
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS relations(
+                  from_entity TEXT NOT NULL,
+                  to_entity TEXT NOT NULL,
+                  relation_type TEXT NOT NULL CHECK(relation_type IN (
+                    'depends_on','implements','extends','uses','decides','fixes','part_of'
+                  )),
+                  agent_scope TEXT NOT NULL,
+                  strength REAL DEFAULT 1.0,
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY (from_entity, to_entity, relation_type, agent_scope)
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relations_scope ON relations(agent_scope)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity, agent_scope)"
+            )
+            # STO-10: Synonyms table (seeded at bootstrap)
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS synonyms(
+                  term TEXT PRIMARY KEY,
+                  synonyms TEXT NOT NULL
+                )
                 """
             )
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
@@ -295,6 +362,18 @@ class MemoryDB:
             blob = None
         embedded = blob is not None
         payload["embedded"] = embedded
+        # M6: extract entities from content for entity graph
+        content_text = payload.get("content", "")
+        entity_list = []
+        if content_text:
+            entities = extract_entities(content_text)
+            entity_list = [e["name"] for e in entities]
+            payload["entities"] = entity_list
+            # Store entities in entities table (M6: STO-08)
+            layer_val = payload.get("layer", 1)
+            scope_val = payload.get("agent_scope", "shared")
+            for e in entities:
+                self._upsert_entity(e["name"], e["type"], scope_val, layer_val)
         now = datetime.now(UTC).isoformat()
         sparse_json = json.dumps(sparse) if sparse else None
         layer = payload.get("layer")
@@ -323,6 +402,8 @@ class MemoryDB:
                 """,
                 (pid, self.collection, blob, payload_json, scope, user, layer, sparse_json, now),
             )
+            # M6: sync FTS5 (tolerant of corrupt payload JSON)
+            self._sync_fts_upsert(pid, payload_json)
 
     async def upsert(
         self,
@@ -629,6 +710,49 @@ class MemoryDB:
             sparse_weight,
         )
 
+    def _sync_fts_upsert(self, point_id: str, payload_json: str) -> None:
+        """Sync a point's content into FTS5. Tolerant of corrupt payload JSON."""
+        try:
+            content = json.loads(payload_json).get("content", "")
+        except (json.JSONDecodeError, TypeError):
+            content = ""
+        # FTS5 requires integer rowid — get it from the points table
+        try:
+            row = self._conn.execute(
+                "SELECT rowid FROM points WHERE collection=? AND id=?",
+                (self.collection, point_id),
+            ).fetchone()
+            if not row:
+                return
+            fts_rowid = int(row["rowid"])
+        except (sqlite3.OperationalError, ValueError, TypeError):
+            return
+        try:
+            # FTS5 virtual tables don't support ON CONFLICT.
+            # In WAL mode, INSERT OR REPLACE can cause visibility issues in joins,
+            # so we use DELETE+INSERT instead (verified working in WAL).
+            self._conn.execute("DELETE FROM points_fts WHERE rowid=?", (fts_rowid,))
+            self._conn.execute(
+                "INSERT INTO points_fts(rowid, content) VALUES (?, ?)",
+                (fts_rowid, content),
+            )
+        except sqlite3.OperationalError as e:
+            logger.debug("FTS5 sync failed for %s: %s", point_id, e)
+
+    def _delete_fts(self, point_id: str) -> None:
+        """Remove a point from FTS5. Tolerant of errors."""
+        try:
+            row = self._conn.execute(
+                "SELECT rowid FROM points WHERE collection=? AND id=?",
+                (self.collection, point_id),
+            ).fetchone()
+            if row:
+                self._conn.execute(
+                    "DELETE FROM points_fts WHERE rowid=?", (int(row["rowid"]),),
+                )
+        except (sqlite3.OperationalError, ValueError):
+            pass
+
     def _scroll_sync(self, filter_, limit) -> list[dict]:
         where, params = self._translate_filter(filter_)
         with self._lock:  # M3: serialize — shared conn is not concurrency-safe
@@ -652,3 +776,250 @@ class MemoryDB:
     ) -> list[dict]:
         """Deterministic listing restricted by ENGINE filter. Fails closed."""
         return await asyncio.to_thread(self._scroll_sync, filter, limit)
+
+    # ── FTS5 Search (M6: RET-01 modified) ─────────────────────
+
+    def _search_fts_sync(
+        self,
+        fts_query: str,
+        limit: int,
+        filter_: dict | None,
+    ) -> list[dict]:
+        """FTS5 full-text search with engine-level scope filter.
+
+        Two-phase approach to avoid WAL-mode FTS5 join issues:
+        1. Query FTS5 for matching rowids + ranks
+        2. Fetch full point data via IN clause (avoids cross-table join)
+
+        Falls back to points scan if FTS5 is unavailable.
+        """
+        where, params = self._translate_filter(filter_) if filter_ else ([], [])
+        # Phase 1: Get matching rowids from FTS5
+        fts_sql = (
+            "SELECT fts.rowid AS fts_rowid, fts.rank"
+            " FROM points_fts AS fts"
+            " WHERE points_fts MATCH ?"
+            " LIMIT ?"
+        )
+        try:
+            with self._lock:
+                fts_rows = self._conn.execute(fts_sql, (fts_query, int(limit) * 2)).fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("FTS5 search failed, falling back to points scan: %s", e)
+            return self._search_sync(None, limit, 0.0, filter_, None, 0.0)
+
+        if not fts_rows:
+            return []
+
+        # Phase 2: Fetch full point data via rowid IN clause
+        # This avoids WAL-mode join issues between FTS5 and points tables
+        rowids = [int(r["fts_rowid"]) for r in fts_rows]
+        placeholders = ", ".join("?" for _ in rowids)
+        data_sql = (
+            "SELECT rowid, id, payload, agent_scope, layer, created_at"
+            " FROM points"
+            f" WHERE rowid IN ({placeholders})"
+            f" AND collection = ?"
+            f" AND {where}"
+        )
+        try:
+            data_rows = self._conn.execute(data_sql, [*rowids, self.collection, *params]).fetchall()
+        except sqlite3.OperationalError:
+            return []
+
+        # Build rank lookup
+        rank_map = {int(r["fts_rowid"]): r["rank"] for r in fts_rows}
+
+        results = []
+        for row in data_rows:
+            try:
+                payload = json.loads(row["payload"])
+            except json.JSONDecodeError:
+                logger.warning("fts_search: skipped corrupt payload for id=%s", row["id"])
+                continue
+            results.append({
+                "id": row["id"],
+                "payload": payload,
+                "score": -rank_map.get(row["rowid"], 0.0),  # FTS5 rank: lower = better
+                "score_source": "fts5",
+                "agent_scope": row["agent_scope"],
+                "layer": row["layer"],
+                "created_at": row["created_at"],
+            })
+        return results
+
+    async def search_fts(
+        self,
+        fts_query: str,
+        limit: int = 10,
+        filter: dict | None = None,
+    ) -> list[dict]:
+        """FTS5 full-text search restricted by ENGINE filter.
+
+        Replaces dense cosine search as the primary retrieval path (M6).
+        """
+        built_query = _build_fts5_query(fts_query)
+        return await asyncio.to_thread(self._search_fts_sync, built_query, limit, filter)
+
+    # ── Entity operations (M6: STO-08) ────────────────────────
+
+    def _upsert_entity(self, entity_name: str, entity_type: str, agent_scope: str, layer: int) -> None:
+        """Upsert an entity into the entities table."""
+        entity_id = f"{agent_scope}:{entity_name.lower()}"
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            existing = self._conn.execute(
+                "SELECT id, mention_count, last_seen FROM entities WHERE id=?",
+                (entity_id,),
+            ).fetchone()
+            if existing:
+                self._conn.execute(
+                    "UPDATE entities SET mention_count=mention_count+1, last_seen=? WHERE id=?",
+                    (now, entity_id),
+                )
+            else:
+                self._conn.execute(
+                    "INSERT INTO entities(id, name, type, agent_scope, layer, first_seen, last_seen, mention_count)"
+                    " VALUES(?,?,?,?,?,?,?,1)",
+                    (entity_id, entity_name, entity_type, agent_scope, layer, now, now),
+                )
+
+    def get_entities(
+        self,
+        agent_scope: str,
+        entity_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Get entities scoped to agent_scope + shared. ISO-18 enforced."""
+        sql = "SELECT * FROM entities WHERE agent_scope IN (?, 'shared')"
+        params: list[Any] = [agent_scope]
+        if entity_type:
+            sql += " AND type = ?"
+            params.append(entity_type)
+        sql += " ORDER BY mention_count DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Relation operations (M6: STO-09) ──────────────────────
+
+    def upsert_relation(
+        self,
+        from_entity: str,
+        to_entity: str,
+        relation_type: str,
+        agent_scope: str,
+        strength: float = 1.0,
+    ) -> None:
+        """Upsert a relation between entities. ISO-18 enforced."""
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO relations(from_entity, to_entity, relation_type, agent_scope, strength, created_at)
+                VALUES(?,?,?,?,?,?)
+                ON CONFLICT(from_entity, to_entity, relation_type, agent_scope)
+                DO UPDATE SET strength=strength+0.1, created_at=?
+                """,
+                (from_entity, to_entity, relation_type, agent_scope, strength, now, now),
+            )
+
+    def get_relations(
+        self,
+        agent_scope: str,
+        entity_name: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Get relations scoped to agent_scope + shared. ISO-18 enforced."""
+        sql = "SELECT * FROM relations WHERE agent_scope IN (?, 'shared')"
+        params: list[Any] = [agent_scope]
+        if entity_name:
+            sql += " AND (from_entity = ? OR to_entity = ?)"
+            params.extend([entity_name, entity_name])
+        sql += " ORDER BY strength DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Co-occurrence consolidation (M6: MEM-02, MEM-03) ──────
+
+    def find_co_occurring_entities(
+        self,
+        agent_scope: str,
+        min_cooccurrence: int = 3,
+    ) -> list[tuple[str, str, str, float]]:
+        """Find entity pairs that co-occur in >= min_cooccurrence points.
+
+        Returns [(from_entity, to_entity, relation_type, strength)] for
+        entities that appear together frequently enough to warrant a relation.
+        """
+        # Get all entities for the scope
+        entities = self.get_entities(agent_scope, limit=200)
+        if len(entities) < 2:
+            return []
+
+        # Build co-occurrence: find points that contain pairs of entities
+        entity_ids = {e["id"]: e["name"] for e in entities}
+        # Query: points in this scope with their extracted entities
+        sql = """
+            SELECT p.id, json_extract(p.payload, '$.entities') as entities
+            FROM points p
+            WHERE p.collection = ?
+              AND p.agent_scope IN (?, 'shared')
+              AND json_array_length(json_extract(p.payload, '$.entities')) > 0
+        """
+        with self._lock:
+            rows = self._conn.execute(sql, (self.collection, agent_scope)).fetchall()
+
+        # Count co-occurrences
+        cooccurrence: dict[tuple[str, str], int] = {}
+        for row in rows:
+            try:
+                entity_list = json.loads(row["entities"]) if row["entities"] else []
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for i, e1 in enumerate(entity_list):
+                for e2 in entity_list[i+1:]:
+                    pair = tuple(sorted([e1, e2]))
+                    cooccurrence[pair] = cooccurrence.get(pair, 0) + 1
+
+        # Filter by minimum co-occurrence and determine relation type
+        results = []
+        for (e1, e2), count in cooccurrence.items():
+            if count >= min_cooccurrence:
+                strength = min(1.0, count / 10.0)
+                # Determine relation type based on entity types
+                t1 = entity_ids.get(e1, "")
+                t2 = entity_ids.get(e2, "")
+                if t1 and t2:
+                    if t1.get("type") == "class" and t2.get("type") == "concept":
+                        rel_type = "uses"
+                    elif t1.get("type") == "class" and t2.get("type") == "class":
+                        rel_type = "depends_on"
+                    else:
+                        rel_type = "uses"
+                else:
+                    rel_type = "uses"
+                results.append((e1, e2, rel_type, strength))
+
+        return sorted(results, key=lambda x: -x[3])
+
+
+def _build_fts5_query(query: str, synonym_expand: bool = True) -> str:
+    """Build an FTS5-compatible query string from a user query.
+
+    Extracts individual tokens (CamelCase, UPPER_SNAKE, lowercase words)
+    and returns them space-separated. FTS5 matches any of these tokens
+    (default AND semantics — all tokens must be present).
+
+    For synonym-aware search, expand before calling this function.
+    """
+    # Extract tokens: CamelCase words, UPPER_SNAKE, and regular words
+    tokens = re.findall(r'[A-Z][a-z]+(?:[A-Z][a-z]+)*|[A-Z]{2,}(?:_[A-Z0-9]+)*|[a-zA-Záéíóúñü]{3,}', query)
+    if not tokens:
+        return query
+    # FTS5 is case-insensitive; lowercase for matching
+    return ' '.join(t.lower() for t in tokens)
+

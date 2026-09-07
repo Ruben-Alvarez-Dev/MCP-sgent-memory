@@ -163,9 +163,7 @@ def load_env() -> Path:
             value = value.strip()
 
             # Remove quotes
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
+            if value.startswith('"') and value.endswith('"') or value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
 
             # Expand $VAR references to already-set env vars
@@ -185,7 +183,7 @@ def load_env() -> Path:
     return env_file if env_file else Path("")
 
 
-def get_config() -> "Config":
+def get_config() -> Config:
     """Load env and return a Config instance. Convenience function."""
     from shared.config import Config
     load_env()

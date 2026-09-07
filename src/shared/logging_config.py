@@ -1,5 +1,6 @@
 """Centralized logging configuration for all MCP memory server modules."""
 from __future__ import annotations
+
 import logging
 import os
 from logging.handlers import RotatingFileHandler

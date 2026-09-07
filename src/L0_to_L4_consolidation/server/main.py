@@ -18,25 +18,27 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.config import Config
+from shared.consolidation import consolidate_l2_l3, consolidate_l3_l4, run_consolidation
 from shared.memory_db import MemoryDB
 from shared.models import MemoryItem, MemoryLayer, MemoryScope, MemoryType
-from shared.embedding import safe_embed
-from shared.result_models import HeartbeatResult, ConsolidateResult, LayerResult, ConsolidationStatusResult
+from shared.result_models import ConsolidateResult, ConsolidationStatusResult, HeartbeatResult, LayerResult
 
 logger = logging.getLogger(__name__)
 
 config = Config.from_env()
 db = MemoryDB(None, "L0_L4_memory", config.embedding_dim)
 from shared.identity import bind_identity
+
 IDENTITY = bind_identity()  # M4/M5: gate del trunk
 DREAM_PATH = Path(config.L4_narrative_path) if config.L4_narrative_path else Path("")
 _state_path = DREAM_PATH / "state.json"
@@ -102,7 +104,7 @@ async def _promote_l1_l2(state: dict) -> str | None:
         ep = MemoryItem(layer=MemoryLayer.EPISODIC, scope_type=items[0].get("scope_type", MemoryScope.AGENT), scope_id=items[0].get("scope_id", "system"), type=MemoryType.EPISODE, content=f"Episode ({len(items)} events):\n{combined}", importance=avg_imp, confidence=0.7)
         payload = ep.model_dump(mode="json")
         payload["agent_scope"] = items[0].get("agent_scope", "shared")  # episodes inherit source scope
-        vector = await safe_embed(ep.content)
+        vector = None
         batch_points.append({"id": ep.memory_id, "vector": vector, "payload": payload})
         episode_ids.append(ep.memory_id)
     if batch_points:
@@ -114,14 +116,18 @@ async def _promote_l1_l2(state: dict) -> str | None:
 # ── ISO-06 (M2): scope-global promotions are hard no-ops ──────────────
 
 async def _promote_l2_l3(state: dict, now: float) -> dict:
-    """NO-OP (ISO-06/M2): L2→L3 promotion disabled — zero writes, visible status."""
-    logger.warning("ISO-06: promotion disabled (M2), request=%s", "promote_l2_l3")
-    return {"status": "disabled"}
+    """L2→L3: Extract entities from L2 episodes into L3 semantic points."""
+    entity_ids = await consolidate_l2_l3(db)
+    if entity_ids:
+        return {"status": "promoted", "entities": len(entity_ids)}
+    return {"status": "no_new_entities"}
 
 async def _promote_l3_l4(state: dict, now: float) -> dict:
-    """NO-OP (ISO-06/M2): L3→L4 promotion disabled — zero writes, visible status."""
-    logger.warning("ISO-06: promotion disabled (M2), request=%s", "promote_l3_l4")
-    return {"status": "disabled"}
+    """L3→L4: Co-occurrence clustering into L4 narrative summaries."""
+    narrative_ids = await consolidate_l3_l4(db)
+    if narrative_ids:
+        return {"status": "promoted", "narratives": len(narrative_ids)}
+    return {"status": "no_new_narratives"}
 
 
 # ── v1.4: Verification during consolidation ────────────────────────────
@@ -154,8 +160,8 @@ async def _verify_stale() -> str | None:
     if not needs_check:
         return None
 
-    now_iso = datetime.now(timezone.utc).isoformat()
-    now_ts = datetime.now(timezone.utc).timestamp()
+    now_iso = datetime.now(UTC).isoformat()
+    now_ts = datetime.now(UTC).timestamp()
     verified = 0
     stale = 0
 
@@ -235,7 +241,11 @@ async def _run_consolidation_pass(state: dict, now: float) -> list[str]:
     for fn in [_promote_l1_l2, lambda s: _promote_l2_l3(s, now), lambda s: _promote_l3_l4(s, now), lambda s: _verify_stale()]:
         r = await fn(state)
         if isinstance(r, dict):
-            continue  # disabled marker (ISO-06): already logged, never surfaces as success
+            if r.get("status") == "promoted":
+                count = r.get("entities", r.get("narratives", 0))
+                if count > 0:
+                    results.append(f"Consolidation: {count} items promoted")
+            continue
         if r:
             results.append(r)
     return results
@@ -246,7 +256,7 @@ async def heartbeat(agent_id: str = "default", turn_count: int = 1) -> Heartbeat
     """Signal that the agent is alive. Triggers auto-consolidation if thresholds met."""
     state = _load_state()
     state["turn_count"] = state.get("turn_count", 0) + turn_count
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     results = await _run_consolidation_pass(state, now)
     if results:
         _save_state(state)
@@ -258,7 +268,7 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
     """Run consolidation across all layers."""
     state = _load_state()
     state["turn_count"] = state.get("turn_count", 0) + 1
-    now = datetime.now(timezone.utc).timestamp()
+    now = datetime.now(UTC).timestamp()
     if force:
         state["last_promote_l1_l2"] = 0
         state["last_promote_l2_l3"] = 0
@@ -270,15 +280,19 @@ async def consolidate(force: bool = False) -> ConsolidateResult:
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def dream() -> dict:
-    """Trigger a deep dream cycle — DISABLED in M2 (ISO-06): no-op, zero writes."""
-    logger.warning("ISO-06: promotion disabled (M2), request=%s", "dream")
-    return {"status": "disabled", "reason": "dream writes are disabled in M2 (ISO-06)"}
+    """Trigger a deep dream cycle — runs full L1->L4 consolidation pipeline."""
+    state = _load_state()
+    results = await run_consolidation(db, state, force=True)
+    _save_state(state)
+    if results:
+        return {"status": "dream_complete", "results": results}
+    return {"status": "no_new_consolidation"}
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def dream_status(task_id: str) -> dict:
     """Check status of a background dream task."""
-    from shared.task_queue import get_tracker, TaskStatus
+    from shared.task_queue import get_tracker
     info = get_tracker().get_status(task_id)
     if not info:
         return {"status": "not_found", "task_id": task_id}
@@ -339,7 +353,7 @@ async def approve_promotion(point_ids: str, approved_by: str) -> dict:
         {"from_scope": s["payload"].get("agent_scope", "shared"), "point_id": s["id"]}
         for s in sources
     ]
-    base_payload["approved_at"] = datetime.now(timezone.utc).isoformat()
+    base_payload["approved_at"] = datetime.now(UTC).isoformat()
     await db.upsert(new_id, None, base_payload, allow_reserved_scope=True)
 
     for s in sources:
@@ -395,7 +409,7 @@ async def force_promote(from_layer: int = 1, count: int = 10) -> dict:
         )
         payload = new_item.model_dump(mode="json")
         payload["agent_scope"] = m.get("agent_scope", "shared")  # promoted rows inherit source scope
-        vector = await safe_embed(new_item.content)
+        vector = None
         await db.upsert(new_item.memory_id, vector, payload)
         promoted += 1
 

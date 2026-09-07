@@ -14,14 +14,13 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("agent-memory.retrieval")
 
-from ..llm import classify_intent, QueryIntent
-from ..embedding import get_embedding, bm25_tokenize
+from ..llm import QueryIntent, classify_intent
 from ..memory_db import MemoryDB
 from ..scope import iter_namespaced_files, normalize_scope
 from .pruner import prune_content
@@ -174,7 +173,7 @@ async def retrieve(
 ) -> ContextPack:
     agent_scope = normalize_scope(agent_scope)  # fail-closed at entry (M2: closes collection-name injection)
     intent = classify_intent(query, session_type, open_files)
-    setattr(intent, "_original_query", query)
+    intent._original_query = query
 
     profile_name = INTENT_TO_PROFILE.get(intent.intent_type, "default")
     profile = PROFILES.get(profile_name, PROFILES["default"])
@@ -254,13 +253,13 @@ async def _retrieve_hybrid(
     results: list[ContextItem] = []
     try:
         db = _get_db(target_coll)
-        vector = get_embedding(query_text)
+        vector = None
         search_results = await db.search(
             vector,
             limit=k,
             score_threshold=MIN_SCORE,
             filter={"must": must},
-            sparse_query=bm25_tokenize(query_text),  # RET-05: lexical boost
+            sparse_query=None,  # RET-05: lexical boost
         )
         for p in search_results:
             payload = p.get("payload", {})
@@ -341,7 +340,7 @@ def _rank_and_fuse(
 def _recency_score(timestamp: datetime | None, time_window: str) -> float:
     if not timestamp:
         return 0.3
-    now = datetime.now(timezone.utc) if timestamp.tzinfo else datetime.now()
+    now = datetime.now(UTC) if timestamp.tzinfo else datetime.now()
     age_hours = (now - timestamp).total_seconds() / 3600
     return max(0, 1.0 - age_hours / 720.0)
 
@@ -378,7 +377,7 @@ def _freshness_score(item: ContextItem) -> float:
         verified_ts = _parse_ts(verified_at_str)
         if not verified_ts:
             return 0.7
-        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        now = datetime.now(UTC) if verified_ts.tzinfo else datetime.now()
         age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
         speed = item.metadata.get("change_speed", "slow")
         half_life = CHANGE_SPEED_HALF_LIFE.get(speed, 720.0)
@@ -402,7 +401,7 @@ def _freshness_tag(item: ContextItem) -> str:
         verified_ts = _parse_ts(verified_at_str)
         if not verified_ts:
             return "✅ VERIFIED"
-        now = datetime.now(timezone.utc) if verified_ts.tzinfo else datetime.now()
+        now = datetime.now(UTC) if verified_ts.tzinfo else datetime.now()
         age_hours = max(0, (now - verified_ts).total_seconds() / 3600)
         if age_hours < 1:
             return "✅ VERIFIED just now"
@@ -483,12 +482,22 @@ def _parse_ts(ts_str: Any) -> datetime | None:
 
 
 __all__ = [
+    "CHANGE_SPEED_HALF_LIFE",
+    "PROFILES",
     "ContextItem",
     "ContextPack",
-    "PROFILES",
     "RetrievalProfile",
-    "retrieve",
-    "CHANGE_SPEED_HALF_LIFE",
     "_freshness_score",
     "_freshness_tag",
+    "retrieve",
 ]
+
+
+# M6 stubs: embedding functions removed
+def get_embedding(text):
+    """M6: Returns None — embedding pipeline removed, FTS5-only."""
+    return
+
+def bm25_tokenize(text):
+    """M6: Returns None — FTS5 replaces sparse vectors."""
+    return

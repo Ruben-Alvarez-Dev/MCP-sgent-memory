@@ -1,3 +1,5 @@
+# DEPRECATED (M6): Embedding cache removed. No longer needed.
+
 """Persistent embedding cache using SQLite.
 
 Survives restarts. Transparently wraps the in-memory LRU cache.

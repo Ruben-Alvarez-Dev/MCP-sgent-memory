@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from shared.memory_db import MemoryDB, ScopeError

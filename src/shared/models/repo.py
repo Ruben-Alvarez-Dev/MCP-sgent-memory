@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 RepoNodeType = Literal["file", "class", "function", "module"]
 
 
@@ -17,7 +16,7 @@ class RepoNode(BaseModel):
     type: RepoNodeType
     signature: str
     dependencies: list[str] = Field(default_factory=list)
-    children: list["RepoNode"] = Field(default_factory=list)
+    children: list[RepoNode] = Field(default_factory=list)
 
 
 class RepoMap(BaseModel):

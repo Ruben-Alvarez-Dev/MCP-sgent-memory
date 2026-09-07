@@ -95,7 +95,7 @@ def _normalize_namespaced(s: str) -> str:
     return "/".join(f"{lvl}:{seen[lvl]}" for lvl in _SCOPE_LEVELS if lvl in seen)
 
 
-def scope_jail_path(base: Path, scope: str, rel: "str | Path") -> Path:
+def scope_jail_path(base: Path, scope: str, rel: str | Path) -> Path:
     """Resolve `rel` inside the scope's jailed directory — fail-closed (ISO-07).
 
     Raises ScopeError BEFORE any filesystem access when `rel` traverses out

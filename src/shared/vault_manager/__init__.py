@@ -1,6 +1,25 @@
 from __future__ import annotations
-from ..vault_constants import (FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE, FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES, FOLDER_PEOPLE, FOLDER_TEMPLATES, EN_TO_ES, ES_TO_EN, LAYER_MAP, TYPE_CODES, get_all_disk_folders, get_all_en_folders, get_layer, get_type_code)
+
 from ..sanitize import SanitizeError
+from ..vault_constants import (
+    EN_TO_ES,
+    ES_TO_EN,
+    FOLDER_DECISIONS,
+    FOLDER_ENTITIES,
+    FOLDER_EPISODES,
+    FOLDER_INBOX,
+    FOLDER_KNOWLEDGE,
+    FOLDER_NOTES,
+    FOLDER_PEOPLE,
+    FOLDER_TEMPLATES,
+    LAYER_MAP,
+    TYPE_CODES,
+    get_all_disk_folders,
+    get_all_en_folders,
+    get_layer,
+    get_type_code,
+)
+
 """Vault Manager — Obsidian vault with catastrophe-proof writes.
 
 Manages the human-readable vault of the memory system.
@@ -28,11 +47,11 @@ Usage:
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
-import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -256,7 +275,7 @@ class VaultManager:
                 existing = dest.read_text(encoding="utf-8")
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(existing)
-                    f.write(f"\n\n---\n\n## System Note ({datetime.now(timezone.utc).isoformat()})\n\n")
+                    f.write(f"\n\n---\n\n## System Note ({datetime.now(UTC).isoformat()})\n\n")
                     f.write(content)
 
                 os.replace(tmp_path, str(dest))
@@ -325,7 +344,7 @@ class VaultManager:
                 classification = self._classify_note(body, frontmatter)
 
                 # Generate frontmatter
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 data = {
                     "type": classification["type"],
                     "layer": classification.get("layer", 0),
@@ -453,7 +472,7 @@ class VaultManager:
         Returns report dict.
         """
         report = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "files_expected": 0,
             "files_found": 0,
             "missing": [],
@@ -550,9 +569,7 @@ class VaultManager:
             return FOLDER_EPISODES
         elif layer == 3:
             return FOLDER_DECISIONS
-        elif layer == 4:
-            return FOLDER_KNOWLEDGE
-        elif layer == 5:
+        elif layer == 4 or layer == 5:
             return FOLDER_KNOWLEDGE
         else:
             return FOLDER_KNOWLEDGE
@@ -595,7 +612,7 @@ class VaultManager:
         # Build frontmatter
         fm_lines = ["---"]
         fm_lines.append(f"author: {author}")
-        fm_lines.append(f"created: {datetime.now(timezone.utc).isoformat()}")
+        fm_lines.append(f"created: {datetime.now(UTC).isoformat()}")
 
         for key, value in data.items():
             if isinstance(value, list):
@@ -716,7 +733,7 @@ class VaultManager:
 
     def _backup_file(self, path: Path):
         """Backup a file before modification."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         backup_dir = BACKUPS_DIR / timestamp
         backup_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(path), str(backup_dir / path.name))
@@ -748,7 +765,7 @@ class VaultManager:
             "folder": folder,
             "filename": filename,
             "author": author,
-            "last_modified": datetime.now(timezone.utc).isoformat(),
+            "last_modified": datetime.now(UTC).isoformat(),
         }
         self._save_manifest(manifest)
 
@@ -784,7 +801,7 @@ class VaultManager:
 
     def _log_repair(self, message: str):
         """Append to repair log."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         line = f"- [{timestamp}] {message}"
         if REPAIR_LOG.exists():
             content = REPAIR_LOG.read_text()

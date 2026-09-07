@@ -11,13 +11,12 @@ Schema:
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sqlite3
 import threading
-import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +148,7 @@ def save_thread(thread_id: str, messages: list[dict], summary: str = "", agent_s
     Returns:
         {"thread_id": str, "message_count": int, "status": str, "agent_scope": str}
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     db_path = _ensure_db()
 
     with _db_lock:
@@ -198,7 +197,7 @@ def save_thread(thread_id: str, messages: list[dict], summary: str = "", agent_s
             conn.close()
 
 
-def get_thread(thread_id: str) -> Optional[dict]:
+def get_thread(thread_id: str) -> dict | None:
     """Retrieve a full conversation thread by ID.
 
     Returns:

@@ -1,9 +1,13 @@
 """Tests for input sanitization — the security backbone."""
 import pytest
+
 from shared.sanitize import (
-    sanitize_text, sanitize_filename, sanitize_folder, sanitize_user_id,
-    sanitize_thread_id, sanitize_tags, validate_json_field, validate_enum,
-    normalize_query, SanitizeError, SAFE_VAULT_FOLDERS,
+    SanitizeError,
+    sanitize_filename,
+    sanitize_folder,
+    sanitize_tags,
+    sanitize_text,
+    validate_json_field,
 )
 
 
@@ -179,8 +183,8 @@ class TestConfigPortValidation:
 
     def test_no_storage_url_validation(self):
         """QDRANT_URL (even malformed) produces no validation errors in M2."""
-        import os
         import importlib
+        import os
         old = os.environ.pop("QDRANT_URL", None)
         try:
             os.environ["QDRANT_URL"] = "http://127.0.0.1:99999"

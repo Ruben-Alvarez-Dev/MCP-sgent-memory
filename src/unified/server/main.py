@@ -16,19 +16,24 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE_DIR))
 
 from shared.env_loader import load_env
+
 load_env()
 from shared.logging_config import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger("agent-memory.unified")
+from mcp.server.fastmcp import FastMCP
+
 from shared.config import Config
 from shared.memory_db import MemoryDB
-from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("agent-memory")
 config = Config.from_env()
 store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
 from shared.identity import bind_identity
+
 IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 _initialized = False
 
@@ -140,7 +145,6 @@ async def _ensure_initialized() -> None:
 async def health_check() -> dict:
     """Check health of all memory subsystems."""
     await _ensure_initialized()
-    import asyncio
     checks = {}
 
     # memory.db (M2)
@@ -149,13 +153,8 @@ async def health_check() -> dict:
     except Exception as e:
         checks["memory_db"] = f"error: {e}"
 
-    # Embedding
-    try:
-        from shared.embedding import get_embedding
-        vec = get_embedding("health check")
-        checks["embedding"] = len(vec) == config.embedding_dim
-    except Exception as e:
-        checks["embedding"] = f"error: {e}"
+    # Embedding removed in M6 — FTS5-only retrieval
+    checks["embedding"] = "removed (FTS5)"
 
     # Collection counts (engine-filtered by shared scope for a public oracle)
     for coll in ["L0_L4_memory", "L2_conversations", "L3_facts"]:
@@ -187,6 +186,7 @@ async def health_check() -> dict:
 def main() -> None:
     import logging
     import os
+
     from shared.logging_config import setup_logging
     setup_logging()
     logger = logging.getLogger("agent-memory")

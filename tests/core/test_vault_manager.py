@@ -13,13 +13,19 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import pytest
-from shared.vault_manager import VaultManager
+
 from shared.sanitize import SanitizeError
 from shared.vault_constants import (
-    FOLDER_INBOX, FOLDER_DECISIONS, FOLDER_KNOWLEDGE,
-    FOLDER_EPISODES, FOLDER_ENTITIES, FOLDER_NOTES,
-    FOLDER_PEOPLE, FOLDER_TEMPLATES,
+    FOLDER_DECISIONS,
+    FOLDER_ENTITIES,
+    FOLDER_EPISODES,
+    FOLDER_INBOX,
+    FOLDER_KNOWLEDGE,
+    FOLDER_NOTES,
+    FOLDER_PEOPLE,
+    FOLDER_TEMPLATES,
 )
+from shared.vault_manager import VaultManager
 
 
 @pytest.fixture

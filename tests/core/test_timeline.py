@@ -1,18 +1,16 @@
 """Tests for Timeline backends (A: SQLite, B: Hybrid, C: JSONL)."""
-import sys
-import os
 import json
-import pytest
-import tempfile
+import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from shared.timeline import SQLiteTimeline, JSONLTimeline, create_timeline
-
+from shared.timeline import JSONLTimeline, SQLiteTimeline, create_timeline
 
 # ── Option A: SQLiteTimeline ────────────────────────────────────
 

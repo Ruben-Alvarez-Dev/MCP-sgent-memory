@@ -15,18 +15,13 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
-
-from pygments import lex
-from pygments.lexers import get_lexer_for_filename, ClassNotFound, guess_lexer
-from pygments.token import Token, _TokenType
 
 from pydantic import BaseModel, Field
-
+from pygments import lex
+from pygments.lexers import ClassNotFound, get_lexer_for_filename
 
 # ── Models ────────────────────────────────────────────────────────
 
@@ -53,7 +48,7 @@ class CodeMap(BaseModel):
     summary: str = ""
     map_text: str = ""
     created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
 
@@ -384,19 +379,7 @@ def _extract_symbols_regex(text: str, file_path: str) -> list[CodeSymbol]:
                     continue
 
                 # Track class context for methods
-                if sym_type == "class":
-                    current_class = name
-                    symbols.append(CodeSymbol(
-                        name=name, type="class", line=i,
-                        signature=line.strip()[:120],
-                    ))
-                elif sym_type == "interface":
-                    current_class = name
-                    symbols.append(CodeSymbol(
-                        name=name, type="class", line=i,
-                        signature=line.strip()[:120],
-                    ))
-                elif sym_type == "struct":
+                if sym_type == "class" or sym_type == "interface" or sym_type == "struct":
                     current_class = name
                     symbols.append(CodeSymbol(
                         name=name, type="class", line=i,

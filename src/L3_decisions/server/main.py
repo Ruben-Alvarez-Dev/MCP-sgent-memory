@@ -1,15 +1,24 @@
 """L3_decisions — Semantic Decision Memory."""
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.sanitize import validate_save_decision, validate_vault_write, sanitize_filename, SanitizeError
-from shared.scope import ScopeError, assert_contained, iter_namespaced_files, normalize_scope, scope_subdir
-from shared.result_models import SaveDecisionResult, DecisionListResult, VaultWriteResult, VaultIntegrityResult, VaultNotesResult, ModelPackResult, ModelPackListResult, L3DecisionsStatusResult
 from shared.identity import bind_identity
+from shared.result_models import (
+    DecisionListResult,
+    L3DecisionsStatusResult,
+    ModelPackListResult,
+    ModelPackResult,
+    SaveDecisionResult,
+    VaultIntegrityResult,
+    VaultNotesResult,
+    VaultWriteResult,
+)
+from shared.sanitize import SanitizeError, sanitize_filename, validate_save_decision, validate_vault_write
+from shared.scope import ScopeError, assert_contained, iter_namespaced_files, normalize_scope, scope_subdir
 
 config = Config.from_env()
 DECISIONS_PATH = Path(config.L3_decisions_path) if config.L3_decisions_path else Path("")
@@ -73,7 +82,7 @@ async def save_decision(title: str, content: str = "", category: str = "general"
         clean = validate_save_decision(title, effective_content, category, tags, ns)
     except (SanitizeError, ValueError) as e:
         return SaveDecisionResult(status="error", file_path="", title=title, error=str(e))
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     fn = sanitize_filename(f"{ts}-{clean['title'][:50]}")
     td = scope_subdir(DECISIONS_PATH, ns) / clean["category"]; td.mkdir(parents=True, exist_ok=True)
     fp = td / f"{fn}.md"
@@ -136,7 +145,7 @@ async def vault_write(folder: str, filename: str, content: str, tags: str = "") 
     clean = validate_vault_write(folder, filename, content, tags)
     target = VAULT_PATH / clean["folder"]; target.mkdir(parents=True, exist_ok=True)
     fp = target / f"{clean['filename']}.md"
-    md = f"---\ntags: {clean['tags']}\ncreated: {datetime.now(timezone.utc).isoformat()}\n---\n\n{clean['content']}\n"
+    md = f"---\ntags: {clean['tags']}\ncreated: {datetime.now(UTC).isoformat()}\n---\n\n{clean['content']}\n"
     fp.write_text(md, encoding="utf-8")
     return VaultWriteResult(status="written", path=str(fp))
 

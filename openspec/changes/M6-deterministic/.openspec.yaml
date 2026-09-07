@@ -1,0 +1,3 @@
+schema: spec-driven
+change: M6-deterministic
+title: "Eliminación completa de embeddings — Retrieval 100% determinista"

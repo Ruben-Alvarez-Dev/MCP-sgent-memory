@@ -18,14 +18,13 @@ Dashboard:
     Opens http://127.0.0.1:8080
 """
 
-import time
 import json
 import os
-import asyncio
-from datetime import datetime, timezone
-from pathlib import Path
+import time
+from collections.abc import Callable
+from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, Callable, Optional
+from pathlib import Path
 
 # ── Metrics Store ──────────────────────────────────────────────────
 
@@ -39,11 +38,11 @@ class MetricsStore:
 
     @property
     def log_file(self) -> Path:
-        date = datetime.now(timezone.utc).strftime("%Y%m%d")
+        date = datetime.now(UTC).strftime("%Y%m%d")
         return self._log_dir / f"events-{date}.jsonl"
 
     def emit(self, event: dict):
-        event["_ts"] = datetime.now(timezone.utc).isoformat()
+        event["_ts"] = datetime.now(UTC).isoformat()
         event["_seq"] = len(self._calls)
         self._calls.append(event)
 
@@ -115,7 +114,7 @@ class MetricsStore:
                 "error_rate": round(len(errors) / max(len(tool_calls), 1) * 100, 1),
                 "total_events": len(calls),
                 "uptime_seconds": round(
-                    (datetime.now(timezone.utc) - datetime.fromisoformat(calls[0]["_ts"])).total_seconds()
+                    (datetime.now(UTC) - datetime.fromisoformat(calls[0]["_ts"])).total_seconds()
                     if calls else 0
                 ),
             },
@@ -214,7 +213,7 @@ def run_dashboard(port: int = 8080):
     def on_event(event):
         data = json.dumps(event, default=str)
         with lock:
-            for q in list(clients):
+            for q in clients:
                 try:
                     q.put_nowait(data)
                 except Exception:

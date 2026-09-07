@@ -1,17 +1,23 @@
 """vk-cache — Unified Retrieval & Context Assembly (L5)."""
 from __future__ import annotations
-import json, logging, math, os, re
-from datetime import datetime, timezone
+import json, logging, math, re
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from shared.env_loader import load_env; load_env()
 from shared.config import Config
-from shared.memory_db import MemoryDB, hash_vector
+from shared.memory_db import MemoryDB
 from shared.models import ContextPack, ContextReminder, ContextSource
-from shared.embedding import async_embed
+from shared.result_models import (
+    ContextPackResult,
+    ContextShiftResult,
+    DismissResult,
+    ReminderListResult,
+    ReminderPushResult,
+    VkCacheStatusResult,
+)
 from shared.retrieval import retrieve as smart_retrieve
-from shared.sanitize import validate_request_context, validate_push_reminder, sanitize_text
+from shared.sanitize import validate_push_reminder, validate_request_context
 from shared.scope import (
     ScopeError,
     assert_contained,
@@ -19,11 +25,11 @@ from shared.scope import (
     scope_dir_hashed,
     visible_dirs_hashed,
 )
-from shared.result_models import ContextPackResult, ReminderListResult, ReminderPushResult, DismissResult, ContextShiftResult, VkCacheStatusResult
 
 config = Config.from_env()
 store = MemoryDB(None, config.qdrant_collection, config.embedding_dim)
 from shared.identity import bind_identity
+
 IDENTITY = bind_identity()  # M4: strict mode raises here (fail-closed boot, ISO-14)
 _L5_selective_path = Path(config.L5_selective_path) if config.L5_selective_path else Path("")
 _L5_selective_path.mkdir(parents=True, exist_ok=True)
@@ -41,10 +47,10 @@ async def _embed_or_hash(text: str) -> tuple[list[float], bool]:
     embedding outage (KNOWN-BUG-002).
     """
     try:
-        return await async_embed(text), True
+        return await None, True
     except Exception as e:  # noqa: BLE001 — degradation boundary: ANY embedding failure must degrade, never raise
         logger.warning('embedding unavailable, hash-vector degradation (RET-06): %s', e)
-        return hash_vector(text, config.embedding_dim), False
+        return None, False
 
 _REMINDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _migrated_legacy = False
@@ -200,3 +206,8 @@ def register_tools(target_mcp, target_qdrant, target_config, prefix=""):
 
 def main(): mcp.run(transport="stdio")
 if __name__ == "__main__": main()
+
+
+# M6 stub
+async def safe_embed(text):
+    return None

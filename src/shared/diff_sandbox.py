@@ -11,21 +11,16 @@ Zero new dependencies: uses git diff (subprocess) + Pygments (installed).
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import re
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel, Field
-
 from pygments import lex
-from pygments.lexers import get_lexer_by_name, get_lexer_for_filename, ClassNotFound
+from pygments.lexers import ClassNotFound, get_lexer_by_name, get_lexer_for_filename
 from pygments.token import Token
-
 
 # ── Models ────────────────────────────────────────────────────────
 
@@ -51,13 +46,13 @@ class DiffChange(BaseModel):
     proposed_content: str = ""
     language: str = ""
     status: str = "proposed"  # proposed | accepted | rejected | applied | failed
-    validation: Optional[ValidationResult] = None
+    validation: ValidationResult | None = None
     reject_reason: str = ""
     metadata: dict = Field(default_factory=dict)
     created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
-    resolved_at: Optional[str] = None
+    resolved_at: str | None = None
 
 
 # ── Syntax Validation ─────────────────────────────────────────────
@@ -104,9 +99,7 @@ def validate_syntax(content: str, language: str = "",
     for token_type, token_value in tokens:
         # Check for error tokens
         type_str = str(token_type)
-        if "Error" in type_str:
-            errors.append(f"Syntax error near: {token_value[:80]}")
-        elif token_type in Token.Error:
+        if "Error" in type_str or token_type in Token.Error:
             errors.append(f"Syntax error near: {token_value[:80]}")
 
     return (len(errors) == 0, errors)
@@ -319,7 +312,7 @@ class DiffSandbox:
             return change  # Already resolved
 
         change.status = "accepted"
-        change.resolved_at = datetime.now(timezone.utc).isoformat()
+        change.resolved_at = datetime.now(UTC).isoformat()
         self._save(change)
         return change
 
@@ -336,7 +329,7 @@ class DiffSandbox:
 
         change.status = "rejected"
         change.reject_reason = reason
-        change.resolved_at = datetime.now(timezone.utc).isoformat()
+        change.resolved_at = datetime.now(UTC).isoformat()
         self._save(change)
         return change
 
@@ -368,7 +361,7 @@ class DiffSandbox:
                     valid=False, errors=[f"Write failed: {e}"]
                 )
 
-        change.resolved_at = datetime.now(timezone.utc).isoformat()
+        change.resolved_at = datetime.now(UTC).isoformat()
         self._save(change)
         return change
 
@@ -419,7 +412,7 @@ class DiffSandbox:
 
         Returns count of removed changes.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         removed = 0
 
         for f in self._staging_dir.glob("*.json"):

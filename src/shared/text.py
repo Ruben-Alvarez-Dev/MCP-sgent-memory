@@ -5,8 +5,6 @@ Head+tail strategy: keep beginning and end, skip the middle.
 """
 from __future__ import annotations
 
-import re
-
 
 def smart_truncate(text: str, max_chars: int = 2000) -> str:
     """Truncate text intelligently for embedding.

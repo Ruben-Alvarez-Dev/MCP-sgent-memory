@@ -11,14 +11,13 @@ Canonical data contracts used across:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 from .repo import RepoMap, RepoNode
-
 
 # ──────────────────────────────────────────────────────────────────
 # Enums
@@ -114,18 +113,18 @@ class MemoryItem(BaseModel):
     type: MemoryType
     content: str
     source_event_ids: list[str] = Field(default_factory=list)
-    project_id: Optional[str] = None
+    project_id: str | None = None
     topic_ids: list[str] = Field(default_factory=list)
     importance: float = Field(default=0.0, ge=0.0, le=1.0)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    ttl: Optional[str] = None
-    embedding: Optional[list[float]] = None
+    ttl: str | None = None
+    embedding: list[float] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     # ── v1.4: Continuous Knowledge Verification ──────────────────────
-    verified_at: Optional[str] = None  # ISO timestamp of last verification
+    verified_at: str | None = None  # ISO timestamp of last verification
     verification_status: str = Field(
         default="never_verified",
         description="verified | stale | never_verified | unverifiable",
@@ -134,7 +133,7 @@ class MemoryItem(BaseModel):
         default="slow",
         description="How fast this fact changes: never | slow | fast | realtime",
     )
-    verification_source: Optional[str] = None  # file_check | api_call | manual | llm_judge
+    verification_source: str | None = None  # file_check | api_call | manual | llm_judge
     access_count: int = Field(default=0, description="Times injected into context")
 
     @property
@@ -188,7 +187,7 @@ class ContextPack(BaseModel):
         default="llm_request",
         description="llm_request | system_push | periodic_reminder | domain_change",
     )
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_injection_text(self) -> str:
         """Format as text ready for LLM context injection."""
@@ -215,7 +214,7 @@ class ContextReminder(BaseModel):
         description="relevant_to_current_task | recent_decision_not_used | domain_change_detected | periodic_reminder | user_mentioned_entity",
     )
     expires_after_turns: int = Field(default=3)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -264,7 +263,7 @@ class HeartbeatStatus(BaseModel):
     """Agent heartbeat — the daemon tracks if agent is alive."""
 
     agent_id: str
-    last_seen: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    last_seen: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     session_id: str = ""
     turn_count: int = 0
     status: str = Field(default="active", description="active | idle | disconnected")
@@ -280,7 +279,7 @@ class RawEvent(BaseModel):
     """L0 raw event — append-only, immutable audit trail."""
 
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     type: RawEventType
     source: str = Field(description="terminal | ide | filesystem | docker | agent | osquery")
     actor_id: str = "system"

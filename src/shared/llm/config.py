@@ -14,7 +14,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 # ── Query Intent Classifier (determinista, <5ms) ──────────────────
 
 @dataclass

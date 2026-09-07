@@ -12,7 +12,7 @@ BASE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BASE / "scripts"))
 sys.path.insert(0, str(BASE / "src"))
 
-import migrate_to_memory_db as mig  # noqa: E402
+import migrate_to_memory_db as mig
 
 
 @pytest.fixture()

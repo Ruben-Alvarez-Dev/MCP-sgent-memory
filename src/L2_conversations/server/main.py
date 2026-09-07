@@ -68,7 +68,8 @@ async def save_conversation(
         text_for_embedding = summary or " ".join(
             m.get("content", "") for m in messages[:5]
         )[:2000]
-        vector = await None
+        # M9: FTS5-only engine — no vector to embed (was `await None` TypeError
+        # that silently killed the memory.db upsert path).
         sparse = None
         await store.ensure_collection(sparse=True)
         # Deterministic UUID from thread_id — same thread always gets same point ID
@@ -144,8 +145,11 @@ async def search_conversations(
     }
     db_results = []
     try:
+        # M9: FTS5-only engine search (was: vector param). min_score kept for
+        # tool-contract parity; bm25 ranks are not cosine similarities, so the
+        # engine path no longer thresholds on it.
         db_results = await store.search(
-            vector, limit=limit, score_threshold=min_score, filter=db_filter
+            query, limit=limit, filter=db_filter
         )
     except Exception as e:
         logger.warning("memory.db semantic search failed (using FTS5 only): %s", e)

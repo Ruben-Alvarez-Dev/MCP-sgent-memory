@@ -13,7 +13,7 @@ async def test_l1_l2_creates_episodes(tmp_path):
     await db.ensure_collection()
     # Insert 5 L1 memories in the same scope
     for i in range(5):
-        await db.upsert(f"l1-{i}", None, {
+        await db.upsert(f"l1-{i}", {
             "content": f"Working memory {i}",
             "agent_scope": "shared",
             "layer": 1,
@@ -37,7 +37,7 @@ async def test_l1_l2_no_episode_with_few_events(tmp_path):
     db = MemoryDB(str(tmp_path / "test_consolidation2.db"), "test_consolidation2", 1024)
     await db.ensure_collection()
     # Insert only 1 L1 memory
-    await db.upsert("l1-0", None, {
+    await db.upsert("l1-0", {
         "content": "Single memory",
         "agent_scope": "shared",
         "layer": 1,
@@ -55,7 +55,7 @@ async def test_l2_l3_extracts_entities(tmp_path):
     db = MemoryDB(str(tmp_path / "test_consolidation3.db"), "test_consolidation3", 1024)
     await db.ensure_collection()
     # Insert an L2 episode with entity-like content
-    await db.upsert("ep-1", None, {
+    await db.upsert("ep-1", {
         "content": "AuthService implements JWT authentication",
         "agent_scope": "shared",
         "layer": 2,
@@ -76,7 +76,7 @@ async def test_l3_l4_creates_narratives(tmp_path):
     await db.ensure_collection()
     # Insert multiple L3 entities from the same episode
     for i in range(5):
-        await db.upsert(f"ent-{i}", None, {
+        await db.upsert(f"ent-{i}", {
             "content": "Entity: AuthService (class)",
             "agent_scope": "shared",
             "layer": 3,
@@ -97,7 +97,7 @@ async def test_consolidation_idempotent(tmp_path):
     await db.ensure_collection()
     # Insert L1 memories
     for i in range(5):
-        await db.upsert(f"l1-{i}", None, {
+        await db.upsert(f"l1-{i}", {
             "content": f"Memory {i}",
             "agent_scope": "shared",
             "layer": 1,

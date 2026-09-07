@@ -30,72 +30,90 @@ def _vec(seed: float, dim: int = 8) -> list[float]:
     return [x / n for x in v]
 
 
-# ── STO-05: zero-vectors never persisted ─────────────────────────────
+# ── M9: vector column dropped, FTS5-only retrieval ───────────────────
 
 @pytest.mark.unit
-async def test_no_zero_vector_persisted(db):
-    await db.upsert("m1", [0.0] * 8, {"content": "hello", "user_id": "u1"})
-    row = db._conn.execute("SELECT vector, payload FROM points WHERE id='m1'").fetchone()
-    assert row["vector"] is None
-    assert json.loads(row["payload"])["embedded"] is False
+async def test_vector_column_dropped_from_schema(db):
+    cols = {r[1] for r in db._conn.execute("PRAGMA table_info(points)").fetchall()}
+    assert "vector" not in cols
+    assert "payload" in cols and "agent_scope" in cols
 
 
 @pytest.mark.unit
-async def test_null_vector_retrievable_via_hash_source(db):
-    await db.upsert("m1", None, {"content": "stable content", "user_id": "u1"})
-    hits = await db.search(None, limit=5, score_threshold=-1.0,
-                           filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
+async def test_fts5_search_deterministic(db):
+    await db.upsert("m1", {"content": "stable content", "user_id": "u1"})
+    filt = {"must": [{"key": "user_id", "match": {"value": "u1"}}]}
+    hits = await db.search("stable content", limit=5, filter=filt)
     assert len(hits) == 1
-    assert hits[0]["score_source"] == "hash"
-    # deterministic: same content -> same score on repeated searches
-    again = await db.search(None, limit=5, score_threshold=-1.0,
-                            filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
+    assert hits[0]["score_source"] == "fts5"
+    # deterministic: same query -> same score on repeated searches
+    again = await db.search("stable content", limit=5, filter=filt)
     assert again[0]["score"] == hits[0]["score"]
 
 
 @pytest.mark.unit
-def test_hash_vector_deterministic():
-    a = hash_vector("same text", 16)
-    b = hash_vector("same text", 16)
-    c = hash_vector("other text", 16)
-    assert a == b and a != c
-    assert abs(sum(x * x for x in a) - 1.0) < 1e-6  # normalized
+async def test_migration_drops_vector_column(tmp_path):
+    """Pre-M9 database (with vector column + data) migrates at boot."""
+    import sqlite3
+    db_path = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """CREATE TABLE points(
+             id TEXT NOT NULL, collection TEXT NOT NULL, vector BLOB,
+             payload TEXT NOT NULL, agent_scope TEXT NOT NULL DEFAULT 'shared',
+             user_id TEXT, layer INTEGER, sparse_json TEXT, created_at TEXT NOT NULL,
+             PRIMARY KEY(collection, id))"""
+    )
+    conn.execute(
+        "INSERT INTO points(id, collection, vector, payload, created_at)"
+        " VALUES('legacy1','c1',NULL,'{\"content\": \"kept\"}','2026-01-01')"
+    )
+    conn.commit()
+    conn.close()
+
+    db = MemoryDB(db_path, "c1")
+    cols = {r[1] for r in db._conn.execute("PRAGMA table_info(points)").fetchall()}
+    assert "vector" not in cols
+    row = db._conn.execute("SELECT payload FROM points WHERE id='legacy1'").fetchone()
+    assert json.loads(row["payload"])["content"] == "kept"  # data survives
 
 
-@pytest.mark.unit
-async def test_dim_mismatch_stored_null(db):
-    await db.upsert("m2", [0.1] * 3, {"content": "x", "user_id": "u1"})  # dim 3 != 8
-    row = db._conn.execute("SELECT vector FROM points WHERE id='m2'").fetchone()
-    assert row["vector"] is None
-
-
-# ── ISO-05: engine-level filter (nothing foreign scored) ─────────────
+# ── ISO-05: engine-level filter (nothing foreign fetched) ────────────
 
 @pytest.mark.unit
 async def test_engine_filter_excludes_foreign_rows(db, monkeypatch):
-    await db.upsert("u1-row", _vec(1.0), {"content": "mine", "user_id": "u1"})
-    await db.upsert("u2-row", _vec(1.0), {"content": "theirs", "user_id": "u2"})
+    await db.upsert("u1-row", {"content": "mine", "user_id": "u1"})
+    await db.upsert("u2-row", {"content": "mine", "user_id": "u2"})  # identical content
 
-    scored_ids = []
-    orig = MemoryDB._score_candidates
+    seen: list = []
+    orig = MemoryDB._search_fts_sync
 
-    def spy(self, rows, qv):
-        scored_ids.extend(r["id"] for r in rows)
-        return orig(self, rows, qv)
+    def spy(self, fts_query, limit, filter_):
+        where, params = self._translate_filter(filter_)
+        seen.append((where, params))
+        return orig(self, fts_query, limit, filter_)
 
-    monkeypatch.setattr(MemoryDB, "_score_candidates", spy)
-    hits = await db.search(_vec(1.0), limit=10, score_threshold=0.0,
+    monkeypatch.setattr(MemoryDB, "_search_fts_sync", spy)
+    hits = await db.search("mine", limit=10,
                            filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
-    assert scored_ids == ["u1-row"]          # u2 row NEVER fetched into scoring
+    # the caller's filter reached the ENGINE (SQL WHERE), not a post-filter
+    assert seen and all("user_id" in where for where, _ in seen)
+    assert [h["id"] for h in hits] == ["u1-row"]  # u2 row NEVER returned
     assert all(h["payload"]["user_id"] == "u1" for h in hits)
 
 
 @pytest.mark.unit
 async def test_high_similarity_foreign_row_not_returned(db):
-    v = _vec(0.5)
-    await db.upsert("foreign", v, {"content": "other user", "user_id": "u2"})
-    await db.upsert("mine", [x * 0.9 for x in v], {"content": "my fact", "user_id": "u1"})
-    hits = await db.search(v, limit=10, score_threshold=0.0,
+    await db.upsert("foreign", {"content": "shared fact text", "user_id": "u2"})
+    await db.upsert("mine", {"content": "my fact", "user_id": "u1"})
+    # query matching the FOREIGN content: engine filter must still exclude it
+    # (OR semantics: u1's own row may also match on "fact" — that's correct;
+    # the security property is that u2's row NEVER leaks to u1)
+    hits = await db.search("shared fact text", limit=10,
+                           filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
+    assert "foreign" not in [h["id"] for h in hits]
+    assert all(h["payload"]["user_id"] == "u1" for h in hits)
+    hits = await db.search("my fact", limit=10,
                            filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
     assert [h["id"] for h in hits] == ["mine"]
 
@@ -105,7 +123,7 @@ async def test_high_similarity_foreign_row_not_returned(db):
 @pytest.mark.unit
 async def test_search_without_filter_fails_closed(db):
     with pytest.raises(ScopeRequiredError):
-        await db.search(_vec(1.0))
+        await db.search("x")
 
 
 @pytest.mark.unit
@@ -119,19 +137,19 @@ async def test_filter_key_validation(db):
     bad_keys = ["user_id) --", "x'; DROP TABLE points; --", "User-Id", ""]
     for key in bad_keys:
         with pytest.raises(ValueError):
-            await db.search(_vec(1.0), filter={"must": [{"key": key, "match": {"value": "u1"}}]})
+            await db.search("x", filter={"must": [{"key": key, "match": {"value": "u1"}}]})
 
 
 @pytest.mark.unit
 async def test_filter_none_value_rejected(db):
     with pytest.raises(ValueError):
-        await db.search(_vec(1.0), filter={"must": [{"key": "user_id", "match": {"value": None}}]})
+        await db.search("x", filter={"must": [{"key": "user_id", "match": {"value": None}}]})
 
 
 @pytest.mark.unit
 async def test_injection_value_binds_literally(db):
-    await db.upsert("a", _vec(1.0), {"content": "x", "user_id": "u1"})
-    hits = await db.search(_vec(1.0), score_threshold=-1.0, limit=10,
+    await db.upsert("a", {"content": "x", "user_id": "u1"})
+    hits = await db.search("x", limit=10,
                            filter={"must": [{"key": "user_id", "match": {"value": "' OR 1=1 --"}}]})
     assert hits == []  # literal match, no injection
 
@@ -140,7 +158,7 @@ async def test_injection_value_binds_literally(db):
 
 @pytest.mark.unit
 async def test_default_scope_is_shared(db):
-    await db.upsert("anon", _vec(1.0), {"content": "no scope given"})
+    await db.upsert("anon", {"content": "no scope given"})
     hits = await db.scroll({"must": [{"key": "agent_scope", "match": {"value": "shared"}}]})
     assert hits and hits[0]["agent_scope"] == "shared"
 
@@ -149,12 +167,12 @@ async def test_default_scope_is_shared(db):
 
 @pytest.mark.unit
 async def test_corrupt_payload_does_not_break_search(db):
-    await db.upsert("good", _vec(1.0), {"content": "fine", "user_id": "u1"})
+    await db.upsert("good", {"content": "fine", "user_id": "u1"})
     db._conn.execute(
-        "INSERT INTO points(id, collection, vector, payload, created_at) VALUES('bad','L3_facts',NULL,'{not json','2026-01-01')"
+        "INSERT INTO points(id, collection, payload, created_at) VALUES('bad','L3_facts','{not json','2026-01-01')"
     )
     db._conn.commit()
-    hits = await db.search(_vec(1.0), limit=5, score_threshold=-1.0,
+    hits = await db.search("fine", limit=5,
                            filter={"must": [{"key": "user_id", "match": {"value": "u1"}}]})
     assert [h["id"] for h in hits] == ["good"]
     assert await db.count() == 2
@@ -163,8 +181,8 @@ async def test_corrupt_payload_does_not_break_search(db):
 @pytest.mark.unit
 async def test_upsert_batch_and_delete_roundtrip(db):
     await db.upsert_batch([
-        {"id": "b1", "vector": _vec(0.2), "payload": {"content": "one", "user_id": "u1"}},
-        {"id": "b2", "vector": _vec(0.3), "payload": {"content": "two", "user_id": "u1"}},
+        {"id": "b1", "payload": {"content": "one", "user_id": "u1"}},
+        {"id": "b2", "payload": {"content": "two", "user_id": "u1"}},
     ])
     assert await db.count() == 2
     assert await db.delete("b1") is True

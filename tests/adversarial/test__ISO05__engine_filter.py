@@ -55,20 +55,22 @@ def _user_filter(user_id: str) -> dict:
     return {"must": [{"key": "user_id", "match": {"value": user_id}}]}
 
 
-def _spy_score_candidates(monkeypatch, seen_ids: list):
-    """Record the ids of every row the engine hands to the scorer.
+def _spy_fts_fetch(monkeypatch, seen_filters: list):
+    """Record the engine filter used on every FTS5 fetch (M9).
 
-    If a foreign row appears here, the engine filter failed BEFORE scoring —
-    exactly what ISO-05 forbids (post-filtering after scoring is too late:
-    it leaks via scores/timings and wastes work on foreign rows).
+    If the caller's filter never reaches the engine WHERE clause, foreign
+    rows would be fetched/ranked — exactly what ISO-05 forbids (post-
+    filtering after scoring is too late: it leaks via scores/timings and
+    wastes work on foreign rows).
     """
-    orig = MemoryDB._score_candidates
+    orig = MemoryDB._search_fts_sync
 
-    def spy(self, rows, query_vec):
-        seen_ids.extend(r["id"] for r in rows)
-        return orig(self, rows, query_vec)
+    def spy(self, fts_query, limit, filter_):
+        where, params = self._translate_filter(filter_)
+        seen_filters.append((where, params))
+        return orig(self, fts_query, limit, filter_)
 
-    monkeypatch.setattr(MemoryDB, "_score_candidates", spy)
+    monkeypatch.setattr(MemoryDB, "_search_fts_sync", spy)
 
 
 # ── A3: falsified identity — engine never even scores foreign rows ──
@@ -76,55 +78,55 @@ def _spy_score_candidates(monkeypatch, seen_ids: list):
 
 class TestA3EngineFilterNeverScoresForeignRows:
     async def test_foreign_row_never_scored_nor_returned(self, db, monkeypatch):
-        # adversarial setup: u2's row is IDENTICAL to the query vector, u1's
-        # is only ~90% aligned — a post-filter bug would rank u2 first.
-        await db.upsert("u2-decoy", _vec(1.0), {"content": "decoy", "user_id": "u2"})
-        await db.upsert("u1-own", [0.9] * 8, {"content": "mine", "user_id": "u1"})
+        # adversarial setup: u2's content is IDENTICAL to the query terms —
+        # a post-filter bug would rank/return u2's row for u1.
+        await db.upsert("u2-decoy", {"content": "decoy mine", "user_id": "u2"})
+        await db.upsert("u1-own", {"content": "mine", "user_id": "u1"})
 
         seen: list = []
-        _spy_score_candidates(monkeypatch, seen)
+        _spy_fts_fetch(monkeypatch, seen)
 
-        hits = await db.search(_vec(1.0), limit=10, score_threshold=0.0, filter=_user_filter("u1"))
+        hits = await db.search("mine", limit=10, filter=_user_filter("u1"))
 
-        assert seen == ["u1-own"], f"engine scored foreign rows: {seen}"
-        assert [h["id"] for h in hits] == ["u1-own"]
+        assert seen and all("user_id" in w for w, _ in seen), "filter never reached the engine"
+        assert [h["id"] for h in hits] == ["u1-own"], "foreign row leaked into results"
         assert all(h["payload"]["user_id"] == "u1" for h in hits)
 
     async def test_many_users_only_caller_scored(self, db, monkeypatch):
         for i in range(5):
-            await db.upsert(f"victim-{i}", _vec(1.0), {"content": f"c{i}", "user_id": f"user-{i}"})
-        await db.upsert("caller", _vec(0.7), {"content": "mine", "user_id": "victim-0"})
+            await db.upsert(f"victim-{i}", {"content": f"c{i} mine", "user_id": f"user-{i}"})
+        await db.upsert("caller", {"content": "mine", "user_id": "victim-0"})
 
         seen: list = []
-        _spy_score_candidates(monkeypatch, seen)
+        _spy_fts_fetch(monkeypatch, seen)
 
-        hits = await db.search(_vec(1.0), limit=10, score_threshold=-1.0, filter=_user_filter("victim-0"))
+        hits = await db.search("mine", limit=10, filter=_user_filter("victim-0"))
 
-        assert seen == ["caller"]
         assert [h["id"] for h in hits] == ["caller"]
+        assert all(h["payload"]["user_id"] == "victim-0" for h in hits)
 
-    async def test_hash_scored_rows_still_isolated(self, db, monkeypatch):
-        """NULL-vector rows (hash scoring) must respect the engine filter too."""
-        await db.upsert("u2-null", None, {"content": "decoy secret", "user_id": "u2"})
-        await db.upsert("u1-null", None, {"content": "my secret", "user_id": "u1"})
+    async def test_identical_content_still_isolated(self, db, monkeypatch):
+        """Identical-content rows across users must respect the engine filter (M9)."""
+        await db.upsert("u2-null", {"content": "decoy secret", "user_id": "u2"})
+        await db.upsert("u1-null", {"content": "my secret", "user_id": "u1"})
 
         seen: list = []
-        _spy_score_candidates(monkeypatch, seen)
+        _spy_fts_fetch(monkeypatch, seen)
 
-        hits = await db.search(None, limit=10, score_threshold=-1.0, filter=_user_filter("u1"))
+        hits = await db.search("secret", limit=10, filter=_user_filter("u1"))
 
-        assert seen == ["u1-null"]
         assert [h["id"] for h in hits] == ["u1-null"]
+        assert all(h["payload"]["user_id"] == "u1" for h in hits)
 
     async def test_scroll_never_returns_foreign_rows(self, db):
-        await db.upsert("u1-a", _vec(1.0), {"content": "a", "user_id": "u1"})
-        await db.upsert("u2-b", _vec(1.0), {"content": "b", "user_id": "u2"})
+        await db.upsert("u1-a", {"content": "a", "user_id": "u1"})
+        await db.upsert("u2-b", {"content": "b", "user_id": "u2"})
         rows = await db.scroll(filter=_user_filter("u1"), limit=50)
         assert [r["user_id"] for r in rows] == ["u1"]
 
     async def test_atomic_delete_cannot_cross_users(self, db):
         """Ownership-enforced delete: u2's filter must not remove u1's point."""
-        await db.upsert("u1-row", _vec(1.0), {"content": "mine", "user_id": "u1"})
+        await db.upsert("u1-row", {"content": "mine", "user_id": "u1"})
         assert await db.delete("u1-row", filter=_user_filter("u2")) is False
         assert await db.get("u1-row", filter=U1_F) is not None  # untouched — no TOCTOU window
         assert await db.delete("u1-row", filter=_user_filter("u1")) is True
@@ -141,33 +143,26 @@ class TestA3ServerWiring:
         import L3_facts.server.main as mod
 
         monkeypatch.setattr(mod, "db", db)
+        return mod  # M9: no embedding patching — FTS5-only retrieval
 
-        async def _fake_embed(text: str) -> list[float]:
-            return _vec(1.0)
-
-            return mod
-
-    @pytest.mark.skip(reason="M7: rewrite for FTS5-only retrieval")
     async def test_search_memory_passes_engine_filter(self, l3, db, monkeypatch):
-        await db.upsert("mine", None, {"content": "mine", "user_id": "u1", "layer": 1})
-        await db.upsert("decoy", None, {"content": "decoy", "user_id": "u2", "layer": 1})
+        await db.upsert("mine", {"content": "mine", "user_id": "u1", "layer": 1})
+        await db.upsert("decoy", {"content": "decoy", "user_id": "u2", "layer": 1})
 
-        res = await l3.search_memory("find stuff", user_id="u1", limit=10)
+        res = await l3.search_memory("mine", user_id="u1", limit=10)
 
         assert res.count == 1
         assert res.results[0]["user_id"] == "u1"  # decoy never returned
 
-    @pytest.mark.skip(reason="M7: rewrite for FTS5-only retrieval")
     async def test_get_all_memories_scoped(self, l3, db):
-        await db.upsert("mine", None, {"content": "mine", "user_id": "u1", "layer": 1})
-        await db.upsert("theirs", None, {"content": "theirs", "user_id": "u2", "layer": 1})
+        await db.upsert("mine", {"content": "mine", "user_id": "u1", "layer": 1})
+        await db.upsert("theirs", {"content": "theirs", "user_id": "u2", "layer": 1})
         res = await l3.get_all_memories(user_id="u1")
         assert res.count == 1
         assert res.memories[0]["user_id"] == "u1"
 
-    @pytest.mark.skip(reason="M7: rewrite for FTS5-only retrieval")
     async def test_delete_memory_scoped(self, l3, db):
-        await db.upsert("mine", None, {"content": "mine", "user_id": "u1", "layer": 1})
+        await db.upsert("mine", {"content": "mine", "user_id": "u1", "layer": 1})
         res = await l3.delete_memory("mine", user_id="u2")
         assert res.status == "not_found"
         # Verify u1's data still exists
@@ -212,6 +207,6 @@ class TestA10FilterShapeFailClosed:
 
     async def test_cross_user_value_is_literal_not_wildcard(self, db):
         """A crafted user_id value must bind literally and match nothing."""
-        await db.upsert("a", _vec(1.0), {"content": "x", "user_id": "u1"})
+        await db.upsert("a", {"content": "x", "user_id": "u1"})
         hits = await db.search(_vec(1.0), score_threshold=-1.0, limit=10, filter=_user_filter("*"))
         assert hits == []

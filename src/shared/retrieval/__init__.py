@@ -37,6 +37,9 @@ L3_DECISIONS_PATH = os.getenv(
     "L3_DECISIONS_PATH",
     os.path.join(_MSD, "data", "memory", "L3_decisions") if _MSD else str(Path.home() / ".memory" / "L3_decisions")
 )
+# M9: FTS5-only retrieval — bm25 ranks are not cosine similarities, so a hard
+# score cutoff no longer applies to the engine path. Kept for env parity; read
+# but unused by the engine query.
 MIN_SCORE = float(os.getenv("VK_MIN_SCORE", "0.3"))
 MAX_TOKENS = int(os.getenv("VK_MAX_TOKENS", "48000"))
 
@@ -254,13 +257,11 @@ async def _retrieve_hybrid(
     results: list[ContextItem] = []
     try:
         db = _get_db(target_coll)
-        vector = None
+        # M9: FTS5-only engine search — query text in, bm25 out (no vector).
         search_results = await db.search(
-            vector,
+            query_text,
             limit=k,
-            score_threshold=MIN_SCORE,
             filter={"must": must},
-            sparse_query=None,  # RET-05: lexical boost
         )
         for p in search_results:
             payload = p.get("payload", {})

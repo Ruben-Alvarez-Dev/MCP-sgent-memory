@@ -51,9 +51,9 @@ The backpack captures events **automatically** (no LLM decision needed) and prov
 **Storage**: a single `data/memory.db` (SQLite stdlib, WAL mode). No daemons,
 no ports, no external vector database. The `MemoryDB` engine enforces scope
 filters at the SQL level (`agent_scope` / `user_id` / `layer`, validated via
-allowlist), forbids persisted zero-vectors (`NULL` + deterministic hash-vector
-instead), boosts lexical matches with sparse vectors (RET-05) and performs
-deletes atomically (no TOCTOU window).
+allowlist), performs deletes atomically (no TOCTOU window) and boots with an
+idempotent schema migration (M9 drops the dead `vector` column from pre-M9
+databases).
 
 ### Memory Layers
 
@@ -85,9 +85,9 @@ against a traceable 38-doc fixture built from this repo:
 PYTHONPATH=src .venv/bin/python scripts/run_eval.py   # writes results YAML
 ```
 
-Latest run (M5): **Recall@5 = 0.463 · MRR = 0.4767** (hash-vector embeddings,
-degraded mode — real embeddings score higher). Evidence:
-`openspec/changes/M5-troncal/evidence/eval-40-results-m5.yaml`.
+Latest run (M9): **Recall@5 = 0.5375 · MRR = 0.4557** — FTS5-only bm25, zero
+embeddings (surpasses the M5 record of 0.463 which still used the hash-vector
+dense channel). Evidence: `openspec/changes/M9-schema-migration/evidence/`.
 
 ## Module Reference
 
@@ -262,11 +262,20 @@ The vault processor (`vault_processor.py`) runs as a launchd service with WatchP
 
 - **Single store**: `data/memory.db` — SQLite (stdlib only, WAL mode). No daemons, no ports.
 - **Scope filters at the SQL level**: `agent_scope` / `user_id` / `layer` with an allowlist of filter keys — enforced by the engine, never by Python post-filtering.
-- **Sparse boost (RET-05)**: stable lexical sparse vectors boost dense scores at read time (SHA-256 token hashing — process-stable).
-- **Zero-vectors prohibited (STO-05)**: failed embeddings persist as `vector=NULL` + `embedded=false`; at query time they are scored against a deterministic hash-vector (`score_source="hash"`).
+- **FTS5-only retrieval (M9)**: the `vector` column was removed from the schema (boot-time `DROP COLUMN` migration); lexical search runs on SQLite FTS5 with bm25 ranking and OR-semantics over extracted tokens — recall-first, deterministic.
+- **Zero embeddings (M6/M9)**: no embedding models, no hash-vector fallback, no sparse vectors in the read path — the retrieval pipeline has no probabilistic channel left.
 - **Deterministic ranking**: no micro-LLM in the query path — hard constraint, enforced in code.
 - **Atomic deletes**: `delete(id, filter)` runs as a single engine-level operation — no TOCTOU window.
 - **Trunk consolidation (M5)**: `merged` is a reserved scope — engine-level writes require human approval + provenance (`approved_by`), ISO-16.
+
+Retrieval pipeline (M9):
+
+```
+query text ──► token extraction (CamelCase / UPPER_SNAKE+digits / words)
+           ──► synonym expansion ──► FTS5 MATCH (OR-joined, bm25 rank)
+           ──► engine scope filter (SQL WHERE, ISO-05)
+           ──► score = −bm25 rank (score_source="fts5") ──► rank & fuse
+```
 
 ---
 
@@ -436,7 +445,7 @@ Architecture program executed in gated milestones (`openspec/changes/M0…M5`):
 
 - **M1 — Isolation**: engine-level scope filters (SQL `WHERE` with bound params, key allowlist), 5-level namespace `c:/p:/a:/s:/u:`, filesystem jail
 - **M2 — Storage**: one `data/memory.db` (SQLite stdlib, WAL). **Qdrant demolished** — remains legacy context only; zero-vectors prohibited (`NULL` + deterministic hash-vector); atomic anti-TOCTOU deletes
-- **M3 — Retrieval**: sparse lexical boost on the read path (RET-05), deterministic ranking
+- **M3 — Retrieval**: sparse lexical boost on the read path (RET-05), deterministic ranking *(superseded by M6/M9 — FTS5-only)*
 - **M4 — Identity**: harness-asserted identity, `agents.json` registry (0600, sha256 only), strict fail-closed boot
 - **M5 — Trunk**: `merged` scope requires human approval + provenance (ISO-16); hard constraint "no local generation models" enforced in code; sidecar HTTP optional token (ISO-17)
 

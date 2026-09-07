@@ -42,12 +42,12 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a1_cross_tenant_search_blocked(self, db):
         """A1: Tenant A cannot search tenant B's data."""
-        await db.upsert("a-data", None, {
+        await db.upsert("a-data", {
             "content": "Tenant A private data",
             "agent_scope": "tenant-a",
             "layer": 1,
         })
-        await db.upsert("shared-data", None, {
+        await db.upsert("shared-data", {
             "content": "Shared data",
             "agent_scope": "shared",
             "layer": 1,
@@ -63,7 +63,7 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a2_cross_tenant_get_blocked(self, db):
         """A2: Tenant A cannot get tenant B's point by ID."""
-        await db.upsert("b-secret", None, {
+        await db.upsert("b-secret", {
             "content": "Tenant B secret",
             "agent_scope": "tenant-b",
             "layer": 1,
@@ -77,7 +77,7 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a3_cross_tenant_delete_blocked(self, db):
         """A3: Tenant A cannot delete tenant B's point."""
-        await db.upsert("b-delete-me", None, {
+        await db.upsert("b-delete-me", {
             "content": "Tenant B data",
             "agent_scope": "tenant-b",
             "layer": 1,
@@ -128,7 +128,7 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a8_shared_scope_visible_to_all(self, db):
         """A8: Shared scope is visible to all tenants."""
-        await db.upsert("shared-p", None, {
+        await db.upsert("shared-p", {
             "content": "Shared content",
             "agent_scope": "shared",
             "layer": 1,
@@ -145,7 +145,7 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a9_own_scope_visible(self, db):
         """A9: Own scope data is visible to the tenant."""
-        await db.upsert("own-p", None, {
+        await db.upsert("own-p", {
             "content": "My private data",
             "agent_scope": "tenant-a",
             "layer": 1,
@@ -159,12 +159,12 @@ class TestEngineFilter:
     @pytest.mark.asyncio
     async def test_a10_sibling_scope_invisible(self, db):
         """A10: Sibling scopes are never visible."""
-        await db.upsert("sib-a", None, {
+        await db.upsert("sib-a", {
             "content": "Sibling A data",
             "agent_scope": "sibling-a",
             "layer": 1,
         })
-        await db.upsert("sib-b", None, {
+        await db.upsert("sib-b", {
             "content": "Sibling B data",
             "agent_scope": "sibling-b",
             "layer": 1,
@@ -185,7 +185,7 @@ class TestTrunkIsolation:
     async def test_a11_merged_write_blocked_without_approval(self, db):
         """A11: Cannot write to merged without approval flag."""
         with pytest.raises(Exception):  # ScopeError
-            await db.upsert("merged-p", None, {
+            await db.upsert("merged-p", {
                 "content": "Merged content",
                 "agent_scope": "merged",
                 "layer": 4,
@@ -195,7 +195,7 @@ class TestTrunkIsolation:
     async def test_a12_merged_requires_provenance(self, db):
         """A12: Merged writes require approved_by + provenance."""
         with pytest.raises(Exception):
-            await db.upsert("merged-p2", None, {
+            await db.upsert("merged-p2", {
                 "content": "Merged content 2",
                 "agent_scope": "merged",
                 "layer": 4,
@@ -206,7 +206,7 @@ class TestTrunkIsolation:
     @pytest.mark.asyncio
     async def test_a13_merged_can_be_written_with_approval(self, db):
         """A13: Merged can be written with proper approval."""
-        await db.upsert("merged-p", None, {
+        await db.upsert("merged-p", {
             "content": "Approved merged content",
             "agent_scope": "merged",
             "layer": 4,
@@ -239,7 +239,7 @@ class TestTrunkIsolation:
     @pytest.mark.asyncio
     async def test_a16_merged_visible_to_all_on_read(self, db):
         """A16: Merged data is readable by all tenants."""
-        await db.upsert("merged-shared", None, {
+        await db.upsert("merged-shared", {
             "content": "Common knowledge",
             "agent_scope": "merged",
             "layer": 4,
@@ -262,7 +262,7 @@ class TestFTS5Security:
     @pytest.mark.asyncio
     async def test_fts5_sql_injection_dropped(self, db):
         """FTS5: SQL injection attempts are parameterized, not executed."""
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "normal content",
             "agent_scope": "shared",
         })
@@ -284,14 +284,14 @@ class TestFTS5Security:
     @pytest.mark.asyncio
     async def test_fts5_corrupt_payload_no_crash(self, db):
         """FTS5: Corrupt JSON payload doesn't crash search."""
-        await db.upsert("good", None, {
+        await db.upsert("good", {
             "content": "valid content here",
             "agent_scope": "shared",
         })
         # Inject corrupt row
         db._conn.execute(
-            "INSERT INTO points(id, collection, vector, payload, agent_scope, layer, sparse_json, created_at)"
-            " VALUES('corrupt','test',NULL,'{invalid json','shared',1,NULL,'2026-01-01')",
+            "INSERT INTO points(id, collection, payload, agent_scope, layer, sparse_json, created_at)"
+            " VALUES('corrupt','test','{invalid json','shared',1,NULL,'2026-01-01')",
         )
         db._conn.commit()
         results = await db.search_fts("valid", limit=5, filter={
@@ -302,7 +302,7 @@ class TestFTS5Security:
     @pytest.mark.asyncio
     async def test_fts5_empty_content(self, db):
         """FTS5: Empty content handled gracefully."""
-        await db.upsert("empty", None, {
+        await db.upsert("empty", {
             "content": "",
             "agent_scope": "shared",
         })
@@ -315,7 +315,7 @@ class TestFTS5Security:
     async def test_fts5_very_long_content(self, db):
         """FTS5: Very long content doesn't crash."""
         long_content = "word " * 10000
-        await db.upsert("long", None, {
+        await db.upsert("long", {
             "content": long_content,
             "agent_scope": "shared",
         })
@@ -352,12 +352,12 @@ class TestEntityGraphSecurity:
     @pytest.mark.asyncio
     async def test_entity_scope_isolation(self, db):
         """Entities are scoped: tenant A can't see tenant B's entities."""
-        await db.upsert("p-a", None, {
+        await db.upsert("p-a", {
             "content": "AuthService JWT",
             "agent_scope": "tenant-a",
             "layer": 1,
         })
-        await db.upsert("p-b", None, {
+        await db.upsert("p-b", {
             "content": "AuthService OAuth",
             "agent_scope": "tenant-b",
             "layer": 1,
@@ -377,12 +377,12 @@ class TestEntityGraphSecurity:
     @pytest.mark.asyncio
     async def test_entity_deterministic_ids(self, db):
         """Entity IDs are deterministic: same name+scope = same ID."""
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "AuthService",
             "agent_scope": "shared",
             "layer": 1,
         })
-        await db.upsert("p2", None, {
+        await db.upsert("p2", {
             "content": "AuthService",
             "agent_scope": "shared",
             "layer": 1,
@@ -424,13 +424,12 @@ class TestConsolidationSecurity:
     """Consolidation pipeline security."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="M7: needs update")
     async def test_consolidation_no_scope_escape(self, db):
         """Consolidation cannot write to unauthorized scopes."""
         from shared.consolidation import consolidate_l1_l2
         # Insert L1 memories
         for i in range(5):
-            await db.upsert(f"l1-{i}", None, {
+            await db.upsert(f"l1-{i}", {
                 "content": f"Memory {i}",
                 "agent_scope": "tenant-a",
                 "layer": 1,
@@ -449,12 +448,11 @@ class TestConsolidationSecurity:
             assert count == 0
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="M7: needs update")
     async def test_consolidation_idempotent(self, db):
         """Consolidation is idempotent: running twice = same result."""
         from shared.consolidation import consolidate_l1_l2
         for i in range(5):
-            await db.upsert(f"l1-{i}", None, {
+            await db.upsert(f"l1-{i}", {
                 "content": f"Memory {i}",
                 "agent_scope": "shared",
                 "layer": 1,
@@ -504,7 +502,7 @@ class TestMemoryDBSecurity:
     @pytest.mark.asyncio
     async def test_upsert_without_scope_defaults_to_shared(self, db):
         """Upsert without agent_scope defaults to shared."""
-        await db.upsert("no-scope", None, {
+        await db.upsert("no-scope", {
             "content": "No scope given",
             "layer": 1,
         })
@@ -518,7 +516,7 @@ class TestMemoryDBSecurity:
     async def test_payload_key_validation(self, db):
         """Reserved payload keys rejected."""
         with pytest.raises(ValueError):
-            await db.upsert("bad", None, {
+            await db.upsert("bad", {
                 "content": "test",
                 "agent_scope": "shared",
                 "layer": 1,
@@ -529,13 +527,13 @@ class TestMemoryDBSecurity:
     async def test_point_id_validation(self, db):
         """Invalid point IDs rejected."""
         with pytest.raises(ValueError):
-            await db.upsert("", None, {
+            await db.upsert("", {
                 "content": "test",
                 "agent_scope": "shared",
                 "layer": 1,
             })
         with pytest.raises(ValueError):
-            await db.upsert(None, None, {
+            await db.upsert(None, {
                 "content": "test",
                 "agent_scope": "shared",
                 "layer": 1,

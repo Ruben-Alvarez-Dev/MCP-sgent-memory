@@ -53,7 +53,6 @@ async def seeded_db(tmp_path):
     for i, layer in enumerate(seed_plan):
         await d.upsert(
             f"seed-L{layer}-{i}",
-            None,
             {
                 "layer": layer,
                 "content": f"seed memory L{layer} #{i}",

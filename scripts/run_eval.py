@@ -3,8 +3,8 @@
 
 Runs the 40 frozen queries of openspec/changes/M0-baseline/evidence/eval-40.yaml
 against a deterministic fixture DB (tests/eval/fixture_corpus.py) through the
-REAL retrieval stack (shared.retrieval.retrieve), with embeddings patched to
-the deterministic hash_vector (no services, no network, EMBEDDING_BACKEND=noop).
+REAL retrieval stack (shared.retrieval.retrieve). M9: FTS5-only — no
+embeddings, no hash fallback, no services, no network.
 
 Per query: Recall@5 and MRR against tests/eval/judgments.yaml; aggregates by
 intent, language and global. Results go to --out (YAML) or stdout.
@@ -12,12 +12,8 @@ intent, language and global. Results go to --out (YAML) or stdout.
 Honesty notes baked into the output:
 - Corpus is synthetic, derived from real repo chunks — it measures
   ranking/fusion behavior, not production quality.
-- hash_vector makes the dense channel ≈ noise for non-identical texts
-  (cosine ~±0.03), so metrics mostly reflect the sparse fusion (RET-05)
-  plus level weights/profiles/packing.
-- The runner lowers VK_MIN_SCORE (default 0.05, --min-score) because the
-  production 0.3 threshold would filter everything when dense ≈ 0. The
-  value used is recorded in the output.
+- Retrieval is FTS5-only bm25 (M9) plus level weights/profiles/packing.
+- VK_MIN_SCORE no longer thresholds the engine path (M9); recorded for parity.
 
 Usage:
     .venv/bin/python scripts/run_eval.py --out /tmp/eval-results.yaml
@@ -27,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import inspect
 import os
 import sys
 import tempfile
@@ -101,7 +96,7 @@ async def run(args: argparse.Namespace) -> dict:
 
     import shared.retrieval as retr
     from shared.llm import classify_intent
-    from shared.memory_db import MemoryDB, hash_vector
+    from shared.memory_db import MemoryDB
 
     fixture_db_path = args.fixture_db or str(Path(tmp_base) / "data" / "memory.db")
     started_at = datetime.now(UTC).isoformat()
@@ -118,10 +113,7 @@ async def run(args: argparse.Namespace) -> dict:
         c = MemoryDB(fixture_db_path, coll, DIM)
         await c.ensure_collection()
         retr._db_clients[coll] = c
-    # Deterministic embeddings — no services, no caches, pure function of text.
-    retr.get_embedding = lambda text: hash_vector(text, DIM)
-
-    engine_sparse = "sparse_query" in inspect.signature(MemoryDB.search).parameters
+    # M9: no embeddings to patch — FTS5 is the only channel.
 
     queries = yaml.safe_load(Path(args.queries).read_text())["queries"]
     judgments_doc = yaml.safe_load(Path(args.judgments).read_text())
@@ -189,19 +181,13 @@ async def run(args: argparse.Namespace) -> dict:
             "fixture_db": fixture_db_path,
             "fixture_docs": len(manifest),
             "agent_scope": "shared",
-            "embedding": "hash_vector(text, 1024) patched into shared.retrieval.get_embedding",
-            "embedding_backend_env": "noop",
+            "retrieval": "FTS5-only bm25 (M9) + level weights/profiles/packing",
             "min_score": args.min_score,
-            "min_score_note": (
-                "0.03 = just above the hash-dense noise band (std ≈ 1/sqrt(1024) ≈ 0.031); "
-                "prod 0.3 yields recall 0 when the dense channel is hash-noise. "
-                "Sensitivity measured: 0.05 -> R@5 0.34 / MRR 0.42; 0.03 -> 0.43 / 0.45; "
-                "0.02 -> 0.43 / 0.41 (noise dilutes ranks)"
-            ),
+            "min_score_note": "M9: score_threshold no longer applies to the engine path",
             "pythonhashseed": "0 (re-exec: classify_intent entity order is set-order dependent)",
         },
         "engine": {
-            "memorydb_search_sparse_query": engine_sparse,
+            "memorydb_search": "FTS5-only (M9: sparse_query/dense removed)",
             "retrieval_module": "shared.retrieval (working tree at run time)",
             "executor_workers": 1,
             "known_issue": (
@@ -229,8 +215,8 @@ async def run(args: argparse.Namespace) -> dict:
                 "decisiones/resúmenes trazables a openspec — mide ranking y fusión, no calidad de producción"
             ),
             (
-                "embeddings deterministas (hash_vector): canal dense ≈ ruido salvo texto idéntico; "
-                "las métricas reflejan sobre todo la fusión sparse RET-05 + pesos de nivel/perfil"
+                "recuperación FTS5-only bm25 (M9): sin canal dense ni sparse; "
+                "las métricas reflejan el ranking léxico + pesos de nivel/perfil"
             ),
             (
                 "recency se computa contra created_at del fixture (fresco en el momento del run); "

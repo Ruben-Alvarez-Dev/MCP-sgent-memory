@@ -1,7 +1,7 @@
 # M7: Embedding imports removed. FTS5-only retrieval.
 """vk-cache — Unified Retrieval & Context Assembly (L5)."""
 from __future__ import annotations
-import json, logging, math, re
+import json, logging, re
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -40,18 +40,22 @@ logger = logging.getLogger(__name__)
 
 def _estimate_tokens(t): return len(t) // 4
 
-async def _embed_or_hash(text: str) -> tuple[list[float], bool]:
-    """RET-06: deterministic degradation when embeddings are unavailable.
 
-    Returns (vector, embedded?). On any embedding failure the query degrades
-    to the deterministic SHA-256 hash-vector so L5 tools NEVER fail on an
-    embedding outage (KNOWN-BUG-002).
+def _token_similarity(a: str, b: str) -> float:
+    """Deterministic token-set similarity (Jaccard) for context-shift detection.
+
+    M9: replaces the embedding-cosine of _embed_or_hash (which had degraded to
+    `await None` — always raising, silently forcing sim=0). Tokens are
+    lowercased alphanumeric words; two empty sets count as identical (1.0).
     """
-    try:
-        return await None, True
-    except Exception as e:  # noqa: BLE001 — degradation boundary: ANY embedding failure must degrade, never raise
-        logger.warning('embedding unavailable, hash-vector degradation (RET-06): %s', e)
-        return None, False
+    ta = set(re.findall(r"[a-z0-9]+", (a or "").lower()))
+    tb = set(re.findall(r"[a-z0-9]+", (b or "").lower()))
+    if not ta and not tb:
+        return 1.0
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
 
 _REMINDER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _migrated_legacy = False
@@ -139,10 +143,11 @@ async def push_reminder(query: str, reason: str = "relevant_to_current_task", ag
     agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     scope = normalize_scope(agent_id)
     clean = validate_push_reminder(query, scope)
-    vector, _embedded = await _embed_or_hash(clean["query"])
+    # M9: FTS5-only engine search — the query text IS the retrieval signal
+    # (was: _embed_or_hash → `await None` TypeError → silent empty results).
     # M2: engine-level scope filter (own + shared) — was per-scope collection name
     results = await store.search(
-        vector, limit=5, score_threshold=config.L5_routing_min_score,
+        clean["query"], limit=5,
         filter={"must": [{"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}]},
     )
     sources = [ContextSource(scope=f"{r.get('payload',{}).get('scope_type','')}/{r.get('payload',{}).get('scope_id','')}",layer=r.get("payload",{}).get("layer",0),mem_type=r.get("payload",{}).get("type",""),score=r.get("score",0),content_preview=r.get("payload",{}).get("content","")[:500]) for r in results]
@@ -174,19 +179,15 @@ async def detect_context_shift(current_query: str, previous_query: str = "", age
     """Detect if conversation context has shifted domains."""
     agent_id = IDENTITY.assert_agent(agent_id)  # M4: identity gate before I/O
     if not previous_query: return ContextShiftResult(shift_detected=False)
-    try:
-        v1, _ = await _embed_or_hash(current_query)
-        v2, _ = await _embed_or_hash(previous_query)
-        dot = sum(a*b for a,b in zip(v1,v2))
-        sim = dot / (math.sqrt(sum(a*a for a in v1)) * math.sqrt(sum(a*a for a in v2))) if v1 and v2 else 0
-    except Exception: sim = 0.0
+    # M9: deterministic token similarity (was: embedding cosine that silently
+    # degraded to sim=0.0 on every call since M7).
+    sim = _token_similarity(current_query, previous_query)
     shifted = sim < 0.7
     new_ctx = ""
     if shifted:
-        vec, _ = await _embed_or_hash(current_query)
         scope = normalize_scope(agent_id)
         res = await store.search(
-            vec, limit=5,
+            current_query, limit=5,
             filter={"must": [{"key": "agent_scope", "match": {"any": [scope, "shared"] if scope != "shared" else ["shared"]}}]},
         )
         new_ctx = f"{len(res)} sources found"

@@ -81,7 +81,6 @@ def main() -> int:
         # sync internal write (script context — no event loop)
         db._upsert_one(
             pid,
-            None,  # vector: re-embed later or hash-fallback at query time (STO-05)
             {
                 "content": e.get("content", ""),
                 "user_id": e.get("user_id", "default"),

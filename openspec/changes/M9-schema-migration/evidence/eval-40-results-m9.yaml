@@ -1,0 +1,658 @@
+version: 1
+eval: eval-40
+generated_at: '2026-09-07T01:24:37.264409+00:00'
+started_at: '2026-09-07T01:24:37.147114+00:00'
+finished_at: '2026-09-07T01:24:37.264409+00:00'
+duration_ms: 117
+params:
+  queries: /Users/manu/.mcp-agent-memory/openspec/changes/M0-baseline/evidence/eval-40.yaml
+  judgments: /Users/manu/.mcp-agent-memory/tests/eval/judgments.yaml
+  fixture_db: /var/folders/9x/2k2h1kw143q3c410mksxfgvr0000gn/T/eval40-6g91cmk_/data/memory.db
+  fixture_docs: 34
+  agent_scope: shared
+  retrieval: FTS5-only bm25 (M9) + level weights/profiles/packing
+  min_score: 0.03
+  min_score_note: 'M9: score_threshold no longer applies to the engine path'
+  pythonhashseed: '0 (re-exec: classify_intent entity order is set-order dependent)'
+engine:
+  memorydb_search: 'FTS5-only (M9: sparse_query/dense removed)'
+  retrieval_module: shared.retrieval (working tree at run time)
+  executor_workers: 1
+  known_issue: 'MemoryDB: concurrent to_thread reads on one connection can raise sqlite3 SQLITE_MISUSE intermittently;
+    runner serializes reads via a single-worker executor (finding reported to engine owner)'
+aggregates:
+  global:
+    queries: 40
+    recall_at_5: 0.5375
+    mrr: 0.4557
+    zero_recall_queries: 15
+  by_intent:
+    code_lookup:
+      queries: 10
+      recall_at_5: 0.5
+      mrr: 0.3667
+      zero_recall_queries: 5
+    conversation_recall:
+      queries: 6
+      recall_at_5: 0.75
+      mrr: 0.6111
+      zero_recall_queries: 0
+    decision_recall:
+      queries: 8
+      recall_at_5: 0.625
+      mrr: 0.65
+      zero_recall_queries: 2
+    error_diagnosis:
+      queries: 8
+      recall_at_5: 0.4375
+      mrr: 0.4062
+      zero_recall_queries: 4
+    how_to:
+      queries: 8
+      recall_at_5: 0.4375
+      mrr: 0.3055
+      zero_recall_queries: 4
+  by_lang:
+    en:
+      queries: 20
+      recall_at_5: 0.525
+      mrr: 0.4308
+      zero_recall_queries: 7
+    es:
+      queries: 20
+      recall_at_5: 0.55
+      mrr: 0.4806
+      zero_recall_queries: 8
+diagnostics:
+  unmapped_sections: 0
+  intent_mismatches:
+    dónde está definida la clase AuthService: pattern_match
+    dónde se calcula combined_score: pattern_match
+    archivo de configuración de Qdrant: pattern_match
+    show me the sanitize module: pattern_match
+    which file implements bm25_tokenize: pattern_match
+    find the heartbeat function in L0_capture: pattern_match
+    where is FTS5 search implemented: pattern_match
+    por qué el vault es bilingüe: pattern_match
+    what did we decide about scope isolation: pattern_match
+    why is there an HTTP sidecar on port 8890: pattern_match
+    what did we decide about the dream cooldown: pattern_match
+    de qué manera guardo una decisión: decision_recall
+    el hook no dispara la consolidación: pattern_match
+    embedding server timeout on port 8091: pattern_match
+    qdrant connection refused: pattern_match
+    retrival returns emtpy results: pattern_match
+    consolidaton never runs: pattern_match
+    what did we say about sampling support: pattern_match
+    what did we cover about isolation leaks: pattern_match
+notes:
+- corpus sintético derivado de chunks reales del repo (200-660 chars) + decisiones/resúmenes trazables a openspec
+  — mide ranking y fusión, no calidad de producción
+- 'recuperación FTS5-only bm25 (M9): sin canal dense ni sparse; las métricas reflejan el ranking léxico + pesos
+  de nivel/perfil'
+- recency se computa contra created_at del fixture (fresco en el momento del run); el manifiesto, no los scores,
+  es el contrato de determinismo
+results:
+- q: dónde está definida la clase AuthService
+  lang: es
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-2
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: qué hace la función build_repo_index_points
+  lang: es
+  intent: code_lookup
+  detected_intent: code_lookup
+  relevant:
+  - eval-9
+  retrieved_top5:
+  - eval-27
+  - eval-28
+  - eval-9
+  - eval-21
+  - eval-23
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.3333
+  n_sections: 10
+- q: mostrame el módulo de consolidación L0_to_L4
+  lang: es
+  intent: code_lookup
+  detected_intent: code_lookup
+  relevant:
+  - eval-17
+  retrieved_top5:
+  - eval-33
+  - eval-27
+  - eval-17
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.3333
+  n_sections: 3
+- q: dónde se calcula combined_score
+  lang: es
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-7
+  retrieved_top5:
+  - eval-7
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 1
+- q: archivo de configuración de Qdrant
+  lang: es
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-19
+  - eval-27
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: where is the AuthService class defined
+  lang: en
+  intent: code_lookup
+  detected_intent: code_lookup
+  relevant:
+  - eval-2
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: show me the sanitize module
+  lang: en
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-1
+  retrieved_top5:
+  - eval-1
+  - eval-2
+  - eval-3
+  - eval-21
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 4
+- q: which file implements bm25_tokenize
+  lang: en
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-8
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: find the heartbeat function in L0_capture
+  lang: en
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-4
+  retrieved_top5:
+  - eval-17
+  - eval-5
+  - eval-3
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 3
+- q: where is FTS5 search implemented
+  lang: en
+  intent: code_lookup
+  detected_intent: pattern_match
+  relevant:
+  - eval-10
+  - eval-11
+  retrieved_top5:
+  - eval-10
+  - eval-11
+  - eval-15
+  hits_at_5: 2
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 3
+- q: por qué usamos Qdrant en vez de SQLite
+  lang: es
+  intent: decision_recall
+  detected_intent: decision_recall
+  relevant:
+  - eval-27
+  retrieved_top5:
+  - eval-27
+  - eval-31
+  - eval-15
+  - eval-16
+  - eval-26
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 5
+- q: qué decidimos sobre el modelo de embeddings
+  lang: es
+  intent: decision_recall
+  detected_intent: decision_recall
+  relevant:
+  - eval-28
+  retrieved_top5:
+  - eval-28
+  - eval-30
+  - eval-29
+  - eval-27
+  - eval-4
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 8
+- q: por qué el vault es bilingüe
+  lang: es
+  intent: decision_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-29
+  retrieved_top5:
+  - eval-21
+  - eval-23
+  - eval-22
+  - eval-19
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 4
+- q: decidimos eliminar el micro-LLM
+  lang: es
+  intent: decision_recall
+  detected_intent: decision_recall
+  relevant:
+  - eval-30
+  retrieved_top5:
+  - eval-30
+  - eval-32
+  - eval-24
+  - eval-22
+  - eval-19
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 6
+- q: why did we choose BGE-M3 over MiniLM
+  lang: en
+  intent: decision_recall
+  detected_intent: decision_recall
+  relevant:
+  - eval-28
+  retrieved_top5:
+  - eval-28
+  - eval-29
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 2
+- q: what did we decide about scope isolation
+  lang: en
+  intent: decision_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-14
+  - eval-31
+  retrieved_top5:
+  - eval-12
+  - eval-26
+  - eval-19
+  - eval-5
+  - eval-14
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 0.2
+  n_sections: 11
+- q: why is there an HTTP sidecar on port 8890
+  lang: en
+  intent: decision_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-20
+  - eval-32
+  retrieved_top5:
+  - eval-20
+  - eval-22
+  - eval-19
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 1.0
+  n_sections: 3
+- q: what did we decide about the dream cooldown
+  lang: en
+  intent: decision_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-33
+  retrieved_top5:
+  - eval-17
+  - eval-19
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 2
+- q: cómo añado una memoria semántica
+  lang: es
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-3
+  - eval-5
+  retrieved_top5:
+  - eval-27
+  - eval-22
+  - eval-23
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 3
+- q: cómo busco conversaciones pasadas
+  lang: es
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-10
+  - eval-11
+  retrieved_top5:
+  - eval-27
+  - eval-23
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 2
+- q: cómo se consolida la memoria entre capas
+  lang: es
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-17
+  retrieved_top5:
+  - eval-27
+  - eval-22
+  - eval-23
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 3
+- q: de qué manera guardo una decisión
+  lang: es
+  intent: how_to
+  detected_intent: decision_recall
+  relevant:
+  - eval-3
+  retrieved_top5:
+  - eval-27
+  - eval-30
+  - eval-28
+  - eval-29
+  - eval-21
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.1111
+  n_sections: 10
+- q: how do i save a conversation thread
+  lang: en
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-12
+  retrieved_top5:
+  - eval-3
+  - eval-10
+  - eval-12
+  - eval-25
+  - eval-26
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.3333
+  n_sections: 7
+- q: how to check pending reminders
+  lang: en
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-18
+  retrieved_top5:
+  - eval-2
+  - eval-18
+  - eval-23
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.5
+  n_sections: 3
+- q: what's the best way to request context
+  lang: en
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-20
+  - eval-6
+  retrieved_top5:
+  - eval-6
+  - eval-18
+  - eval-19
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 1.0
+  n_sections: 3
+- q: how do i delete a semantic memory
+  lang: en
+  intent: how_to
+  detected_intent: how_to
+  relevant:
+  - eval-16
+  retrieved_top5:
+  - eval-10
+  - eval-16
+  - eval-17
+  - eval-19
+  - eval-25
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.5
+  n_sections: 10
+- q: falla la conexión con qdrant en 6333
+  lang: es
+  intent: error_diagnosis
+  detected_intent: error_diagnosis
+  relevant:
+  - eval-27
+  retrieved_top5:
+  - eval-27
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 1
+- q: error al generar embedings del servidor
+  lang: es
+  intent: error_diagnosis
+  detected_intent: error_diagnosis
+  relevant:
+  - eval-15
+  retrieved_top5:
+  - eval-28
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 1
+- q: el hook no dispara la consolidación
+  lang: es
+  intent: error_diagnosis
+  detected_intent: pattern_match
+  relevant:
+  - eval-17
+  - eval-22
+  retrieved_top5:
+  - eval-22
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 1.0
+  n_sections: 1
+- q: roto el ranking de resultados
+  lang: es
+  intent: error_diagnosis
+  detected_intent: error_diagnosis
+  relevant:
+  - eval-30
+  - eval-7
+  retrieved_top5:
+  - eval-30
+  - eval-7
+  hits_at_5: 2
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 2
+- q: embedding server timeout on port 8091
+  lang: en
+  intent: error_diagnosis
+  detected_intent: pattern_match
+  relevant:
+  - eval-15
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: qdrant connection refused
+  lang: en
+  intent: error_diagnosis
+  detected_intent: pattern_match
+  relevant:
+  - eval-19
+  - eval-27
+  retrieved_top5: []
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 0
+- q: retrival returns emtpy results
+  lang: en
+  intent: error_diagnosis
+  detected_intent: pattern_match
+  relevant:
+  - eval-15
+  - eval-8
+  retrieved_top5:
+  - eval-6
+  - eval-12
+  - eval-14
+  hits_at_5: 0
+  recall_at_5: 0.0
+  mrr: 0.0
+  n_sections: 3
+- q: consolidaton never runs
+  lang: en
+  intent: error_diagnosis
+  detected_intent: pattern_match
+  relevant:
+  - eval-17
+  retrieved_top5:
+  - eval-1
+  - eval-26
+  - eval-8
+  - eval-17
+  - eval-20
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.25
+  n_sections: 5
+- q: qué dijimos antes sobre el vault
+  lang: es
+  intent: conversation_recall
+  detected_intent: conversation_recall
+  relevant:
+  - eval-21
+  - eval-29
+  retrieved_top5:
+  - eval-21
+  - eval-23
+  - eval-22
+  - eval-19
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 1.0
+  n_sections: 4
+- q: lo que hablamos de los hooks
+  lang: es
+  intent: conversation_recall
+  detected_intent: conversation_recall
+  relevant:
+  - eval-22
+  retrieved_top5:
+  - eval-21
+  - eval-22
+  - eval-20
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.5
+  n_sections: 3
+- q: mencionamos el problema de los reminders
+  lang: es
+  intent: conversation_recall
+  detected_intent: conversation_recall
+  relevant:
+  - eval-23
+  retrieved_top5:
+  - eval-18
+  - eval-21
+  - eval-23
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 0.3333
+  n_sections: 3
+- q: what did we say about sampling support
+  lang: en
+  intent: conversation_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-24
+  retrieved_top5:
+  - eval-24
+  hits_at_5: 1
+  recall_at_5: 1.0
+  mrr: 1.0
+  n_sections: 1
+- q: we discussed sqlite-vec earlier
+  lang: en
+  intent: conversation_recall
+  detected_intent: conversation_recall
+  relevant:
+  - eval-25
+  - eval-34
+  retrieved_top5:
+  - eval-10
+  - eval-11
+  - eval-25
+  - eval-17
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 0.3333
+  n_sections: 4
+- q: what did we cover about isolation leaks
+  lang: en
+  intent: conversation_recall
+  detected_intent: pattern_match
+  relevant:
+  - eval-14
+  - eval-26
+  retrieved_top5:
+  - eval-12
+  - eval-26
+  hits_at_5: 1
+  recall_at_5: 0.5
+  mrr: 0.5
+  n_sections: 2

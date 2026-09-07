@@ -41,7 +41,7 @@ class TestFTS5Security:
     @pytest.mark.asyncio
     async def test_fts5_sql_injection_attempt(self, db):
         """SQL metacharacters in query must not cause injection."""
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "normal content here",
             "agent_scope": "shared",
         })
@@ -56,13 +56,13 @@ class TestFTS5Security:
     @pytest.mark.asyncio
     async def test_fts5_corrupt_payload_tolerated(self, db):
         """Corrupt payload JSON should not break FTS5 search."""
-        await db.upsert("good", None, {
+        await db.upsert("good", {
             "content": "valid content",
             "agent_scope": "shared",
         })
         db._conn.execute(
-            "INSERT INTO points(id, collection, vector, payload, agent_scope, layer, sparse_json, created_at)"
-            " VALUES('bad','test',NULL,'{not json','shared',1,NULL,'2026-01-01')",
+            "INSERT INTO points(id, collection, payload, agent_scope, layer, sparse_json, created_at)"
+            " VALUES('bad','test','{not json','shared',1,NULL,'2026-01-01')",
         )
         db._conn.commit()
         results = await db.search_fts("valid", limit=5, filter={
@@ -165,7 +165,7 @@ class TestScopeIsolation:
 
     @pytest.mark.asyncio
     async def test_entities_scope_isolation(self, db):
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "AuthService JWT",
             "agent_scope": "director-1",
             "layer": 1,
@@ -175,7 +175,7 @@ class TestScopeIsolation:
 
     @pytest.mark.asyncio
     async def test_shared_scope_visible_to_all(self, db):
-        await db.upsert("p-shared", None, {
+        await db.upsert("p-shared", {
             "content": "Shared AuthService",
             "agent_scope": "shared",
             "layer": 1,
@@ -194,7 +194,7 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_full_pipeline_upsert_search(self, db):
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "AuthService implements JWT authentication middleware",
             "agent_scope": "shared",
             "layer": 1,
@@ -207,7 +207,7 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_cross_tenant_isolation(self, db):
-        await db.upsert("d1-private", None, {
+        await db.upsert("d1-private", {
             "content": "PRIVATE: Director strategy",
             "agent_scope": "director-1",
             "layer": 1,
@@ -227,7 +227,7 @@ class TestPerformance:
     @pytest.mark.asyncio
     async def test_fts5_search_latency(self, db):
         for i in range(100):
-            await db.upsert(f"perf-{i}", None, {
+            await db.upsert(f"perf-{i}", {
                 "content": f"Performance test content number {i} with JWT auth",
                 "agent_scope": "shared",
                 "layer": 1,

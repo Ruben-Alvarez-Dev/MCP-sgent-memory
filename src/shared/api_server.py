@@ -61,10 +61,9 @@ def _get_verify_db() -> MemoryDB:
 def _set_payload_sync(db: MemoryDB, point_id: str, payload: dict) -> int:
     """Legacy set_payload parity (Qdrant API shape): payload column only.
 
-    MemoryDB.upsert(vector=None) would NULL the stored embedding
-    (ON CONFLICT ... vector=excluded.vector), wiping the vector on every
-    verification cycle. This narrow UPDATE touches payload only — vector,
-    agent_scope, user_id and created_at columns stay intact. Same connection
+    M9: the vector column no longer exists, but this narrow UPDATE remains the
+    right shape — it touches payload only, leaving agent_scope, user_id and
+    created_at intact. Same connection
     and lock discipline as MemoryDB._upsert_one. Precedent for direct engine
     access where the public API can't express the operation: _verify_stale()
     in L0_to_L4_consolidation (ISO-11: payload keys are not filterable).

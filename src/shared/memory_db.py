@@ -8,10 +8,10 @@ of fetched rows is forbidden by ISO-05.
 Interface parity with the old QdrantClient so MCP servers migrate by changing
 the constructor + import and DELETING their post-filters.
 
-Hard guarantees (openspec/changes/M2-storage):
-- STO-05: never persists zero-vectors; missing/failed embeddings -> vector=NULL
-  + payload["embedded"]=false; scored at query time against a deterministic
-  SHA-256 hash-vector marked score_source="hash".
+Hard guarantees (openspec/changes/M2-storage, amended M9-schema-migration):
+- STO-05 (M9): zero-vector/embedding fallback machinery REMOVED — there is no
+  vector column at all. Retrieval is FTS5-only (bm25); the schema migration
+  drops the dead `vector` column from pre-M9 databases at boot.
 - ISO-11: filter keys validated ^[a-z_][a-z0-9_]*$, values always bound params.
 - ISO-12: writes without agent_scope default to payload["agent_scope"]="shared".
 - Fail-closed: search/scroll REQUIRE a filter (ScopeRequiredError otherwise).
@@ -20,14 +20,11 @@ Hard guarantees (openspec/changes/M2-storage):
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
-import math
 import os
 import re
 import sqlite3
-import struct
 import threading
 from datetime import UTC, datetime
 from typing import Any
@@ -37,7 +34,7 @@ from .scope import ScopeError, normalize_scope
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _FILTER_KEY_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 _RESERVED_PAYLOAD_KEYS = frozenset({"id", "vector", "sparse_vectors", "payload"})
 _PAYLOAD_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -76,35 +73,6 @@ def _validate_payload_keys(payload: dict[str, Any], point_id: str = "?") -> None
             raise ValueError(f"Invalid payload key '{key}' (point {point_id})")
 
 
-def hash_vector(content: str, dim: int) -> list[float]:
-    """Deterministic pseudo-vector from content (SHA-256 stream, normalized).
-
-    Used ONLY at query time for rows whose embedding failed (vector IS NULL).
-    Never persisted — replaces the poisoned zero-vector fallback (STO-05).
-    """
-    vec: list[float] = []
-    counter = 0
-    while len(vec) < dim:
-        digest = hashlib.sha256(f"{content}#{counter}".encode()).digest()
-        for i in range(0, len(digest) - 1, 2):
-            if len(vec) >= dim:
-                break
-            val = int.from_bytes(digest[i : i + 2], "big") / 65535.0
-            vec.append(val * 2.0 - 1.0)
-        counter += 1
-    norm = math.sqrt(sum(v * v for v in vec)) or 1.0
-    return [v / norm for v in vec]
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return dot / (na * nb)
-
-
 class MemoryDB:
     """Async facade over a per-collection slice of the shared memory.db file."""
 
@@ -114,12 +82,16 @@ class MemoryDB:
         collection: str = "L0_L4_memory",
         embedding_dim: int = 1024,
     ):
+        """`embedding_dim` accepted for interface parity (M9: ignored — no vectors)."""
         self.db_path = db_path or default_db_path()
         self.collection = collection
         self.embedding_dim = embedding_dim
         self._lock = threading.RLock()
         self._write_lock = asyncio.Lock()
         self._conn = self._connect()
+        # M9: migrate at boot — creates schema if missing and drops the dead
+        # vector column from pre-M9 databases (idempotent, fail-safe).
+        self._ensure_schema()
 
     # ── Connection / schema ────────────────────────────────────
 
@@ -138,7 +110,6 @@ class MemoryDB:
                 CREATE TABLE IF NOT EXISTS points(
                   id TEXT NOT NULL,
                   collection TEXT NOT NULL,
-                  vector BLOB,
                   payload TEXT NOT NULL,
                   agent_scope TEXT NOT NULL DEFAULT 'shared',
                   user_id TEXT,
@@ -149,6 +120,12 @@ class MemoryDB:
                 )
                 """
             )
+            # M9: drop the dead vector column left by pre-M9 databases.
+            # No-op when absent; tolerated on SQLite builds without DROP COLUMN.
+            try:
+                self._conn.execute("ALTER TABLE points DROP COLUMN vector")
+            except sqlite3.OperationalError:
+                pass
             self._conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_points_scope
@@ -298,24 +275,7 @@ class MemoryDB:
 
     # ── Point operations ───────────────────────────────────────
 
-    @staticmethod
-    def _pack_vector(vector: list[float] | None) -> bytes | None:
-        if not vector:
-            return None
-        if all(v == 0.0 for v in vector):
-            return None  # STO-05: zero-vectors are never persisted
-        if len(vector) == 0:
-            return None
-        return struct.pack(f"{len(vector)}f", *vector)
-
-    @staticmethod
-    def _unpack_vector(blob: bytes | None) -> list[float] | None:
-        if not blob:
-            return None
-        n = len(blob) // 4
-        return list(struct.unpack(f"{n}f", blob))
-
-    def _prepare_row(self, point_id: str, vector, payload, sparse, allow_reserved_scope: bool = False):
+    def _prepare_row(self, point_id: str, payload, sparse, allow_reserved_scope: bool = False):
         if point_id is None or not isinstance(point_id, str) or not point_id.strip():
             raise ValueError(f"Invalid point id: {point_id!r}")
         _validate_payload_keys(payload, point_id)
@@ -353,15 +313,6 @@ class MemoryDB:
                     "=[{from_scope, point_id}, ...] (A12)"
                 )
         payload["schema_version"] = payload.get("schema_version", "1.0")
-        blob = self._pack_vector(vector)
-        if vector and len(vector) != self.embedding_dim:
-            logger.warning(
-                "upsert %s: dim mismatch (%d != %d) -> stored with vector=NULL",
-                point_id, len(vector), self.embedding_dim,
-            )
-            blob = None
-        embedded = blob is not None
-        payload["embedded"] = embedded
         # M6: extract entities from content for entity graph
         content_text = payload.get("content", "")
         entity_list = []
@@ -382,25 +333,25 @@ class MemoryDB:
                 layer = int(layer)
             except (TypeError, ValueError):
                 layer = None
-        return point_id, blob, json.dumps(payload), sparse_json, now, \
+        return point_id, json.dumps(payload), sparse_json, now, \
             payload["agent_scope"], payload.get("user_id"), layer
 
-    def _upsert_one(self, point_id, vector, payload, sparse, allow_reserved_scope=False) -> None:
-        pid, blob, payload_json, sparse_json, now, scope, user, layer = self._prepare_row(
-            point_id, vector, payload, sparse, allow_reserved_scope
+    def _upsert_one(self, point_id, payload, sparse, allow_reserved_scope=False) -> None:
+        pid, payload_json, sparse_json, now, scope, user, layer = self._prepare_row(
+            point_id, payload, sparse, allow_reserved_scope
         )
         with self._lock, self._conn:
             self._conn.execute(
                 """
-                INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, layer, sparse_json, created_at)
-                VALUES(?,?,?,?,?,?,?,?,?)
+                INSERT INTO points(id, collection, payload, agent_scope, user_id, layer, sparse_json, created_at)
+                VALUES(?,?,?,?,?,?,?,?)
                 ON CONFLICT(collection, id) DO UPDATE SET
-                  vector=excluded.vector, payload=excluded.payload,
+                  payload=excluded.payload,
                   agent_scope=excluded.agent_scope, user_id=excluded.user_id,
                   layer=excluded.layer,
                   sparse_json=excluded.sparse_json, created_at=excluded.created_at
                 """,
-                (pid, self.collection, blob, payload_json, scope, user, layer, sparse_json, now),
+                (pid, self.collection, payload_json, scope, user, layer, sparse_json, now),
             )
             # M6: sync FTS5 (tolerant of corrupt payload JSON)
             self._sync_fts_upsert(pid, payload_json)
@@ -408,23 +359,21 @@ class MemoryDB:
     async def upsert(
         self,
         point_id: str,
-        vector: list[float] | None = None,
         payload: dict[str, Any] | None = None,
         sparse: dict | None = None,
         wait: bool = True,
         allow_reserved_scope: bool = False,
     ) -> None:
-        """Insert/update one point. M7: vector optional for backward compat."""
-        if payload is None:
-            raise ValueError("payload is required")
-        """Insert/update one point. vector=None/zero/dim-mismatch -> stored as NULL.
+        """Insert/update one point (M9: vector-less schema, FTS5 retrieval).
 
         ISO-16: writing into the trunk scope "merged" requires
         allow_reserved_scope=True AND payload approved_by + provenance.
         """
+        if payload is None:
+            raise ValueError("payload is required")
         async with self._write_lock:
             await asyncio.to_thread(
-                self._upsert_one, point_id, vector, payload, sparse, allow_reserved_scope
+                self._upsert_one, point_id, payload, sparse, allow_reserved_scope
             )
 
     async def upsert_batch(
@@ -435,7 +384,7 @@ class MemoryDB:
             pid = p.get("id", "?")
             rows.append(
                 self._prepare_row(
-                    pid, p.get("vector"), p.get("payload", {}), p.get("sparse_vectors"),
+                    pid, p.get("payload", {}), p.get("sparse_vectors"),
                     allow_reserved_scope,
                 )
             )
@@ -443,19 +392,23 @@ class MemoryDB:
             with self._lock, self._conn:
                 self._conn.executemany(
                     """
-                    INSERT INTO points(id, collection, vector, payload, agent_scope, user_id, layer, sparse_json, created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?)
+                    INSERT INTO points(id, collection, payload, agent_scope, user_id, layer, sparse_json, created_at)
+                    VALUES(?,?,?,?,?,?,?,?)
                     ON CONFLICT(collection, id) DO UPDATE SET
-                      vector=excluded.vector, payload=excluded.payload,
+                      payload=excluded.payload,
                       agent_scope=excluded.agent_scope, user_id=excluded.user_id,
                       layer=excluded.layer,
                       sparse_json=excluded.sparse_json, created_at=excluded.created_at
                     """,
                     [
-                        (pid, self.collection, blob, pj, scope, user, layer, sj, now)
-                        for pid, blob, pj, sj, now, scope, user, layer in rows
+                        (pid, self.collection, pj, scope, user, layer, sj, now)
+                        for pid, pj, sj, now, scope, user, layer in rows
                     ],
                 )
+                # M9: batch writes must sync FTS5 too (was single-upsert only —
+                # batch-inserted corpora were invisible to FTS5 retrieval).
+                for pid, pj, _sj, _now, _scope, _user, _layer in rows:
+                    self._sync_fts_upsert(pid, pj)
         async with self._write_lock:
             await asyncio.to_thread(_write)
 
@@ -569,149 +522,63 @@ class MemoryDB:
             return row["c"]
         return await asyncio.to_thread(_count)
 
-    # ── Search (engine-level enforcement, ISO-05) ──────────────
+    # ── Search (engine-level enforcement, ISO-05; M9: FTS5-only) ──
 
-    def _score_candidates(self, rows, query_vec: list[float] | None):
-        """Score SQL-filtered candidate rows. Returns scored dicts."""
-        scored = []
+    def _scan_sync(self, filter_, limit) -> list[dict]:
+        """Fallback scan when FTS5 is unavailable (M9: replaced dense _search_sync).
+
+        Returns SQL-filtered rows with score 0.0 and score_source="scan" —
+        no ranking, deterministic order (created_at desc, id asc).
+        """
+        where, params = self._translate_filter(filter_)
+        sql = (
+            "SELECT id, payload, agent_scope, layer, created_at FROM points "
+            f"WHERE collection=? AND {where} "
+            "ORDER BY created_at DESC, id ASC LIMIT ?"
+        )
+        with self._lock:  # M3: serialize — shared conn is not concurrency-safe
+            rows = self._conn.execute(sql, (self.collection, *params, int(limit))).fetchall()
+        out = []
         for row in rows:
             try:
                 payload = json.loads(row["payload"])
             except json.JSONDecodeError:
-                logger.warning("search: skipped corrupt payload for id=%s", row["id"])
+                logger.warning("scan: skipped corrupt payload for id=%s", row["id"])
                 continue
-            blob = row["vector"]
-            if blob is not None:
-                vec = self._unpack_vector(blob)
-                source = "dense"
-            else:
-                content = str(payload.get("content") or payload.get("text") or payload)
-                vec = hash_vector(content, self.embedding_dim)
-                source = "hash"
-            if query_vec is None:
-                score = 0.0
-            else:
-                score = _cosine(query_vec, vec)
-            scored.append(
-                {"id": row["id"], "score": score, "payload": payload, "score_source": source}
-            )
-        return scored
-
-    # ── Sparse fusion (RET-05) ─────────────────────────────
-
-    @staticmethod
-    def _validate_sparse_query(sq: Any) -> dict[int, float] | None:
-        """Validate legacy-format sparse query (indices/values). Fail-closed."""
-        if sq is None:
-            return None
-        if not isinstance(sq, dict):
-            raise ValueError("sparse_query must be a dict with indices/values")  # noqa: TRY004
-        indices = sq.get("indices")
-        values = sq.get("values")
-        if not isinstance(indices, list) or not isinstance(values, list):
-            raise ValueError("sparse_query.indices/values must be lists")  # noqa: TRY004
-        if len(indices) != len(values):
-            raise ValueError(
-                f"sparse_query length mismatch: {len(indices)} indices vs {len(values)} values"
-            )
-        out: dict[int, float] = {}
-        for i, v in zip(indices, values):
-            # ValueError (not TypeError): sparse contract violations are
-            # caller-input errors, same family as ScopeRequiredError.
-            if isinstance(i, bool) or not isinstance(i, int):
-                raise ValueError(f"sparse_query indices must be ints, got {i!r}")  # noqa: TRY004
-            if isinstance(v, bool) or not isinstance(v, (int, float)):
-                raise ValueError(f"sparse_query values must be numeric, got {v!r}")  # noqa: TRY004
-            out[int(i)] = float(v)
+            out.append({
+                "id": row["id"],
+                "payload": payload,
+                "score": 0.0,
+                "score_source": "scan",
+                "agent_scope": row["agent_scope"],
+                "layer": row["layer"],
+                "created_at": row["created_at"],
+            })
         return out
-
-    @staticmethod
-    def _parse_sparse_json(sj: str | None) -> dict[int, float] | None:
-        """Tolerant parse of stored sparse_json — corrupt data -> None (dense only)."""
-        if not sj:
-            return None
-        try:
-            d = json.loads(sj)
-            indices = d.get("indices")
-            values = d.get("values")
-            if not isinstance(indices, list) or not isinstance(values, list):
-                return None
-            return {int(i): float(v) for i, v in zip(indices, values)}
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _sparse_cosine(q: dict[int, float], d: dict[int, float]) -> float:
-        if not q or not d:
-            return 0.0
-        dot = sum(v * d[i] for i, v in q.items() if i in d)
-        nq = math.sqrt(sum(v * v for v in q.values()))
-        nd = math.sqrt(sum(v * v for v in d.values()))
-        if nq == 0.0 or nd == 0.0:
-            return 0.0
-        return dot / (nq * nd)
-
-    def _search_sync(
-        self,
-        vector,
-        limit,
-        score_threshold,
-        filter_,
-        sparse_query=None,
-        sparse_weight: float = 0.3,
-    ) -> list[dict]:
-        where, params = self._translate_filter(filter_)
-        sql = (
-            "SELECT id, vector, payload, sparse_json FROM points "
-            f"WHERE collection=? AND {where}"
-        )
-        with self._lock:  # M3: serialize — shared conn is not concurrency-safe
-            rows = self._conn.execute(sql, (self.collection, *params)).fetchall()
-        q_sparse = self._validate_sparse_query(sparse_query)
-        query_vec = self._unpack_vector(self._pack_vector(vector))
-        scored = self._score_candidates(rows, query_vec)
-
-        if q_sparse:
-            sparse_by_id = {
-                row["id"]: self._parse_sparse_json(row["sparse_json"]) for row in rows
-            }
-            for hit in scored:
-                s = self._sparse_cosine(q_sparse, sparse_by_id.get(hit["id"]) or {})
-                if s > 0.0:
-                    # Boost formula: sparse can only IMPROVE the score (RET-05).
-                    # A weighted mean would shrink scores when sparse=0 and
-                    # silently break score_threshold semantics.
-                    hit["score"] = hit["score"] + sparse_weight * s * (1.0 - hit["score"])
-                    hit["score_source"] += "+sparse"
-
-        hits = [s for s in scored if s["score"] >= score_threshold]
-        # RET-07: deterministic ordering — score desc, then id asc
-        hits.sort(key=lambda h: (-h["score"], h["id"]))
-        return hits[:limit]
 
     async def search(
         self,
-        vector: list[float] | None,
+        query: str,
         limit: int = 10,
-        score_threshold: float = 0.3,
+        score_threshold: float = 0.0,
         filter: dict | None = None,
-        sparse_query: dict | None = None,
-        sparse_weight: float = 0.3,
     ) -> list[dict]:
-        """Dense search restricted by ENGINE filter. Fails closed without one.
+        """FTS5 full-text search restricted by ENGINE filter (M9: FTS5-only).
 
-        With `sparse_query` (legacy indices/values tokens), each candidate's stored
-        sparse vector fuses as a monotonic boost: final = dense + w*s*(1-dense).
+        M9 removed the dense/hash/sparse scoring paths along with the vector
+        column: `query` is the user-facing text, bm25-ranked via FTS5
+        (score = -rank, higher = better). `score_threshold` applies to the
+        FTS5 score only when > 0. Fails closed without a filter.
         """
-        return await asyncio.to_thread(
-            self._search_sync,
-            vector,
-            limit,
-            score_threshold,
-            filter,
-            sparse_query,
-            sparse_weight,
-        )
+        self._translate_filter(filter)  # ISO-05: fail-closed without a filter
+        if not isinstance(query, str) or not query.strip():
+            return []
+        built_query = _build_fts5_query(query)
+        hits = await asyncio.to_thread(self._search_fts_sync, built_query, limit, filter)
+        if score_threshold and score_threshold > 0.0:
+            hits = [h for h in hits if h.get("score", 0.0) >= score_threshold]
+        return hits[:limit]
+
 
     def _sync_fts_upsert(self, point_id: str, payload_json: str) -> None:
         """Sync a point's content into FTS5. Tolerant of corrupt payload JSON."""
@@ -809,7 +676,7 @@ class MemoryDB:
                 fts_rows = self._conn.execute(fts_sql, (fts_query, int(limit) * 2)).fetchall()
         except sqlite3.OperationalError as e:
             logger.warning("FTS5 search failed, falling back to points scan: %s", e)
-            return self._search_sync(None, limit, 0.0, filter_, None, 0.0)
+            return self._scan_sync(filter_, limit)
 
         if not fts_rows:
             return []
@@ -860,7 +727,9 @@ class MemoryDB:
         """FTS5 full-text search restricted by ENGINE filter.
 
         Replaces dense cosine search as the primary retrieval path (M6).
+        ISO-05: fails closed without an explicit filter.
         """
+        self._translate_filter(filter)  # ISO-05: fail-closed without a filter
         built_query = _build_fts5_query(fts_query)
         return await asyncio.to_thread(self._search_fts_sync, built_query, limit, filter)
 
@@ -1014,15 +883,18 @@ def _build_fts5_query(query: str, synonym_expand: bool = True) -> str:
     """Build an FTS5-compatible query string from a user query.
 
     Extracts individual tokens (CamelCase, UPPER_SNAKE, lowercase words)
-    and returns them space-separated. FTS5 matches any of these tokens
-    (default AND semantics — all tokens must be present).
+    and returns them OR-joined. FTS5 matches documents containing ANY token;
+    bm25 ranking surfaces docs matching MORE tokens first (M9: implicit AND
+    collapsed recall to ~0 on natural multi-term queries).
 
     For synonym-aware search, expand before calling this function.
     """
-    # Extract tokens: CamelCase words, UPPER_SNAKE, and regular words
-    tokens = re.findall(r'[A-Z][a-z]+(?:[A-Z][a-z]+)*|[A-Z]{2,}(?:_[A-Z0-9]+)*|[a-zA-Záéíóúñü]{3,}', query)
+    # Extract tokens: CamelCase words, UPPER_SNAKE (with digits, e.g. FTS5 — M5
+    # eval finding), and regular words
+    tokens = re.findall(r'[A-Z][a-z]+(?:[A-Z][a-z]+)*|[A-Z]{2,}[0-9]*(?:_[A-Z0-9]+)*|[a-zA-Záéíóúñü]{3,}', query)
     if not tokens:
         return query
-    # FTS5 is case-insensitive; lowercase for matching
-    return ' '.join(t.lower() for t in tokens)
+    # FTS5 is case-insensitive; lowercase for matching. OR-join keeps recall
+    # (bm25 ranks multi-token matches higher); single tokens unchanged.
+    return ' OR '.join(t.lower() for t in tokens)
 

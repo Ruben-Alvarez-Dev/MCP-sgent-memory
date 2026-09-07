@@ -32,7 +32,7 @@ class TestL5NoEmbedding:
         
         db = MemoryDB(str(tmp_path / "test.db"), "test", 1024)
         await db.ensure_collection()
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "JWT authentication middleware",
             "agent_scope": "shared",
             "layer": 1,
@@ -76,7 +76,7 @@ class TestL5NoEmbedding:
         
         db = MemoryDB(str(tmp_path / "test.db"), "test", 1024)
         await db.ensure_collection()
-        await db.upsert("p1", None, {
+        await db.upsert("p1", {
             "content": "AuthService JWT authentication",
             "agent_scope": "shared",
             "layer": 1,

@@ -6,10 +6,6 @@ times build_fixture_db runs on the same path (DROP/recreate, never append).
 
 from __future__ import annotations
 
-import pytest
-
-pytestmark = pytest.mark.skip(reason="M8: eval tests need restructuring for FTS5-only fixture")
-
 from pathlib import Path
 
 import yaml
@@ -67,7 +63,7 @@ def test_judgments_align_with_frozen_queries_and_manifest() -> None:
     manifest = build_manifest()
     queries = yaml.safe_load(QUERIES_YAML.read_text())["queries"]
     entries = yaml.safe_load(JUDGMENTS_YAML.read_text())["entries"]
-    assert len(entries) == len(queries) == 38
+    assert len(entries) == len(queries) == 40
     for q, e in zip(queries, entries, strict=True):
         assert e["q"] == q["q"], f"judgment query drift: {e['q']!r} != {q['q']!r}"
         assert e["lang"] == q["lang"] and e["intent"] == q["intent"]

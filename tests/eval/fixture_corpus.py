@@ -179,9 +179,9 @@ def _code_docs() -> list[dict]:
         ),
         # -- memory_db.py --
         doc(
-            _between(memory_db, "def hash_vector(content: str, dim: int)", "def _cosine"),
+            _between(memory_db, "def _search_fts_sync", "async def search_fts"),
             "src/shared/memory_db.py",
-            ["hash_vector", "STO-05", "fallback"],
+            ["search_fts", "FTS5", "two-phase"],
             1,
             "code",
         ),
@@ -476,7 +476,6 @@ async def build_fixture_db(db_path: str | Path) -> dict:
             [
                 {
                     "id": d["id"],
-                    "vector": hash_vector(d["content"], DIM),
                     "payload": {
                         "content": d["content"],
                         "layer": d["layer"],

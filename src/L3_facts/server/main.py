@@ -39,8 +39,10 @@ async def search_memory(query: str, user_id: str = DEFAULT_USER, limit: int = 5,
     query = query.strip()
     if not query or len(query) < 2 or not any(c.isalnum() for c in query):
         return SearchResult(count=0, results=[])
-    vector = await None
-    results = await db.search(vector, limit=limit, score_threshold=min_score,
+    # M9: FTS5-only engine search — query text is the signal (was `await None`).
+    # min_score kept for tool-contract parity; FTS5 bm25 ranks are not cosine
+    # similarities, so the threshold is no longer applied to the engine path.
+    results = await db.search(query, limit=limit,
                               filter={"must":[{"key":"user_id","match":{"value":user_id}}]})
     hits = [{**r.get("payload",{}), "score": round(r.get("score", 0), 4)} for r in results]
     return SearchResult(count=len(hits), results=hits)

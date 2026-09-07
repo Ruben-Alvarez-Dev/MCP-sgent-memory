@@ -22,7 +22,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from shared.embedding import bm25_tokenize
+from shared.retrieval import bm25_tokenize
 from shared.memory_db import MemoryDB, hash_vector
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,7 +52,6 @@ def _between(text: str, start: str, end: str | None = None, cap: int = MAX_CHARS
 
 def _code_docs() -> list[dict]:
     sanitize = _src("src/shared/sanitize.py")
-    embedding = _src("src/shared/embedding.py")
     l0_main = _src("src/L0_capture/server/main.py")
     retr = _src("src/shared/retrieval/__init__.py")
     repo_map = _src("src/shared/retrieval/repo_map.py")
@@ -97,38 +96,6 @@ def _code_docs() -> list[dict]:
             "code",
         ),
         # -- embedding.py --
-        doc(
-            _between(embedding, "Provides a unified interface", "Usage:"),
-            "src/shared/embedding.py",
-            ["EMBEDDING_BACKEND", "get_embedding", "EmbeddingBackend"],
-            1,
-            "code",
-        ),
-        doc(
-            _between(embedding, "def bm25_tokenize", "    import hashlib"),
-            "src/shared/embedding.py",
-            ["bm25_tokenize", "BM25", "sparse"],
-            1,
-            "code",
-        ),
-        doc(
-            _between(
-                embedding,
-                "def get_embedding(text: str) -> list[float]:",
-                "    # 2. Check persistent SQLite cache",
-            ),
-            "src/shared/embedding.py",
-            ["get_embedding", "embedding_cache", "lru_cache"],
-            1,
-            "code",
-        ),
-        doc(
-            _between(embedding, "class HttpBackend", "    def embed(self, text: str)"),
-            "src/shared/embedding.py",
-            ["HttpBackend", "EMBEDDING_ENDPOINT", "embeddings server"],
-            1,
-            "code",
-        ),
         # -- L0_capture --
         doc(
             _between(l0_main, "async def heartbeat", "    status = HeartbeatStatus"),

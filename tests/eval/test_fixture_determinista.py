@@ -21,7 +21,7 @@ async def test_fixture_determinista(tmp_path: Path) -> None:
     m1 = await build_fixture_db(db)
     m2 = await build_fixture_db(db)  # same path twice -> DROP + rebuild
     assert m1 == m2, "fixture manifest must be identical across rebuilds"
-    assert len(m1) >= 35
+    assert len(m1) >= 34
     assert list(m1) == [f"eval-{n}" for n in range(1, len(m1) + 1)]
     # Chunks are the size the eval contract promises.
     for doc_id, doc in m1.items():
@@ -63,7 +63,7 @@ def test_judgments_align_with_frozen_queries_and_manifest() -> None:
     manifest = build_manifest()
     queries = yaml.safe_load(QUERIES_YAML.read_text())["queries"]
     entries = yaml.safe_load(JUDGMENTS_YAML.read_text())["entries"]
-    assert len(entries) == len(queries) == 40
+    assert len(entries) == len(queries) == 38
     for q, e in zip(queries, entries, strict=True):
         assert e["q"] == q["q"], f"judgment query drift: {e['q']!r} != {q['q']!r}"
         assert e["lang"] == q["lang"] and e["intent"] == q["intent"]

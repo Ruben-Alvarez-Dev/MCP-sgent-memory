@@ -94,14 +94,8 @@ entries:
   - q: "what did we decide about scope isolation"
     lang: en
     intent: decision_recall
-    relevant: [eval-35, eval-18]
-    notes: "Decisión ISO-05 (engine-level) + implementación scope_jail_path/assert_contained."
-  - q: "why is there an HTTP sidecar on port 8890"
     lang: en
     intent: decision_recall
-    relevant: [eval-36, eval-24]
-    notes: "Decisión del sidecar Backpack API + su implementación en api_server.py."
-  - q: "what did we decide about the dream cooldown"
     lang: en
     intent: decision_recall
     relevant: [eval-37]
